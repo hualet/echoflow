@@ -47,8 +47,6 @@ class Config:
     fcitx_socket: Optional[str]
     control_socket: Optional[str]
     ui_socket: Optional[str]
-    notify: bool
-    notify_timeout_ms: int
     strip_trailing_punctuation: bool
 
     @classmethod
@@ -68,8 +66,6 @@ class Config:
             fcitx_socket=None,
             control_socket=None,
             ui_socket=None,
-            notify=True,
-            notify_timeout_ms=1200,
             strip_trailing_punctuation=False,
         )
 
@@ -162,15 +158,6 @@ def log(message: str) -> None:
 
 def strip_punctuation(text: str) -> str:
     return text.rstrip("。．.，,、！？!?；;：:\n\r\t ")
-
-
-def notify(cfg: Config, title: str, body: str = "") -> None:
-    if not cfg.notify:
-        return
-    args = ["notify-send", "--app-name", "EchoFlow", "--expire-time", str(cfg.notify_timeout_ms), title]
-    if body:
-        args.append(body)
-    subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def command_available(command: str) -> bool:
@@ -284,12 +271,6 @@ def runtime_checks(cfg: Config) -> list[RuntimeCheck]:
             else f"{llama_library_dir(project_dir)} missing: {', '.join(missing_libs)}",
         ),
     ]
-    if cfg.notify:
-        checks.append(RuntimeCheck(
-            "notify-send available",
-            shutil.which("notify-send") is not None,
-            "notify-send",
-        ))
     checks.extend([
         RuntimeCheck(
             "fcitx commit socket path",
@@ -483,7 +464,6 @@ class VoiceSession:
             self.tooltip_visible = False
             if self.state == SessionState.RECORDING:
                 self.recorder.stop()
-                notify(self.cfg, "语音输入已取消", "输入框失去焦点")
             self.state = SessionState.IDLE
             self.ui.send("HIDE_TOOLTIP")
             return "TOOLTIP hide"
@@ -500,7 +480,6 @@ class VoiceSession:
         self.ui.send("HIDE_TOOLTIP")
         self.recorder.start()
         self.ui.send("RECORDING")
-        notify(self.cfg, "正在录音", "再按一次右 Ctrl 结束")
         self.state = SessionState.RECORDING
         return "RECORDING"
 
@@ -511,18 +490,15 @@ class VoiceSession:
         if audio_path is None:
             self.state = SessionState.IDLE
             self.ui.send("IDLE")
-            notify(self.cfg, "语音输入已取消", "录音太短或没有音频")
             return "CANCELLED"
         text = self.asr.transcribe(audio_path)
         if not text:
             self.state = SessionState.IDLE
             self.ui.send("IDLE")
-            notify(self.cfg, "语音输入完成", "未识别到文字")
             return "EMPTY"
         ok, detail = self.committer.commit_text(text)
         self.state = SessionState.IDLE
         self.ui.send("IDLE")
-        notify(self.cfg, "语音输入完成" if ok else "语音输入提交失败", text[:80] if ok else detail[:80])
         return "COMMITTED" if ok else f"ERR {detail}"
 
 

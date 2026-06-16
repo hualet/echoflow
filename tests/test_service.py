@@ -509,7 +509,6 @@ class ServerProtocolTests(unittest.TestCase):
                 json.dumps({
                     "control_socket": str(control_socket),
                     "ui_socket": str(ui_socket),
-                    "notify": False,
                     "fcitx_commit": False,
                 }),
                 encoding="utf-8",

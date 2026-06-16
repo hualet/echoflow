@@ -16,7 +16,5 @@
   "fcitx_socket": null,
   "control_socket": null,
   "ui_socket": null,
-  "notify": true,
-  "notify_timeout_ms": 1200,
   "strip_trailing_punctuation": false
 }
