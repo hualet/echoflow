@@ -21,8 +21,6 @@ Window {
         if (!busy) {
             collapseTimer.stop()
             root.collapsed = false
-        } else {
-            collapseTimer.restart()
         }
     }
 
@@ -43,6 +41,12 @@ Window {
             root.visible = visible
             root.message = message
             root.busy = busy
+            if (message === "正在转写") {
+                collapseTimer.stop()
+                root.collapsed = false
+            } else if (busy && message === "正在聆听") {
+                collapseTimer.restart()
+            }
         }
     }
 
