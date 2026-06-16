@@ -4,6 +4,15 @@ Offline voice input method for deepin/Fcitx5. Push-to-talk via long-press `Ctrl`
 recorded with PipeWire, transcribed by local Qwen ASR, committed to the focused
 input context through a Fcitx5 addon. Three layers must stay cleanly separated.
 
+## Stack
+
+- Python >= 3.11 via `uv`; console scripts `echoflow-service`
+  (`echoflow.service:main`) and `qwen-asr-transcribe` (`echoflow.asr_runner:main`).
+- C++17, CMake >= 3.16: `fcitx-addon/` (Fcitx5 addon) and `ui-host/` (Qt6
+  Core/Gui/Qml/Quick/Widgets).
+- Recording: PipeWire (`pw-record`). ASR: Qwen3-ASR-GGUF (llama.cpp + onnxruntime).
+- No packaging (no debian/linglong), no CI, no pre-commit.
+
 ## Commands
 
 ```bash
@@ -29,10 +38,6 @@ bash -n install-user.sh uninstall-user.sh run.sh scripts/*.sh
 cmake -S ui-host   -B build/ui-host   -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build/ui-host
 cmake -S fcitx-addon -B build/fcitx-addon -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build/fcitx-addon
 ```
-
-There is no CI, no pre-commit, and no `.github/`. The "已验证" section in
-`README.md` is the canonical pre-merge checklist — mirror its commands before
-claiming work is done. See `verification-before-completion` skill.
 
 ## Architecture — boundaries you must respect
 
@@ -82,3 +87,29 @@ the suite runs with no model weights, no PipeWire, and no Fcitx.
   automated. Use `echoflow-service --self-test` to see what's missing.
 - `model-0.6B` is the primary model dir; `model/` is a fallback when 0.6B is
   absent. Keep both code paths working.
+
+## Code style
+
+- C++: classes `PascalCase` (`EchoFlow`); methods `camelCase` (`handleKeyEvent`);
+  members get a trailing underscore (`ctrlHeld_`, `fd_`, `commitSocketPath_`);
+  constants are `kCamelCase` (`kHoldThresholdUs`, `kControlSocketName`).
+- Python: PEP 8, `snake_case`; config/state via `@dataclass` + enums; type hints
+  throughout (`from __future__ import annotations`).
+- Every new source file starts with the SPDX header (see Conventions & gotchas).
+
+## Logging
+
+- C++ addon: use `FCITX_INFO` / `FCITX_WARN` / `FCITX_ERROR` (fcitx macros).
+- Python: plain `print()` — the service routes through `log()` which prefixes a
+  `[timestamp]`; CLI tools print results to stdout and errors to stderr. Do not
+  introduce the stdlib `logging` module.
+
+## Git & commits
+
+- Commit only when the user asks. Before committing: `git status --short`, stage
+  only intended files; never model weights, recordings, llama.cpp builds, or
+  `.venv/` (all gitignored).
+- Subject: concise, imperative, describing the actual change (e.g. "Fix … in
+  fcitx addon"). Body: explain *why* and *what*, not how. Wrap ~72 chars.
+- History uses plain descriptive subjects + bodies — no `feat:`/`fix:` prefix
+  scheme required; match the existing style.
