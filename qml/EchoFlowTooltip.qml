@@ -16,16 +16,16 @@ Window {
     property string message: qsTr("长按 Ctrl 语音输入")
     property bool busy: false
     property bool collapsed: false
+    // actively listening (recording) -> show the wave; transcribing/idle -> show text
+    readonly property bool listening: root.busy && root.message === "正在聆听"
 
-    onBusyChanged: {
-        if (!busy) {
-            collapseTimer.stop()
-            root.collapsed = false
-        }
-    }
-
+    // The collapse is tied to APPEARANCE, not to the recording state:
+    // every time the capsule shows up, count 3s then shrink to the circle.
     onVisibleChanged: {
-        if (!visible) {
+        if (root.visible) {
+            root.collapsed = false
+            collapseTimer.restart()
+        } else {
             collapseTimer.stop()
             root.collapsed = false
         }
@@ -38,14 +38,17 @@ Window {
                 root.x = moveX
                 root.y = moveY
             }
-            root.visible = visible
             root.message = message
             root.busy = busy
-            if (message === "正在转写") {
-                collapseTimer.stop()
+            root.visible = visible
+            if (message === "正在聆听") {
+                // recording just started (e.g. user clicked the button) -> reveal the wave
                 root.collapsed = false
-            } else if (busy && message === "正在聆听") {
                 collapseTimer.restart()
+            } else if (message === "正在转写") {
+                // brief status, don't auto-collapse while it's shown
+                root.collapsed = false
+                collapseTimer.stop()
             }
         }
     }
@@ -56,12 +59,25 @@ Window {
 
         readonly property int kBubbleHeight: 40
         readonly property int kButtonSize: 32
-        readonly property int kPadding: 8
-        readonly property int kCollapsedWidth: kButtonSize + 2 * kPadding
-        readonly property int kSpacing: 8
+        readonly property int kRadius: kBubbleHeight / 2
+        readonly property int kButtonRadius: kButtonSize / 2
+        // button concentric with the right arc: gap from bubble edge to button edge
+        readonly property int kRightInset: kRadius - kButtonRadius
+        // collapsed state is a circle: width == height, button sits dead center
+        readonly property int kCollapsedWidth: kBubbleHeight
+        readonly property int kLeftPad: 14
+        readonly property int kGap: 12
+        readonly property int kTextPad: 6
+
+        // sound wave geometry — ~3x wider than the original 5-bar wave
+        readonly property int kWaveBars: 11
+        readonly property int kWaveBarWidth: 4
+        readonly property int kWaveSpacing: 4
+        readonly property int kWaveWidth: kWaveBars * kWaveBarWidth
+                                        + (kWaveBars - 1) * kWaveSpacing
 
         height: kBubbleHeight
-        radius: height / 2
+        radius: kRadius
         color: root.busy ? "#0f3d3e" : "#202124"
         border.color: root.busy ? "#18a6a7" : "#4a4d52"
         border.width: 1
@@ -69,7 +85,8 @@ Window {
         clip: true
 
         readonly property int collapsedWidth: kCollapsedWidth
-        readonly property int expandedWidth: leftContent.width + kPadding + kSpacing + roundButton.width + kPadding
+        readonly property int expandedWidth:
+            kLeftPad + leftContent.width + kGap + kButtonSize + kRightInset
 
         Behavior on width {
             NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
@@ -79,11 +96,16 @@ Window {
             id: leftContent
             anchors {
                 left: parent.left
-                leftMargin: kPadding
+                leftMargin: bubble.kLeftPad
                 verticalCenter: parent.verticalCenter
             }
-            width: root.busy ? waveRow.width : label.implicitWidth
+            width: root.listening ? bubble.kWaveWidth
+                                  : label.implicitWidth + 2 * bubble.kTextPad
             height: parent.height
+            opacity: root.collapsed ? 0 : 1
+            Behavior on opacity {
+                NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
+            }
 
             Label {
                 id: label
@@ -91,28 +113,28 @@ Window {
                 text: root.message
                 color: "#f4f6f8"
                 font.pixelSize: 13
-                visible: !root.busy
+                visible: !root.listening
             }
 
             Row {
                 id: waveRow
                 anchors.centerIn: parent
-                spacing: 3
-                visible: root.busy
+                spacing: bubble.kWaveSpacing
+                visible: root.listening
 
                 Repeater {
-                    model: 5
+                    model: bubble.kWaveBars
                     Rectangle {
-                        width: 3
+                        width: bubble.kWaveBarWidth
                         radius: width / 2
                         color: "#18a6a7"
-                        height: [6, 12, 18, 10, 14][index]
+                        height: [4, 10, 16, 22, 18, 14, 18, 22, 16, 10, 4][index]
                         transformOrigin: Item.Center
 
                         SequentialAnimation on scale {
-                            running: root.visible && root.busy && !root.collapsed
+                            running: root.visible && root.listening && !root.collapsed
                             loops: Animation.Infinite
-                            PauseAnimation { duration: index * 100 }
+                            PauseAnimation { duration: index * 60 }
                             NumberAnimation {
                                 to: 1.5
                                 duration: 250
@@ -131,13 +153,15 @@ Window {
 
         Rectangle {
             id: roundButton
-            width: kButtonSize
-            height: kButtonSize
+            width: bubble.kButtonSize
+            height: bubble.kButtonSize
             radius: width / 2
             color: "#18a6a7"
+            // anchored to the right so its center = right-arc center (expanded)
+            // and drifts to the bubble center as width collapses to a circle
             anchors {
                 right: parent.right
-                rightMargin: kPadding
+                rightMargin: bubble.kRightInset
                 verticalCenter: parent.verticalCenter
             }
 
@@ -158,11 +182,9 @@ Window {
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: {
-                    if (root.busy) {
-                        root.collapsed = !root.collapsed
-                    }
-                }
+                cursorShape: Qt.PointingHandCursor
+                // click == press right Ctrl -> toggle recording on/off
+                onClicked: tooltipController.requestToggle()
             }
         }
     }
@@ -170,10 +192,6 @@ Window {
     Timer {
         id: collapseTimer
         interval: 3000
-        onTriggered: {
-            if (root.busy) {
-                root.collapsed = true
-            }
-        }
+        onTriggered: root.collapsed = true
     }
 }

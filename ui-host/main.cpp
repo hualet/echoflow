@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Hualet Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <atomic>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -53,10 +54,56 @@ QString defaultQmlPath() {
     return QStringLiteral(ECHOFLOW_QML_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
 }
 
+std::string defaultControlSocketPath() {
+    return runtimeDir() + "/echoflow-control.sock";
+}
+
+// Fire-and-forget datagram to the echoflow-service control socket, mirroring the
+// fcitx addon's sendControlCommand. A throwaway bound client path is used so the
+// service's reply lands on a path we unlink (-> FileNotFoundError, caught) rather
+// than an abstract autobind address (-> ECONNREFUSED, which would crash the service).
+bool sendControlCommand(const QString &controlPath, std::string_view command) {
+    const QByteArray serverPath = controlPath.toLocal8Bit();
+    if (serverPath.size() >= static_cast<int>(sizeof(sockaddr_un::sun_path))) {
+        return false;
+    }
+
+    static std::atomic<long long> seq{0};
+    const std::string clientPath = runtimeDir() + "/echoflow-ui-ctrl-" +
+                                   std::to_string(getpid()) + "-" +
+                                   std::to_string(seq.fetch_add(1)) + ".sock";
+    if (clientPath.size() >= sizeof(sockaddr_un::sun_path)) {
+        return false;
+    }
+
+    const int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        return false;
+    }
+
+    sockaddr_un server{};
+    sockaddr_un client{};
+    server.sun_family = AF_UNIX;
+    std::strncpy(server.sun_path, serverPath.constData(), sizeof(server.sun_path) - 1);
+    client.sun_family = AF_UNIX;
+    std::strncpy(client.sun_path, clientPath.c_str(), sizeof(client.sun_path) - 1);
+
+    unlink(clientPath.c_str());
+    bool ok = bind(fd, reinterpret_cast<sockaddr *>(&client), sizeof(client)) == 0;
+    if (ok) {
+        ok = sendto(fd, command.data(), command.size(), 0,
+                    reinterpret_cast<sockaddr *>(&server), sizeof(server)) >= 0;
+    }
+    close(fd);
+    unlink(clientPath.c_str());
+    return ok;
+}
+
 class TooltipController final : public QObject {
     Q_OBJECT
 public:
-    using QObject::QObject;
+    explicit TooltipController(QString controlPath, QObject *parent = nullptr)
+        : QObject(parent), controlPath_(std::move(controlPath)) {}
 
 public slots:
     void setTooltip(bool visible, const QString &message, bool busy = false,
@@ -64,9 +111,17 @@ public slots:
         emit tooltipChanged(visible, message, busy, hasPosition, moveX, moveY);
     }
 
+    // Equivalent to pressing the right Ctrl key: toggles recording on/off.
+    void requestToggle() {
+        sendControlCommand(controlPath_, "CTRL_DOWN");
+    }
+
 signals:
     void tooltipChanged(bool visible, const QString &message, bool busy,
                         bool hasPosition, int moveX, int moveY);
+
+private:
+    QString controlPath_;
 };
 
 class UiSocketServer final : public QObject {
@@ -198,11 +253,15 @@ int main(int argc, char **argv) {
                                     QString::fromStdString(defaultUiSocketPath()));
     QCommandLineOption qmlOption(QStringLiteral("qml"), QStringLiteral("QML file path"), QStringLiteral("path"),
                                  defaultQmlPath());
+    QCommandLineOption controlSocketOption(
+        QStringLiteral("control-socket"), QStringLiteral("echoflow-service control socket path"),
+        QStringLiteral("path"), QString::fromStdString(defaultControlSocketPath()));
     parser.addOption(socketOption);
     parser.addOption(qmlOption);
+    parser.addOption(controlSocketOption);
     parser.process(app);
 
-    TooltipController controller;
+    TooltipController controller(parser.value(controlSocketOption));
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("tooltipController"), &controller);
     engine.load(QUrl::fromLocalFile(parser.value(qmlOption)));
