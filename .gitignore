@@ -71,3 +71,7 @@ __pycache__/
 /model-0.6B/
 /Qwen3-ASR-GGUF/
 /qwen_asr_gguf/
+
+# Worktrees
+.worktrees/
+
