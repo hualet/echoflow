@@ -73,7 +73,7 @@ the suite runs with no model weights, no PipeWire, and no Fcitx.
 
 - Python **>=3.11**, deps via `uv` (see `uv.lock`). `.venv/` is gitignored;
   `run.sh` recreates it on demand.
-- Every source file carries an `SPDX-FileCopyrightText: 2026 HarryLoong` +
+- Every source file carries an `SPDX-FileCopyrightText: 2026 Hualet Wang` +
   `SPDX-License-Identifier: GPL-3.0-or-later` header (GPL-3.0-or-later overall).
   Add the same header to new files.
 - **Do not commit** model weights, llama.cpp builds/shared libs, recordings, or
