@@ -247,14 +247,15 @@ private:
     void handleKeyEvent(fcitx::Event &event) {
         auto *keyEvent = static_cast<fcitx::KeyEvent *>(&event);
         if (!isPlainCtrl(keyEvent->key())) {
+            if (ctrlHeld_ && !holdStarted_) {
+                cancelHold();
+            }
             return;
         }
         if (keyEvent->isRelease()) {
             ctrlHeld_ = false;
-            holdStarted_ = false;
-            holdTimer_.reset();
+            cancelHold();
             sendControlCommand("CTRL_UP");
-            keyEvent->filterAndAccept();
             return;
         }
 
@@ -265,12 +266,16 @@ private:
             sendControlCommand("CTRL_DOWN");
             armHoldTimer();
         }
-        keyEvent->filterAndAccept();
     }
 
     static bool isPlainCtrl(const fcitx::Key &key) {
         const auto sym = key.sym();
         return sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+    }
+
+    void cancelHold() {
+        holdStarted_ = false;
+        holdTimer_.reset();
     }
 
     void armHoldTimer() {
