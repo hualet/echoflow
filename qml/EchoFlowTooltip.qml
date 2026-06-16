@@ -55,9 +55,9 @@ Window {
         anchors.centerIn: parent
 
         readonly property int kBubbleHeight: 40
-        readonly property int kCollapsedWidth: 40
         readonly property int kButtonSize: 32
         readonly property int kPadding: 8
+        readonly property int kCollapsedWidth: kButtonSize + 2 * kPadding
         readonly property int kSpacing: 8
 
         height: kBubbleHeight
@@ -109,7 +109,7 @@ Window {
                         height: [6, 12, 18, 10, 14][index]
                         transformOrigin: Item.Center
 
-                        SequentialAnimation on scaleY {
+                        SequentialAnimation on scale {
                             running: root.visible && root.busy && !root.collapsed
                             loops: Animation.Infinite
                             PauseAnimation { duration: index * 100 }
