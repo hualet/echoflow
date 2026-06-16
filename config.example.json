@@ -6,7 +6,6 @@
   "model_name": "qwen-asr-0.6b",
   "language": "Chinese",
   "asr_timeout_seconds": 120,
-  "hold_threshold_ms": 350,
   "min_record_seconds": 0.25,
   "pw_record": {
     "rate": 16000,

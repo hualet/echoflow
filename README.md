@@ -5,9 +5,9 @@ EchoFlow 声流输入法是一款面向 deepin 用户的离线语音输入法。
 
 EchoFlow 面向 deepin/Fcitx5 输入链路，不直接向应用模拟键盘输入。当前实现拆成三层：
 
-- `fcitx-addon/`：Fcitx5 addon。跟踪任意输入框焦点和 cursor rect，捕获普通 `Ctrl` 长按/释放事件，把 `FOCUS x y w h`、`BLUR`、`CTRL_DOWN`、`CTRL_UP`、`TICK` 发送给 Python 服务；同时监听 `echoflow-fcitx.sock`，把识别结果提交到当前 input context。
-- `echoflow/service.py`：Python 服务。维护长按状态机，长按阈值默认 350ms；达到阈值后启动 PipeWire 录音，松开后调用本项目配置的 Qwen ASR runner，再请求 Fcitx addon 上屏。
-- `ui-host/` + `qml/EchoFlowTooltip.qml`：C++/Qt QML 宿主和 tooltip 界面。宿主监听 `echoflow-ui.sock`，根据 Fcitx cursor rect 把 tooltip 放到输入光标下方，显示“长按 Ctrl 语音输入”、录音中和转写中状态。这里刻意不用 PySide/PyQt，后续设置界面可以继续走 C++/Qt/DTK。
+- `fcitx-addon/`：Fcitx5 addon。跟踪任意输入框焦点和 cursor rect，仅捕获右 `Ctrl` 单击事件，把 `FOCUS x y w h`、`BLUR`、`CTRL_DOWN`（单击切换录音开/关）发送给 Python 服务；同时监听 `echoflow-fcitx.sock`，把识别结果提交到当前 input context。
+- `echoflow/service.py`：Python 服务。维护 toggle 状态机，收到 `CTRL_DOWN` 时在空闲/录音间切换；开始录音时启动 PipeWire，再次按下时调用本项目配置的 Qwen ASR runner 转写并请求 Fcitx addon 上屏。
+- `ui-host/` + `qml/EchoFlowTooltip.qml`：C++/Qt QML 宿主和 tooltip 界面。宿主监听 `echoflow-ui.sock`，根据 Fcitx cursor rect 把 tooltip 放到输入光标下方，显示“按右 Ctrl 语音输入”、录音中和转写中状态。这里刻意不用 PySide/PyQt，后续设置界面可以继续走 C++/Qt/DTK。
 
 默认模型配置指向 Qwen ASR 0.6B：
 
@@ -187,5 +187,5 @@ cmake --build build/ui-host
 - Fcitx5 重启后能加载 `echoflow` addon，并创建 `/run/user/$UID/echoflow-fcitx.sock`。
 - 已安装 venv 下的 `echoflow-service --self-test` 全部通过。
 - Qwen ASR 0.6B + llama.cpp runtime 可以转写官方中文样例，输出 `甚至出现交易几乎停滞的情况。`。
-- X11/deepin 会话中用真实 `Control_L` 长按触发了录音路径。
+- X11/deepin 会话中用真实 `Control_R` 单击触发了录音开始/结束路径。
 - 通过 Fcitx commit socket 向临时 Qt6 `QLineEdit` 提交唯一文本，控件 `textChanged` 收到了同一文本。

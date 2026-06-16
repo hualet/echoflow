@@ -1,8 +1,9 @@
 # AGENTS.md
 
-Offline voice input method for deepin/Fcitx5. Push-to-talk via long-press `Ctrl`,
-recorded with PipeWire, transcribed by local Qwen ASR, committed to the focused
-input context through a Fcitx5 addon. Three layers must stay cleanly separated.
+Offline voice input method for deepin/Fcitx5. Toggle recording by tapping the
+**right** `Ctrl` (press once to start, press again to stop), recorded with
+PipeWire, transcribed by local Qwen ASR, committed to the focused input context
+through a Fcitx5 addon. Three layers must stay cleanly separated.
 
 ## Stack
 
@@ -41,14 +42,15 @@ cmake -S fcitx-addon -B build/fcitx-addon -DCMAKE_BUILD_TYPE=RelWithDebInfo && c
 
 ## Architecture — boundaries you must respect
 
-- `echoflow/service.py` — push-to-talk state machine, recording, commit. The
+- `echoflow/service.py` — toggle state machine, recording, commit. The
   long-running daemon. Entry point `echoflow-service` (`echoflow.service:main`).
 - `echoflow/asr_runner.py` — the **only** module that knows the Qwen3-ASR-GGUF
   Python API. The service calls it as a **subprocess** (`qwen-asr-transcribe`,
   `echoflow.asr_runner:main`) so model runtime stays isolated. Do not import
   Qwen classes from `service.py`.
-- `fcitx-addon/` (C++) — owns input-context events and `Ctrl` capture; talks to
-  the Python service over `echoflow-fcitx.sock` and commits results to Fcitx.
+- `fcitx-addon/` (C++) — owns input-context events and **right** `Ctrl` capture;
+  talks to the Python service over `echoflow-fcitx.sock` and commits results to
+  Fcitx.
 - `ui-host/` + `qml/EchoFlowTooltip.qml` (C++/Qt) — tooltip host over
   `echoflow-ui.sock`. **Deliberately not PySide/PyQt** (a test enforces their
   absence from `pyproject.toml`); future settings UI stays C++/Qt/DTK.

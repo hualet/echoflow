@@ -28,7 +28,6 @@ from typing import Any, Callable, Optional, Protocol
 
 class SessionState(str, Enum):
     IDLE = "idle"
-    WAITING_FOR_HOLD = "waiting-for-hold"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
 
@@ -42,7 +41,6 @@ class Config:
     model_name: str
     language: Optional[str]
     asr_timeout_seconds: int
-    hold_threshold_ms: int
     min_record_seconds: float
     pw_record: dict[str, Any]
     fcitx_commit: bool
@@ -64,7 +62,6 @@ class Config:
             model_name="qwen-asr-0.6b",
             language="Chinese",
             asr_timeout_seconds=120,
-            hold_threshold_ms=350,
             min_record_seconds=0.25,
             pw_record={"rate": 16000, "channels": 1, "format": "s16"},
             fcitx_commit=True,
@@ -463,17 +460,14 @@ class VoiceSession:
         asr: AsrProtocol,
         committer: CommitterProtocol,
         ui: UiNotifierProtocol | None = None,
-        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.cfg = cfg
         self.recorder = recorder
         self.asr = asr
         self.committer = committer
         self.ui = ui or NullUiNotifier()
-        self.clock = clock
         self.state = SessionState.IDLE
         self.tooltip_visible = False
-        self.ctrl_down_at: Optional[float] = None
 
     def handle_command(self, command: str) -> str:
         command = command.strip()
@@ -483,43 +477,30 @@ class VoiceSession:
             self.tooltip_visible = True
             argument = argument.strip()
             suffix = f" {argument}" if argument else ""
-            self.ui.send(f"SHOW_TOOLTIP{suffix} 长按 Ctrl 语音输入")
+            self.ui.send(f"SHOW_TOOLTIP{suffix} 按右 Ctrl 语音输入")
             return "TOOLTIP show"
         if verb == "BLUR":
             self.tooltip_visible = False
+            if self.state == SessionState.RECORDING:
+                self.recorder.stop()
+                notify(self.cfg, "语音输入已取消", "输入框失去焦点")
             self.state = SessionState.IDLE
-            self.ctrl_down_at = None
             self.ui.send("HIDE_TOOLTIP")
             return "TOOLTIP hide"
         if verb == "CTRL_DOWN":
-            if self.state == SessionState.RECORDING:
-                return "RECORDING"
-            self.ctrl_down_at = self.clock()
-            self.state = SessionState.WAITING_FOR_HOLD
-            return "WAITING_HOLD"
-        if verb == "TICK":
-            return self._maybe_start_recording()
-        if verb == "CTRL_UP":
-            if self.state == SessionState.WAITING_FOR_HOLD:
-                self.state = SessionState.IDLE
-                self.ctrl_down_at = None
-                return "CANCELLED"
+            if self.state == SessionState.IDLE:
+                return self._start_recording()
             if self.state == SessionState.RECORDING:
                 return self._stop_transcribe_commit()
-            return "IDLE"
+            return "TRANSCRIBING"
         return "ERR unknown-command"
 
-    def _maybe_start_recording(self) -> str:
-        if self.state != SessionState.WAITING_FOR_HOLD or self.ctrl_down_at is None:
-            return "IDLE"
-        elapsed_ms = (self.clock() - self.ctrl_down_at) * 1000
-        if elapsed_ms < self.cfg.hold_threshold_ms:
-            return "IDLE"
+    def _start_recording(self) -> str:
         self.tooltip_visible = False
         self.ui.send("HIDE_TOOLTIP")
         self.recorder.start()
         self.ui.send("RECORDING")
-        notify(self.cfg, "正在录音", "松开 Ctrl 后转写")
+        notify(self.cfg, "正在录音", "再按一次右 Ctrl 结束")
         self.state = SessionState.RECORDING
         return "RECORDING"
 
@@ -527,7 +508,6 @@ class VoiceSession:
         self.state = SessionState.TRANSCRIBING
         self.ui.send("TRANSCRIBING")
         audio_path = self.recorder.stop()
-        self.ctrl_down_at = None
         if audio_path is None:
             self.state = SessionState.IDLE
             self.ui.send("IDLE")
@@ -546,7 +526,7 @@ class VoiceSession:
         return "COMMITTED" if ok else f"ERR {detail}"
 
 
-ALLOWED_COMMANDS = {"FOCUS", "BLUR", "CTRL_DOWN", "CTRL_UP", "TICK"}
+ALLOWED_COMMANDS = {"FOCUS", "BLUR", "CTRL_DOWN"}
 
 
 def handle_protocol_message(session: VoiceSession, payload: bytes) -> bytes:

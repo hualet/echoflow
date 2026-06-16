@@ -36,7 +36,6 @@ constexpr const char *kControlSocketName = "echoflow-control.sock";
 constexpr const char *kCommitSocketName = "echoflow-fcitx.sock";
 constexpr size_t kMaxMessageSize = 65536;
 constexpr std::string_view kCommitCommand = "COMMIT\n";
-constexpr uint64_t kHoldThresholdUs = 350000;
 
 bool isUsableRuntimeDirectory(const std::string &path) {
     struct stat st {};
@@ -131,7 +130,6 @@ public:
 
     ~EchoFlow() override {
         ioEvent_.reset();
-        holdTimer_.reset();
         unlinkOwnedCommitSocket();
         if (fd_ >= 0) {
             close(fd_);
@@ -246,57 +244,22 @@ private:
 
     void handleKeyEvent(fcitx::Event &event) {
         auto *keyEvent = static_cast<fcitx::KeyEvent *>(&event);
-        if (!isPlainCtrl(keyEvent->key())) {
-            if (ctrlHeld_ && !holdStarted_) {
-                cancelHold();
-            }
+        if (!isRightCtrl(keyEvent->key())) {
             return;
         }
         if (keyEvent->isRelease()) {
-            ctrlHeld_ = false;
-            cancelHold();
-            sendControlCommand("CTRL_UP");
+            rightCtrlDown_ = false;
             return;
         }
-
-        if (!ctrlHeld_) {
-            ctrlHeld_ = true;
-            holdStarted_ = false;
-            ctrlPressedAtUs_ = fcitx::now(CLOCK_MONOTONIC);
-            sendControlCommand("CTRL_DOWN");
-            armHoldTimer();
+        if (rightCtrlDown_) {
+            return;
         }
+        rightCtrlDown_ = true;
+        sendControlCommand("CTRL_DOWN");
     }
 
-    static bool isPlainCtrl(const fcitx::Key &key) {
-        const auto sym = key.sym();
-        return sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
-    }
-
-    void cancelHold() {
-        holdStarted_ = false;
-        holdTimer_.reset();
-    }
-
-    void armHoldTimer() {
-        holdTimer_ = instance_->eventLoop().addTimeEvent(
-            CLOCK_MONOTONIC, nowPlus(kHoldThresholdUs), 0,
-            [this](fcitx::EventSourceTime *, uint64_t) {
-                if (!ctrlHeld_ || holdStarted_) {
-                    return false;
-                }
-                const uint64_t now = fcitx::now(CLOCK_MONOTONIC);
-                if (now >= ctrlPressedAtUs_ &&
-                    now - ctrlPressedAtUs_ >= kHoldThresholdUs) {
-                    holdStarted_ = true;
-                    sendControlCommand("TICK");
-                }
-                return false;
-            });
-    }
-
-    uint64_t nowPlus(uint64_t offsetUs) const {
-        return fcitx::now(CLOCK_MONOTONIC) + offsetUs;
+    static bool isRightCtrl(const fcitx::Key &key) {
+        return key.sym() == FcitxKey_Control_R;
     }
 
     bool handleReadable(int fd, fcitx::IOEventFlags flags) {
@@ -373,12 +336,9 @@ private:
     fcitx::Instance *instance_ = nullptr;
     int fd_ = -1;
     bool socketBound_ = false;
-    bool ctrlHeld_ = false;
-    bool holdStarted_ = false;
-    uint64_t ctrlPressedAtUs_ = 0;
+    bool rightCtrlDown_ = false;
     std::string commitSocketPath_;
     std::unique_ptr<fcitx::EventSourceIO> ioEvent_;
-    std::unique_ptr<fcitx::EventSourceTime> holdTimer_;
     std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
         eventWatchers_;
     fcitx::InputContext *focusedInputContext_ = nullptr;

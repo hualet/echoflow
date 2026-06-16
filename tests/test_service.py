@@ -17,22 +17,13 @@ from unittest import mock
 from echoflow import service
 
 
-class FakeClock:
-    def __init__(self):
-        self.now = 100.0
-
-    def monotonic(self):
-        return self.now
-
-    def advance(self, seconds):
-        self.now += seconds
-
-
 class FakeRecorder:
-    def __init__(self):
+    _DEFAULT = object()
+
+    def __init__(self, path=_DEFAULT):
         self.started = 0
         self.stopped = 0
-        self.path = Path("/tmp/echoflow-test.wav")
+        self.path = Path("/tmp/echoflow-test.wav") if path is FakeRecorder._DEFAULT else path
 
     def start(self):
         self.started += 1
@@ -89,7 +80,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.model_name, "qwen-asr-0.6b")
         self.assertEqual(cfg.asr_runner, "qwen-asr-transcribe")
         self.assertEqual(cfg.asr_project_dir, str(Path.home() / "AI/Model/Qwen3-ASR-GGUF"))
-        self.assertEqual(cfg.hold_threshold_ms, 350)
         self.assertTrue(cfg.fcitx_commit)
 
     def test_qwen_runner_invokes_configured_command(self):
@@ -334,29 +324,23 @@ class ConfigTests(unittest.TestCase):
 
 
 class VoiceSessionTests(unittest.TestCase):
-    def test_focus_shows_tooltip_until_ctrl_hold_starts_recording(self):
-        clock = FakeClock()
+    def test_focus_then_ctrl_toggle_starts_recording(self):
         ui = FakeUiNotifier()
+        recorder = FakeRecorder()
         session = service.VoiceSession(
             service.Config.default(),
-            recorder=FakeRecorder(),
+            recorder=recorder,
             asr=FakeAsr(),
             committer=FakeCommitter(),
             ui=ui,
-            clock=clock.monotonic,
         )
 
         self.assertEqual(session.handle_command("FOCUS"), "TOOLTIP show")
-        self.assertEqual(ui.messages, ["SHOW_TOOLTIP 长按 Ctrl 语音输入"])
-        self.assertEqual(session.handle_command("CTRL_DOWN"), "WAITING_HOLD")
+        self.assertEqual(ui.messages, ["SHOW_TOOLTIP 按右 Ctrl 语音输入"])
 
-        clock.advance(0.34)
-        self.assertEqual(session.handle_command("TICK"), "IDLE")
-        self.assertEqual(session.state, service.SessionState.WAITING_FOR_HOLD)
-
-        clock.advance(0.02)
-        self.assertEqual(session.handle_command("TICK"), "RECORDING")
-        self.assertEqual(session.recorder.started, 1)
+        self.assertEqual(session.handle_command("CTRL_DOWN"), "RECORDING")
+        self.assertEqual(recorder.started, 1)
+        self.assertEqual(session.state, service.SessionState.RECORDING)
         self.assertEqual(session.tooltip_visible, False)
         self.assertEqual(ui.messages[-2:], ["HIDE_TOOLTIP", "RECORDING"])
 
@@ -371,10 +355,9 @@ class VoiceSessionTests(unittest.TestCase):
         )
 
         self.assertEqual(session.handle_command("FOCUS 120 240 2 18"), "TOOLTIP show")
-        self.assertEqual(ui.messages, ["SHOW_TOOLTIP 120 240 2 18 长按 Ctrl 语音输入"])
+        self.assertEqual(ui.messages, ["SHOW_TOOLTIP 120 240 2 18 按右 Ctrl 语音输入"])
 
-    def test_ctrl_release_after_hold_transcribes_and_commits(self):
-        clock = FakeClock()
+    def test_second_ctrl_toggle_stops_transcribes_and_commits(self):
         recorder = FakeRecorder()
         asr = FakeAsr("离线语音输入")
         committer = FakeCommitter()
@@ -385,24 +368,20 @@ class VoiceSessionTests(unittest.TestCase):
             asr=asr,
             committer=committer,
             ui=ui,
-            clock=clock.monotonic,
         )
 
         session.handle_command("FOCUS")
         session.handle_command("CTRL_DOWN")
-        clock.advance(0.36)
-        session.handle_command("TICK")
 
-        self.assertEqual(session.handle_command("CTRL_UP"), "COMMITTED")
+        self.assertEqual(session.handle_command("CTRL_DOWN"), "COMMITTED")
         self.assertEqual(recorder.stopped, 1)
         self.assertEqual(asr.audio_paths, [recorder.path])
         self.assertEqual(committer.texts, ["离线语音输入"])
         self.assertEqual(session.state, service.SessionState.IDLE)
         self.assertEqual(ui.messages[-2:], ["TRANSCRIBING", "IDLE"])
 
-    def test_short_ctrl_tap_does_not_record_or_commit(self):
-        clock = FakeClock()
-        recorder = FakeRecorder()
+    def test_toggle_with_too_short_audio_is_cancelled(self):
+        recorder = FakeRecorder(path=None)
         committer = FakeCommitter()
         ui = FakeUiNotifier()
         session = service.VoiceSession(
@@ -411,17 +390,31 @@ class VoiceSessionTests(unittest.TestCase):
             asr=FakeAsr(),
             committer=committer,
             ui=ui,
-            clock=clock.monotonic,
         )
 
-        session.handle_command("CTRL_DOWN")
-        clock.advance(0.1)
+        session.handle_command("FOCUS")
+        self.assertEqual(session.handle_command("CTRL_DOWN"), "RECORDING")
+        self.assertEqual(recorder.started, 1)
 
-        self.assertEqual(session.handle_command("CTRL_UP"), "CANCELLED")
-        self.assertEqual(recorder.started, 0)
-        self.assertEqual(recorder.stopped, 0)
+        self.assertEqual(session.handle_command("CTRL_DOWN"), "CANCELLED")
+        self.assertEqual(recorder.stopped, 1)
         self.assertEqual(committer.texts, [])
-        self.assertNotIn("RECORDING", ui.messages)
+        self.assertEqual(session.state, service.SessionState.IDLE)
+
+    def test_ctrl_toggle_while_transcribing_is_ignored(self):
+        recorder = FakeRecorder()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=recorder,
+            asr=FakeAsr(),
+            committer=FakeCommitter(),
+            ui=FakeUiNotifier(),
+        )
+
+        session.handle_command("FOCUS")
+        session.handle_command("CTRL_DOWN")
+        session.state = service.SessionState.TRANSCRIBING
+        self.assertEqual(session.handle_command("CTRL_DOWN"), "TRANSCRIBING")
 
     def test_blur_hides_tooltip(self):
         ui = FakeUiNotifier()
@@ -436,6 +429,28 @@ class VoiceSessionTests(unittest.TestCase):
         session.handle_command("FOCUS")
 
         self.assertEqual(session.handle_command("BLUR"), "TOOLTIP hide")
+        self.assertEqual(ui.messages[-1], "HIDE_TOOLTIP")
+
+    def test_blur_while_recording_cancels_and_discards(self):
+        recorder = FakeRecorder()
+        committer = FakeCommitter()
+        ui = FakeUiNotifier()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=recorder,
+            asr=FakeAsr(),
+            committer=committer,
+            ui=ui,
+        )
+
+        session.handle_command("FOCUS")
+        session.handle_command("CTRL_DOWN")
+        self.assertEqual(session.state, service.SessionState.RECORDING)
+
+        self.assertEqual(session.handle_command("BLUR"), "TOOLTIP hide")
+        self.assertEqual(recorder.stopped, 1)
+        self.assertEqual(committer.texts, [])
+        self.assertEqual(session.state, service.SessionState.IDLE)
         self.assertEqual(ui.messages[-1], "HIDE_TOOLTIP")
 
 

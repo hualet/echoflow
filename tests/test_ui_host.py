@@ -40,20 +40,22 @@ class UiHostStructureTests(unittest.TestCase):
         self.assertIn("stat(commitSocketPath_.c_str(), &pathStat)", addon_cpp)
         self.assertIn("fdStat.st_ino == pathStat.st_ino", addon_cpp)
 
-    def test_fcitx_addon_observes_ctrl_without_consuming_it(self):
+    def test_fcitx_addon_obeys_right_ctrl_toggle_without_consuming_it(self):
         addon_cpp = (ROOT / "fcitx-addon" / "echoflow.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("isPlainCtrl", addon_cpp)
+        self.assertIn("isRightCtrl", addon_cpp)
+        self.assertIn("FcitxKey_Control_R", addon_cpp)
         self.assertIn("CTRL_DOWN", addon_cpp)
-        self.assertIn("CTRL_UP", addon_cpp)
+        self.assertNotIn("isPlainCtrl", addon_cpp)
+        self.assertNotIn("Control_L", addon_cpp)
+        self.assertNotIn("CTRL_UP", addon_cpp)
         self.assertNotIn("filterAndAccept", addon_cpp)
         self.assertNotIn("->accept()", addon_cpp)
 
-    def test_fcitx_addon_cancels_hold_when_non_ctrl_key_pressed(self):
+    def test_fcitx_addon_dedupes_right_ctrl_auto_repeat(self):
         addon_cpp = (ROOT / "fcitx-addon" / "echoflow.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("cancelHold", addon_cpp)
-        self.assertIn("ctrlHeld_ && !holdStarted_", addon_cpp)
+        self.assertIn("rightCtrlDown_", addon_cpp)
 
 
 if __name__ == "__main__":
