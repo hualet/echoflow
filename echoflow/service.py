@@ -515,8 +515,6 @@ class VoiceSession:
         elapsed_ms = (self.clock() - self.ctrl_down_at) * 1000
         if elapsed_ms < self.cfg.hold_threshold_ms:
             return "IDLE"
-        self.tooltip_visible = False
-        self.ui.send("HIDE_TOOLTIP")
         self.recorder.start()
         self.ui.send("RECORDING")
         notify(self.cfg, "正在录音", "松开 Ctrl 后转写")
