@@ -476,8 +476,6 @@ class VoiceSession:
         return "ERR unknown-command"
 
     def _start_recording(self) -> str:
-        self.tooltip_visible = False
-        self.ui.send("HIDE_TOOLTIP")
         self.recorder.start()
         self.ui.send("RECORDING")
         self.state = SessionState.RECORDING

@@ -341,8 +341,8 @@ class VoiceSessionTests(unittest.TestCase):
         self.assertEqual(session.handle_command("CTRL_DOWN"), "RECORDING")
         self.assertEqual(recorder.started, 1)
         self.assertEqual(session.state, service.SessionState.RECORDING)
-        self.assertEqual(session.tooltip_visible, False)
-        self.assertEqual(ui.messages[-2:], ["HIDE_TOOLTIP", "RECORDING"])
+        self.assertEqual(session.tooltip_visible, True)
+        self.assertEqual(ui.messages[-1], "RECORDING")
 
     def test_focus_with_cursor_rect_forwards_tooltip_position(self):
         ui = FakeUiNotifier()
