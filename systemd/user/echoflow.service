@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 HarryLoong
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[Unit]
+Description=EchoFlow offline voice input service
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/echoflow
+Environment=PATH=%h/.local/share/echoflow/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/echoflow/.venv/bin/echoflow-service --config %h/.config/echoflow/config.json
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

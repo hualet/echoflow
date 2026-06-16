@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 HarryLoong
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[Unit]
+Description=EchoFlow tooltip UI host
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/echoflow-ui
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

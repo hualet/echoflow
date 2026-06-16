@@ -1,0 +1,12 @@
+[Addon]
+Name=echoflow
+Category=Module
+Library=echoflow
+Type=SharedLibrary
+OnDemand=False
+Configurable=False
+Enabled=True
+
+[Addon/Description]
+Name=EchoFlow voice input bridge
+Comment=Captures input focus and long Ctrl hold events for EchoFlow.

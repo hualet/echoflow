@@ -54,3 +54,20 @@ compile_commands.json
 *creator.user*
 
 *_qmlcache.qrc
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# EchoFlow — user config, recordings, and model artifacts
+# (config.example.json is tracked; config.json is user-specific)
+/config.json
+*.wav
+/model/
+/model-0.6B/
+/Qwen3-ASR-GGUF/
+/qwen_asr_gguf/
