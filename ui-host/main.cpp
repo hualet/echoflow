@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -15,8 +16,10 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QScreen>
 #include <QSocketNotifier>
 #include <QString>
 #include <QUrl>
@@ -147,8 +150,19 @@ private:
                 const int height = parts.at(3).toInt(&okH);
                 if (okX && okY && okW && okH) {
                     hasPosition = true;
-                    moveX = x + width;
-                    moveY = y + height + 8;
+                    qreal dpr = 1.0;
+                    if (auto *screen = QGuiApplication::primaryScreen()) {
+                        dpr = screen->devicePixelRatio();
+                    }
+                    const int physX = x;
+                    const int physY = y + height;
+                    moveX = dpr > 1.0
+                                ? static_cast<int>(std::round(physX / dpr))
+                                : physX;
+                    moveY = (dpr > 1.0
+                                 ? static_cast<int>(std::round(physY / dpr))
+                                 : physY) +
+                            8;
                     text = parts.mid(4).join(QChar(' '));
                 }
             }
