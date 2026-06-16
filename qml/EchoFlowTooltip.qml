@@ -53,7 +53,14 @@ Window {
     Rectangle {
         id: bubble
         anchors.centerIn: parent
-        height: 40
+
+        readonly property int kBubbleHeight: 40
+        readonly property int kCollapsedWidth: 40
+        readonly property int kButtonSize: 32
+        readonly property int kPadding: 8
+        readonly property int kSpacing: 8
+
+        height: kBubbleHeight
         radius: height / 2
         color: root.busy ? "#0f3d3e" : "#202124"
         border.color: root.busy ? "#18a6a7" : "#4a4d52"
@@ -61,8 +68,8 @@ Window {
         width: root.collapsed ? collapsedWidth : expandedWidth
         clip: true
 
-        readonly property int collapsedWidth: 40
-        readonly property int expandedWidth: leftContent.width + 16 + roundButton.width
+        readonly property int collapsedWidth: kCollapsedWidth
+        readonly property int expandedWidth: leftContent.width + kPadding + kSpacing + roundButton.width + kPadding
 
         Behavior on width {
             NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
@@ -72,7 +79,7 @@ Window {
             id: leftContent
             anchors {
                 left: parent.left
-                leftMargin: 8
+                leftMargin: kPadding
                 verticalCenter: parent.verticalCenter
             }
             width: root.busy ? waveRow.width : label.implicitWidth
@@ -103,6 +110,7 @@ Window {
                         transformOrigin: Item.Center
 
                         SequentialAnimation on scaleY {
+                            running: root.visible && root.busy && !root.collapsed
                             loops: Animation.Infinite
                             PauseAnimation { duration: index * 100 }
                             NumberAnimation {
@@ -123,13 +131,13 @@ Window {
 
         Rectangle {
             id: roundButton
-            width: 32
-            height: 32
+            width: kButtonSize
+            height: kButtonSize
             radius: width / 2
             color: "#18a6a7"
             anchors {
                 right: parent.right
-                rightMargin: 4
+                rightMargin: kPadding
                 verticalCenter: parent.verticalCenter
             }
 
