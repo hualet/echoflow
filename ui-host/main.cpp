@@ -209,15 +209,16 @@ private:
                     if (auto *screen = QGuiApplication::primaryScreen()) {
                         dpr = screen->devicePixelRatio();
                     }
+                    // The trigger button floats at the cursor-rect top-left, so we
+                    // pass the cursor's top-left (x, y) rather than the rect's bottom.
                     const int physX = x;
-                    const int physY = y + height;
+                    const int physY = y;
                     moveX = dpr > 1.0
                                 ? static_cast<int>(std::round(physX / dpr))
                                 : physX;
-                    moveY = (dpr > 1.0
-                                 ? static_cast<int>(std::round(physY / dpr))
-                                 : physY) +
-                            8;
+                    moveY = dpr > 1.0
+                                ? static_cast<int>(std::round(physY / dpr))
+                                : physY;
                     text = parts.mid(4).join(QChar(' '));
                 }
             }
@@ -226,7 +227,19 @@ private:
             }
             controller_->setTooltip(true, text, false, hasPosition, moveX, moveY);
         } else if (message == QStringLiteral("RECORDING")) {
-            controller_->setTooltip(true, QStringLiteral("正在聆听"), true);
+            // Position the capsule at the bottom-center of the primary screen,
+            // 8px above the taskbar (availableGeometry already excludes panels).
+            int centerX = 0;
+            int bottomY = 0;
+            bool hasPosition = false;
+            if (auto *screen = QGuiApplication::primaryScreen()) {
+                const QRect avail = screen->availableGeometry();
+                centerX = avail.left() + avail.width() / 2;
+                bottomY = avail.bottom() - 8;
+                hasPosition = true;
+            }
+            controller_->setTooltip(true, QStringLiteral("正在聆听"), true,
+                                     hasPosition, centerX, bottomY);
         } else if (message == QStringLiteral("TRANSCRIBING")) {
             controller_->setTooltip(true, QStringLiteral("正在转写"), true);
         } else if (message == QStringLiteral("HIDE_TOOLTIP") || message == QStringLiteral("IDLE")) {
