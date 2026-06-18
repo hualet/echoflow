@@ -51,7 +51,9 @@ cmake --install "$BUILD_DIR"
 if [[ ! -e "$CONFIG_DIR/echoflow.conf" ]]; then
   cat > "$CONFIG_DIR/echoflow.conf" <<EOF
 [basic.model.model_name]
-value=qwen-asr-0.6b
+value=qwen3-asr-0.6b
+[basic.model.mirror]
+value=hf-mirror
 [basic.recognition.language]
 value=Chinese
 [basic.recognition.prompt]
@@ -66,8 +68,6 @@ value=16000
 value=1
 [basic.recording.format]
 value=s16
-[advanced.runtime.model_dir]
-value=\$HOME/AI/Model/qwen3-asr-0.6b
 [advanced.runtime.asr_timeout_seconds]
 value=120
 [advanced.fcitx.fcitx_commit]
