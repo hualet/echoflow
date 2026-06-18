@@ -19,9 +19,12 @@ class QNetworkReply;
 namespace echoflow {
 
 // Downloads every missing file of one ModelEntry into targetDir via Qt6 Network.
-// Files already present at their final name are skipped. Each in-flight file is
-// written to <dir>/.<file>.part and renamed on completion; stale .part files
-// from a previous run are removed before fetching. Sequential.
+// Files already present at their final name are skipped. Before downloading,
+// issues HEAD requests for all pending files so the aggregate byte total is
+// known up front — otherwise the small JSON files would each push progress to
+// 100% before the large shards begin. Each in-flight file is written to
+// <dir>/.<file>.part and renamed on completion; stale .part files are removed
+// before fetching. Sequential downloads.
 class ModelDownloader : public QObject {
     Q_OBJECT
 public:
@@ -39,6 +42,7 @@ signals:
     void finished(bool ok, const QString& error);
 
 private:
+    void beginSizing();
     void fetchNext();
     QString urlFor(const std::string& file) const;
 
@@ -53,9 +57,10 @@ private:
     QString currentFile_;
     qint64 completedBytes_ = 0;    // sum of fully-downloaded files
     qint64 currentReceived_ = 0;   // bytes received for the current file
-    qint64 bytesTotalKnown_ = 0;   // sum of Content-Length across files
-    qint64 bytesTotalUnknown_ = 0; // set to 1 if any response lacked length
-    bool currentFileCounted_ = false;
+    qint64 bytesTotalKnown_ = 0;   // sum of Content-Length across files (pre-flight)
+    qint64 bytesTotalUnknown_ = 0; // set to 1 if any file's size could not be determined
+    int sizesRemaining_ = 0;       // outstanding HEAD requests during the sizing phase
+    std::vector<QNetworkReply*> sizeReplies_;
     bool cancelled_ = false;       // set by cancel() before abort; gates finished()
     QString fileError_;            // non-empty if a local write failed
 };

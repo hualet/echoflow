@@ -10,6 +10,8 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace echoflow {
 
 ModelDownloader::ModelDownloader(const ModelEntry& entry,
@@ -27,6 +29,10 @@ ModelDownloader::~ModelDownloader() {
         // half-destroyed object.
         disconnect(reply_, nullptr, this, nullptr);
         reply_->abort();
+    }
+    for (QNetworkReply* h : sizeReplies_) {
+        disconnect(h, nullptr, this, nullptr);
+        h->abort();
     }
 }
 
@@ -55,15 +61,55 @@ void ModelDownloader::start() {
     currentReceived_ = 0;
     bytesTotalKnown_ = 0;
     bytesTotalUnknown_ = 0;
-    fetchNext();
+    beginSizing();
+}
+
+void ModelDownloader::beginSizing() {
+    // Pre-flight: HEAD every pending file so the aggregate total is known
+    // before the first byte is downloaded. Without this, the small JSON files
+    // (config.json, vocab.json, ...) would each push progress to 100% before
+    // the multi-GB shards start, because the denominator only reflected the
+    // file currently being transferred.
+    sizesRemaining_ = static_cast<int>(pending_.size());
+    for (const auto& file : pending_) {
+        QNetworkRequest req(urlFor(file));
+        req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+        req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("echoflow"));
+        QNetworkReply* h = nam_->head(req);
+        sizeReplies_.push_back(h);
+        QObject::connect(h, &QNetworkReply::finished, this, [this, h]() {
+            h->deleteLater();
+            sizeReplies_.erase(std::remove(sizeReplies_.begin(), sizeReplies_.end(), h),
+                               sizeReplies_.end());
+            bool ok = false;
+            const qint64 len = h->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
+            if (ok && len > 0) {
+                bytesTotalKnown_ += len;
+            } else {
+                bytesTotalUnknown_ = 1;
+            }
+            --sizesRemaining_;
+            if (cancelled_) {
+                return;  // cancel() already emitted finished
+            }
+            if (sizesRemaining_ == 0) {
+                currentIndex_ = 0;
+                fetchNext();  // total is known; begin downloading
+            }
+        });
+    }
 }
 
 void ModelDownloader::cancel() {
-    cancelled_ = true;  // gate the finished lambda before aborting
+    cancelled_ = true;  // gate the finished lambdas before aborting
     if (reply_) {
         // abort() fires finished synchronously (same thread); the lambda sees
         // cancelled_ and returns without emitting.
         reply_->abort();
+    }
+    for (QNetworkReply* h : sizeReplies_) {
+        h->abort();  // sizing replies' finished lambdas see cancelled_ and return
     }
     if (!currentFile_.isEmpty()) {
         QFile::remove(targetDir_ + QStringLiteral("/.") + currentFile_ + QStringLiteral(".part"));
@@ -78,7 +124,6 @@ void ModelDownloader::fetchNext() {
     }
     currentFile_ = QString::fromStdString(pending_[currentIndex_]);
     currentReceived_ = 0;
-    currentFileCounted_ = false;
     fileError_.clear();
 
     const QString partPath = targetDir_ + QStringLiteral("/.") + currentFile_ + QStringLiteral(".part");
@@ -91,7 +136,7 @@ void ModelDownloader::fetchNext() {
     reply_ = nam_->get(req);
 
     // readyRead only appends bytes to the .part file; byte accounting lives in
-    // downloadProgress to avoid drift between the two signals.
+    // downloadProgress (the total was pre-computed during sizing).
     QObject::connect(reply_, &QNetworkReply::readyRead, this, [this, partPath]() {
         if (!fileError_.isEmpty()) {
             return;  // already failed to write; drop further data until abort lands
@@ -117,29 +162,8 @@ void ModelDownloader::fetchNext() {
         }
     });
 
-    // Count each file's total exactly once, summed across all files.
-    auto countTotal = [this](qint64 total) {
-        if (currentFileCounted_) {
-            return;
-        }
-        if (total > 0) {
-            bytesTotalKnown_ += total;
-            bytesTotalUnknown_ = 0;  // recover from an earlier length-less probe
-            currentFileCounted_ = true;
-        } else {
-            bytesTotalUnknown_ = 1;
-        }
-    };
-
-    QObject::connect(reply_, &QNetworkReply::metaDataChanged, this, [this, countTotal]() {
-        bool ok = false;
-        const qint64 fileTotal = reply_->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
-        countTotal(ok ? fileTotal : 0);
-    });
-
     QObject::connect(reply_, &QNetworkReply::downloadProgress, this,
-        [this, countTotal](qint64 received, qint64 total) {
-            countTotal(total);
+        [this](qint64 received, qint64 /*total*/) {
             currentReceived_ = received;
             const qint64 done = completedBytes_ + currentReceived_;
             const qint64 effectiveTotal = bytesTotalUnknown_ ? 0 : bytesTotalKnown_;
