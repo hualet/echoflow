@@ -66,6 +66,20 @@ class LlamaRuntimeBuildTests(unittest.TestCase):
             "its job is now done by llama-runtime/CMakeLists.txt",
         )
 
+    def test_install_user_builds_llama_by_default(self):
+        script = (ROOT / "install-user.sh").read_text(encoding="utf-8")
+
+        # Default ON, with --no-llama to skip.
+        self.assertIn("BUILD_LLAMA=1", script)
+        self.assertIn("--no-llama", script)
+        # The wrapper build is gated on BUILD_LLAMA.
+        self.assertIn("BUILD_LLAMA", script)
+        self.assertIn('cmake -S "$ROOT_DIR/llama-runtime"', script)
+        self.assertIn('cmake --build "$BUILD_DIR/llama-runtime"', script)
+        self.assertIn('cmake --install "$BUILD_DIR/llama-runtime"', script)
+        # QWEN_ASR_PROJECT_DIR is plumbed through to the wrapper.
+        self.assertIn("QWEN_ASR_PROJECT_DIR", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,13 +11,15 @@ SYSTEMD_USER_DIR="${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/install-user}"
 BUILD_TYPE="${CMAKE_BUILD_TYPE:-RelWithDebInfo}"
 START_SERVICES=1
+BUILD_LLAMA=1
 
 usage() {
   cat <<EOF
-Usage: $0 [--no-start]
+Usage: $0 [--no-start] [--no-llama]
 
 Options:
   --no-start  Install files and enable user services without starting them.
+  --no-llama  Skip building the llama.cpp runtime (llama-runtime/CMakeLists.txt).
   -h, --help  Show this help.
 EOF
 }
@@ -26,6 +28,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-start)
       START_SERVICES=0
+      ;;
+    --no-llama)
+      BUILD_LLAMA=0
       ;;
     -h|--help)
       usage
@@ -93,6 +98,20 @@ cmake -S "$ROOT_DIR/ui-host" -B "$BUILD_DIR/ui-host" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"
 cmake --build "$BUILD_DIR/ui-host"
 cmake --install "$BUILD_DIR/ui-host"
+
+if [[ "$BUILD_LLAMA" == "1" ]]; then
+  QWEN_ASR_PROJECT_DIR="${QWEN_ASR_PROJECT_DIR:-$HOME/AI/Model/Qwen3-ASR-GGUF}"
+  if [[ ! -d "$QWEN_ASR_PROJECT_DIR/qwen_asr_gguf/inference" ]]; then
+    echo "Qwen3-ASR-GGUF not found at $QWEN_ASR_PROJECT_DIR" >&2
+    echo "Run scripts/setup-qwen-asr-0.6b.sh first, or set QWEN_ASR_PROJECT_DIR." >&2
+    exit 1
+  fi
+  cmake -S "$ROOT_DIR/llama-runtime" -B "$BUILD_DIR/llama-runtime" \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DQWEN_ASR_PROJECT_DIR="$QWEN_ASR_PROJECT_DIR"
+  cmake --build "$BUILD_DIR/llama-runtime"
+  cmake --install "$BUILD_DIR/llama-runtime"
+fi
 
 ADDON_LIB="$PREFIX/lib/fcitx5/libechoflow.so"
 if [[ ! -e "$ADDON_LIB" ]]; then
