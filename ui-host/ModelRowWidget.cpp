@@ -128,6 +128,9 @@ void ModelRowWidget::onFinished(bool ok, const QString& error) {
         return;
     }
     refreshState();
+    // A model was (possibly) added to disk; rebuild the model_name combobox
+    // so the just-downloaded model becomes selectable.
+    EchoFlowSettings::instance()->refreshModelNameItems();
 }
 
 }  // namespace echoflow

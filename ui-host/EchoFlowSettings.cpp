@@ -3,8 +3,11 @@
 
 #include "EchoFlowSettings.h"
 
+#include "ModelCatalog.h"
+
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QMap>
 #include <QSettings>
 #include <QStandardPaths>
@@ -68,6 +71,7 @@ bool EchoFlowSettings::init(const QString &configPath) {
 
     backend_ = new Dtk::Core::QSettingBackend(configPath_);
     dsettings_->setBackend(backend_);
+    refreshModelNameItems();
 
     return true;
 }
@@ -87,9 +91,8 @@ void EchoFlowSettings::sync() {
 }
 
 void EchoFlowSettings::populateComboBoxes() {
-    setComboBoxItems(dsettings_, QStringLiteral("basic.model.model_name"),
-                     QStringList{QStringLiteral("qwen3-asr-0.6b"),
-                                 QStringLiteral("qwen3-asr-1.7b")});
+    // model_name items are populated dynamically by refreshModelNameItems()
+    // (only downloaded models, plus the current selection).
     setComboBoxItems(dsettings_, QStringLiteral("basic.model.mirror"),
                      QStringList{QStringLiteral("hf-mirror"),
                                  QStringLiteral("official")});
@@ -105,6 +108,33 @@ void EchoFlowSettings::populateComboBoxes() {
     setComboBoxItems(dsettings_, QStringLiteral("basic.recording.format"),
                      QStringList{QStringLiteral("s16"), QStringLiteral("s32"),
                                   QStringLiteral("f32"), QStringLiteral("u8")});
+}
+
+void EchoFlowSettings::refreshModelNameItems() {
+    if (!dsettings_) {
+        return;
+    }
+    Dtk::Core::DSettingsOption *opt =
+        dsettings_->option(QStringLiteral("basic.model.model_name"));
+    if (!opt) {
+        return;
+    }
+    const QString confDir = QFileInfo(configPath_).path();
+    QStringList items;
+    // Keep the currently-selected model visible even if it is not downloaded.
+    const QString current = opt->value().toString();
+    if (!current.isEmpty() && !items.contains(current)) {
+        items << current;
+    }
+    // Add every model already present on disk.
+    for (const ModelEntry &e : modelCatalog()) {
+        const QString id = QString::fromStdString(e.id);
+        const QString dir = confDir + QLatin1Char('/') + id;
+        if (isModelPresent(std::filesystem::path(dir.toStdString()), e) && !items.contains(id)) {
+            items << id;
+        }
+    }
+    setComboBoxItems(dsettings_, QStringLiteral("basic.model.model_name"), items);
 }
 
 void EchoFlowSettings::setComboBoxItems(Dtk::Core::DSettings *settings,

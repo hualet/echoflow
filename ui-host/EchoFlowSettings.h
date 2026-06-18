@@ -25,6 +25,10 @@ public:
     Dtk::Core::DSettings *dsettings() const;
     void sync();
 
+    // Rebuild the model_name combobox items from the models actually present
+    // on disk (plus the current selection, kept visible even if not downloaded).
+    void refreshModelNameItems();
+
 private:
     explicit EchoFlowSettings(QObject *parent = nullptr);
     ~EchoFlowSettings() override;
