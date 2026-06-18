@@ -63,17 +63,35 @@ $HOME/AI/Model/Qwen3-ASR-GGUF
 $HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B
 ```
 
-你还需要把本机编译好的 llama.cpp 共享库放到：
-
-```text
-$HOME/AI/Model/Qwen3-ASR-GGUF/qwen_asr_gguf/inference/bin/
-```
-
-如果已有 llama.cpp 构建目录，可以用：
+llama.cpp 运行时已作为 submodule 内嵌在 `third_party/llama.cpp/`，通过
+`llama-runtime/` CMake 工程构建。克隆仓库后需初始化 submodule：
 
 ```bash
-LLAMA_BUILD_DIR=$HOME/AI/Model/llama.cpp-build/build \
-  ./scripts/install-llama-runtime.sh
+git submodule update --init --recursive third_party/llama.cpp
+```
+
+之后由 `install-user.sh` 默认构建（一次到位）：
+
+```bash
+./install-user.sh
+```
+
+或单独构建（后端默认 AUTO：检测到 Vulkan SDK 与 glslc 则用 Vulkan，否则
+CPU）：
+
+```bash
+cmake -S llama-runtime -B build/llama-runtime -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build/llama-runtime
+cmake --install build/llama-runtime
+```
+
+`.so` 会被 `cp -a` 拷贝（保留符号链接）到
+`$HOME/AI/Model/Qwen3-ASR-GGUF/qwen_asr_gguf/inference/bin/`。
+
+开发循环中若想跳过耗时的 llama 构建，传 `--no-llama`：
+
+```bash
+./install-user.sh --no-llama
 ```
 
 ### 4. 从源码运行（开发调试）
