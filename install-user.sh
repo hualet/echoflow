@@ -11,15 +11,13 @@ SYSTEMD_USER_DIR="${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/install-user}"
 BUILD_TYPE="${CMAKE_BUILD_TYPE:-RelWithDebInfo}"
 START_SERVICES=1
-BUILD_LLAMA=1
 
 usage() {
   cat <<EOF
-Usage: $0 [--no-start] [--no-llama]
+Usage: $0 [--no-start]
 
 Options:
   --no-start  Install files and enable user services without starting them.
-  --no-llama  Skip building the llama.cpp runtime (llama-runtime/CMakeLists.txt).
   -h, --help  Show this help.
 EOF
 }
@@ -28,9 +26,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-start)
       START_SERVICES=0
-      ;;
-    --no-llama)
-      BUILD_LLAMA=0
       ;;
     -h|--help)
       usage
@@ -47,70 +42,39 @@ done
 
 mkdir -p "$STATE_DIR" "$CONFIG_DIR" "$SYSTEMD_USER_DIR"
 
-uv venv "$STATE_DIR/.venv"
-uv pip install --python "$STATE_DIR/.venv/bin/python" "$ROOT_DIR"
+cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
+  -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+  -DCMAKE_INSTALL_PREFIX="$PREFIX"
+cmake --build "$BUILD_DIR"
+cmake --install "$BUILD_DIR"
 
-ASR_RUNNER="$STATE_DIR/.venv/bin/qwen-asr-transcribe"
 if [[ ! -e "$CONFIG_DIR/echoflow.conf" ]]; then
-  python3 - "$CONFIG_DIR" "$ASR_RUNNER" <<'PY'
-import configparser
-import sys
-from pathlib import Path
-
-config_dir = Path(sys.argv[1])
-config_dir.mkdir(parents=True, exist_ok=True)
-conf_path = config_dir / "echoflow.conf"
-runner = sys.argv[2]
-
-defaults = {
-    "basic.model.model_name": "qwen-asr-0.6b",
-    "basic.recognition.language": "Chinese",
-    "basic.recognition.strip_trailing_punctuation": "false",
-    "basic.recording.min_record_seconds": "0.25",
-    "basic.recording.rate": "16000",
-    "basic.recording.channels": "1",
-    "basic.recording.format": "s16",
-    "advanced.runtime.asr_project_dir": "$HOME/AI/Model/Qwen3-ASR-GGUF",
-    "advanced.runtime.model_dir": "$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B",
-    "advanced.runtime.asr_runner": runner,
-    "advanced.runtime.asr_timeout_seconds": "120",
-    "advanced.fcitx.fcitx_commit": "true",
-    "advanced.storage.recordings_dir": "$HOME/.local/share/echoflow/recordings",
-}
-
-parser = configparser.ConfigParser()
-for key, value in defaults.items():
-    parser.add_section(key)
-    parser.set(key, "value", value)
-with open(conf_path, "w", encoding="utf-8") as f:
-    parser.write(f)
-PY
-fi
-
-cmake -S "$ROOT_DIR/fcitx-addon" -B "$BUILD_DIR/fcitx-addon" \
-  -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX"
-cmake --build "$BUILD_DIR/fcitx-addon"
-cmake --install "$BUILD_DIR/fcitx-addon"
-
-cmake -S "$ROOT_DIR/ui-host" -B "$BUILD_DIR/ui-host" \
-  -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX"
-cmake --build "$BUILD_DIR/ui-host"
-cmake --install "$BUILD_DIR/ui-host"
-
-if [[ "$BUILD_LLAMA" == "1" ]]; then
-  QWEN_ASR_PROJECT_DIR="${QWEN_ASR_PROJECT_DIR:-$HOME/AI/Model/Qwen3-ASR-GGUF}"
-  if [[ ! -d "$QWEN_ASR_PROJECT_DIR/qwen_asr_gguf/inference" ]]; then
-    echo "Qwen3-ASR-GGUF not found at $QWEN_ASR_PROJECT_DIR" >&2
-    echo "Run scripts/setup-qwen-asr-0.6b.sh first, or set QWEN_ASR_PROJECT_DIR." >&2
-    exit 1
-  fi
-  cmake -S "$ROOT_DIR/llama-runtime" -B "$BUILD_DIR/llama-runtime" \
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DQWEN_ASR_PROJECT_DIR="$QWEN_ASR_PROJECT_DIR"
-  cmake --build "$BUILD_DIR/llama-runtime"
-  cmake --install "$BUILD_DIR/llama-runtime"
+  cat > "$CONFIG_DIR/echoflow.conf" <<EOF
+[basic.model.model_name]
+value=qwen-asr-0.6b
+[basic.recognition.language]
+value=Chinese
+[basic.recognition.prompt]
+value=
+[basic.recognition.strip_trailing_punctuation]
+value=false
+[basic.recording.min_record_seconds]
+value=0.25
+[basic.recording.rate]
+value=16000
+[basic.recording.channels]
+value=1
+[basic.recording.format]
+value=s16
+[advanced.runtime.model_dir]
+value=\$HOME/AI/Model/qwen3-asr-0.6b
+[advanced.runtime.asr_timeout_seconds]
+value=120
+[advanced.fcitx.fcitx_commit]
+value=true
+[advanced.storage.recordings_dir]
+value=\$HOME/.local/share/echoflow/recordings
+EOF
 fi
 
 ADDON_LIB="$PREFIX/lib/fcitx5/libechoflow.so"

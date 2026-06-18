@@ -4,8 +4,9 @@
 
 set -eu
 
-if [ ! -d .venv ]; then
-    uv venv
+if ! cmake --build build 2>/dev/null; then
+    cmake -S . -B build
+    cmake --build build
 fi
 
-uv run echoflow-service "$@"
+exec ./build/service/echoflow-service "$@"

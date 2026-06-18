@@ -1,182 +1,155 @@
 # echoflow
 
-EchoFlow 声流输入法是一款面向 deepin 用户的离线语音输入法。只需轻点一下右 `Ctrl`，即可在当前输入框内用语音快速录入文字；录音、识别、上屏全程在本地完成，无需联网。
+EchoFlow 声流输入法是一款面向 deepin/Fcitx5 用户的离线语音输入工具。把焦点放在输入框内，轻点右 `Ctrl` 开始录音，再点一次结束录音，识别结果会通过 Fcitx5 直接上屏。
 
-## 项目简介
+## 特性
 
-在日常打字场景中，语音输入往往是最快的方式，但主流方案大多依赖云端服务，存在隐私和稳定性的顾虑。EchoFlow 希望为 deepin/Fcitx5 用户提供一条纯粹的本地语音输入链路：
+- 完全本地处理：录音、识别和上屏都在本机完成。
+- Fcitx5 原生提交：不模拟全局按键，直接提交到当前输入上下文。
+- C++ 常驻服务：`echoflow-service` 保持 qwen-asr 模型 resident，避免每次录音重新加载。
+- Qt6/DTK UI：托盘设置入口和录音/转写 tooltip。
+- 单一构建链路：根目录 CMake 一次构建 service、qwen-asr runtime、Fcitx addon 和 UI host。
 
-- 按下右 `Ctrl` 开始录音，再按一次结束录音；
-- 录音通过 PipeWire 采集，识别由本地 Qwen ASR 模型完成；
-- 识别结果通过 Fcitx5 直接提交到当前输入框；
-- 屏幕上的 tooltip 会实时提示录音、转写状态。
+## 依赖
 
-项目采用 Python 服务 + C++ Fcitx5 插件 + C++/Qt QML tooltip 三层架构，模型与运行时不进入仓库，用户可按需准备。
+需要系统安装：
 
-## 项目亮点
-
-- **完全离线**：语音数据只在本地处理，不上传云端。
-- **一键切换**：右 `Ctrl` 单击即可开始 / 停止录音，不改变原有键盘习惯。
-- **本地 ASR**：基于 Qwen3-ASR-GGUF 0.6B 模型，配合 llama.cpp 本地推理。
-- **深度集成**：作为 Fcitx5 addon 工作，直接向当前输入上下文上屏，不模拟全局键盘事件。
-- **轻量提示**：Qt6 QML tooltip 跟随光标，显示录音与转写状态。
-
-## 构建安装
-
-### 1. 准备环境
-
-需要系统已安装：
-
-- Python >= 3.11
-- [uv](https://github.com/astral-sh/uv)
-- Qt6 开发包（Core/Gui/Qml/Quick/Widgets）
-- Fcitx5 开发包
 - CMake >= 3.16
-- PipeWire（运行时依赖，`pw-record`）
+- C++17 编译器
+- Qt6 Core/Gui/Qml/Quick/Widgets 开发包
+- DTK6 Widget/Core/Gui 开发包
+- Fcitx5 Core/Utils 开发包
+- PipeWire 运行时工具 `pw-record`
+- OpenBLAS 开发包（Debian/deepin: `libopenblas-dev`）
 
-### 2. 一键安装到当前用户
+初始化 qwen-asr 子模块：
 
 ```bash
-./install-user.sh
+git submodule update --init --recursive third_party/qwen-asr
 ```
 
-如果模型尚未准备好，可以先只安装文件而不启动服务：
+## 构建与测试
 
 ```bash
-./install-user.sh --no-start
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-安装脚本会自动完成：创建 uv 虚拟环境、构建并安装 Fcitx5 addon、构建并安装 QML 宿主、写入默认配置、安装 systemd 用户服务。
+常用 CLI 检查：
 
-### 3. 准备 Qwen ASR 0.6B 模型
+```bash
+./build/service/echoflow-service --print-default-config
+./build/service/echoflow-service --self-test
+```
 
-EchoFlow 不把模型权重放进仓库。运行脚本拉取项目并下载预转换模型：
+## 准备模型
+
+EchoFlow 不把模型权重放进仓库。默认使用 qwen-asr 0.6B safetensors 模型：
 
 ```bash
 ./scripts/setup-qwen-asr-0.6b.sh
 ```
 
-默认写入：
+默认安装到：
 
 ```text
-$HOME/AI/Model/Qwen3-ASR-GGUF
-$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B
+$HOME/AI/Model/qwen3-asr-0.6b
 ```
 
-llama.cpp 运行时已作为 submodule 内嵌在 `third_party/llama.cpp/`，通过
-`llama-runtime/` CMake 工程构建。克隆仓库后需初始化 submodule：
+安装后可用已有 wav 文件验证：
 
 ```bash
-git submodule update --init --recursive third_party/llama.cpp
+./build/service/echoflow-service --transcribe-file third_party/qwen-asr/samples/jfk.wav
 ```
 
-之后由 `install-user.sh` 默认构建（一次到位）：
+## 安装
+
+安装到当前用户：
 
 ```bash
 ./install-user.sh
 ```
 
-或单独构建（后端默认 AUTO：检测到 Vulkan SDK 与 glslc 则用 Vulkan，否则
-CPU）：
+只安装并 enable systemd 用户服务，不立即启动：
 
 ```bash
-cmake -S llama-runtime -B build/llama-runtime -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/llama-runtime
-cmake --install build/llama-runtime
+./install-user.sh --no-start
 ```
 
-`.so` 会被 `cp -a` 拷贝（保留符号链接）到
-`$HOME/AI/Model/Qwen3-ASR-GGUF/qwen_asr_gguf/inference/bin/`。
+安装内容包括：
 
-开发循环中若想跳过耗时的 llama 构建，传 `--no-llama`：
+- `$HOME/.local/bin/echoflow-service`
+- `$HOME/.local/bin/echoflow-ui`
+- Fcitx5 addon `libechoflow.so`
+- `~/.config/systemd/user/echoflow.service`
+- `~/.config/systemd/user/echoflow-ui.service`
+- 默认配置 `~/.config/echoflow/echoflow.conf`（仅在不存在时创建）
+
+如果更新了 Fcitx addon，需要手动重启 Fcitx：
 
 ```bash
-./install-user.sh --no-llama
+fcitx5 -rd
 ```
 
-### 4. 从源码运行（开发调试）
+## 开发运行
 
 ```bash
+./run.sh --print-default-config
+./run.sh --self-test
 ./run.sh
 ```
 
-`run.sh` 会在缺少 `.venv` 时自动创建虚拟环境。首次启动 `echoflow-ui` 时会自动生成默认配置。
-
-## 使用说明
-
-### 启动服务
-
-安装完成后，systemd 用户服务会在登录时自动启动。也可以手动管理：
-
-```bash
-systemctl --user start echoflow.service echoflow-ui.service
-systemctl --user enable echoflow.service echoflow-ui.service
-```
-
-### 设置对话框
-
-`echoflow-ui` 启动后会在系统托盘显示图标，右键点击图标选择“设置”即可打开 DTK 设置对话框：
-
-```bash
-$HOME/.local/bin/echoflow-ui
-```
-
-开发调试时直接运行构建产物：
+UI host 可直接运行：
 
 ```bash
 ./build/ui-host/echoflow-ui
 ```
 
-配置按 DTK 标准位置存放在 `~/.config/echoflow/echoflow.conf`，修改保存后需要重启服务以生效：
+## 配置
+
+配置文件位于：
+
+```text
+~/.config/echoflow/echoflow.conf
+```
+
+关键项：
+
+- `advanced.runtime.model_dir`: qwen-asr safetensors 模型目录。
+- `basic.recognition.language`: 识别语言，默认 `Chinese`。
+- `basic.recognition.prompt`: 可选提示词，用于术语纠正。
+- `basic.recognition.strip_trailing_punctuation`: 是否去除识别结果尾部标点。
+- `advanced.storage.recordings_dir`: 录音保存目录。
+
+修改配置后重启服务：
 
 ```bash
 systemctl --user restart echoflow.service echoflow-ui.service
 ```
 
-### 语音输入
+## 使用
 
-1. 将焦点放到任意可输入文本的位置；
-2. 轻点一下键盘右 `Ctrl`，屏幕 tooltip 提示“录音中”；
-3. 说完后，再点一下右 `Ctrl` 结束录音；
-4. 等待 tooltip 显示“转写中”，随后识别结果会自动上屏。
+1. 将焦点放到任意文本输入框。
+2. 轻点右 `Ctrl` 开始录音。
+3. 说完后再轻点右 `Ctrl`。
+4. 等待 tooltip 显示转写状态，识别结果随后上屏。
 
-### 运行自检
-
-配置好模型路径后，建议先跑自检：
-
-```bash
-$HOME/.local/share/echoflow/.venv/bin/echoflow-service --self-test
-```
-
-自检会检查录音目录、ASR runner、模型文件、`pw-record`、llama.cpp 共享库、通知命令以及 socket 路径是否具备运行条件。
-
-### 用已有音频验证 ASR
-
-不需要启动 Fcitx addon，也可以直接转写一段 wav 音频：
-
-```bash
-$HOME/.local/share/echoflow/.venv/bin/echoflow-service \
-  --transcribe-file /path/to/sample.wav
-```
-
-### 卸载
+## 卸载
 
 ```bash
 ./uninstall-user.sh
 ```
 
-卸载会保留 `$HOME/.config/echoflow` 和 `$HOME/.local/share/echoflow`，避免误删用户配置与录音状态。
+卸载会保留 `~/.config/echoflow` 和 `~/.local/share/echoflow`，避免误删用户配置和录音。
 
 ## 鸣谢
 
-EchoFlow 的开发离不开以下核心开源项目与参考实现：
-
-- [Fcitx5](https://github.com/fcitx/fcitx5) —— 输入法框架与 addon 生态。
-- [Qwen3-ASR-GGUF](https://github.com/QwenLM/Qwen3-ASR-GGUF) / [Qwen](https://github.com/QwenLM/Qwen) —— 本地语音识别的核心模型与推理实现。
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) —— GGUF 模型本地推理运行时。
-
-特别感谢 [xzl01/qwen-voice-input](https://github.com/xzl01/qwen-voice-input) 在离线 ASR、PipeWire 录音与 Fcitx 提交链路上提供的技术参考。
+- [Fcitx5](https://github.com/fcitx/fcitx5)
+- [qwen-asr](https://github.com/antirez/qwen-asr)
+- [Qwen](https://github.com/QwenLM/Qwen)
+- [xzl01/qwen-voice-input](https://github.com/xzl01/qwen-voice-input)
 
 ## License
 
-EchoFlow 采用 GNU General Public License v3.0 或更高版本授权（GPL-3.0-or-later）。
+GPL-3.0-or-later.

@@ -12,6 +12,7 @@ rm -f "$SYSTEMD_USER_DIR/echoflow.service" "$SYSTEMD_USER_DIR/echoflow-ui.servic
 systemctl --user daemon-reload 2>/dev/null || true
 
 rm -f "$HOME/.local/share/fcitx5/addon/echoflow.conf"
+rm -f "$PREFIX/bin/echoflow-service"
 rm -f "$PREFIX/bin/echoflow-ui"
 rm -f "$PREFIX/lib/fcitx5/libechoflow.so"
 rm -f "$PREFIX/lib/x86_64-linux-gnu/fcitx5/libechoflow.so"

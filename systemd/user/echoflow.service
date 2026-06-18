@@ -8,8 +8,7 @@ After=graphical-session.target
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/echoflow
-Environment=PATH=%h/.local/share/echoflow/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/share/echoflow/.venv/bin/echoflow-service
+ExecStart=%h/.local/bin/echoflow-service
 Restart=on-failure
 
 [Install]
