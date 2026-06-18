@@ -53,9 +53,25 @@ for verb in FOCUS BLUR CTRL_DOWN TYPED; do
   assert_contains "$ROOT/service/VoiceSession.cpp" "$verb" "verb $verb handled"
 done
 
-assert_absent "$ROOT/scripts/setup-qwen-asr-0.6b.sh" "/home/hualet/projects/hualet/echoflow/model" "setup script has no repo-local model path"
-assert_contains "$ROOT/scripts/setup-qwen-asr-0.6b.sh" "third_party/qwen-asr" "setup script uses qwen-asr submodule"
-assert_contains "$ROOT/scripts/setup-qwen-asr-0.6b.sh" "--model small" "setup script downloads small safetensors model"
+assert_script_absent() {
+  if [[ ! -e "$ROOT/scripts/setup-qwen-asr-0.6b.sh" ]]; then
+    echo "ok   - setup script removed"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - setup script should be removed ($ROOT/scripts/setup-qwen-asr-0.6b.sh still exists)"
+    fail=$((fail + 1))
+  fi
+}
+assert_script_absent
+
+assert_contains "$ROOT/ui-host/settings-schema.json" "modeldownload" "settings schema has modeldownload widget type"
+assert_contains "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-0.6B" "settings schema lists 0.6B model row"
+assert_contains "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-1.7B" "settings schema lists 1.7B model row"
+assert_contains "$ROOT/ui-host/settings-schema.json" "hf-mirror" "settings schema has hf-mirror download source"
+assert_absent "$ROOT/ui-host/settings-schema.json" "model_dir" "settings schema has no model_dir option"
+assert_absent "$ROOT/install-user.sh" "model_dir" "install-user.sh writes no model_dir"
+assert_contains "$ROOT/ui-host/SettingsDialog.cpp" "modeldownload" "SettingsDialog registers modeldownload factory"
+assert_contains "$ROOT/service/ModelCatalog.h" "Qwen/Qwen3-ASR-1.7B" "ModelCatalog knows the 1.7B repo"
 
 assert_absent "$ROOT/ui-host/settings-schema.json" "asr_runner" "settings schema drops asr_runner"
 assert_absent "$ROOT/ui-host/settings-schema.json" "asr_project_dir" "settings schema drops asr_project_dir"
