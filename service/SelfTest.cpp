@@ -3,7 +3,8 @@
 
 #include "SelfTest.h"
 
-#include <algorithm>
+#include "ModelCatalog.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -13,69 +14,8 @@
 namespace echoflow {
 namespace fs = std::filesystem;
 
-std::vector<fs::path> modelDirCandidates(const fs::path& modelDir)
-{
-    if (modelDir.filename() == "model-0.6B") {
-        return {modelDir, modelDir.parent_path() / "model"};
-    }
-    if (modelDir.filename() == "model") {
-        return {modelDir, modelDir.parent_path() / "model-0.6B"};
-    }
-    return {modelDir};
-}
-
-fs::path resolveModelDir(const Config& cfg)
-{
-    for (const auto& candidate : modelDirCandidates(fs::path(cfg.modelDir))) {
-        if (fs::exists(candidate)) {
-            return candidate;
-        }
-    }
-    return cfg.modelDir;
-}
-
-bool canCreateDirectory(const fs::path& path)
-{
-    fs::path candidate = path;
-    while (!fs::exists(candidate) && candidate != candidate.parent_path()) {
-        candidate = candidate.parent_path();
-    }
-
-    struct stat st {};
-    if (stat(candidate.c_str(), &st) != 0) {
-        return false;
-    }
-    return access(candidate.c_str(), W_OK | X_OK) == 0;
-}
-
-std::vector<std::string> missingModelFiles(const fs::path& modelDir)
-{
-    std::vector<std::string> missing;
-    if (!fs::exists(modelDir)) {
-        for (auto* file : kRequiredModelFiles) {
-            missing.emplace_back(file);
-        }
-        return missing;
-    }
-
-    for (auto* file : kRequiredModelFiles) {
-        if (!fs::exists(modelDir / file)) {
-            missing.emplace_back(file);
-        }
-    }
-
-    bool hasLargeIndex = fs::exists(modelDir / "model.safetensors.index.json");
-    bool hasLargeShards = fs::exists(modelDir / "model-00001-of-00002.safetensors")
-        && fs::exists(modelDir / "model-00002-of-00002.safetensors");
-    if (hasLargeIndex && hasLargeShards) {
-        missing.erase(std::remove(missing.begin(), missing.end(), std::string("model.safetensors")),
-                      missing.end());
-    }
-
-    return missing;
-}
-
-static std::string joinMissing(const std::vector<std::string>& missing)
+namespace {
+std::string joinMissing(const std::vector<std::string>& missing)
 {
     std::ostringstream out;
     for (size_t i = 0; i < missing.size(); ++i) {
@@ -86,20 +26,49 @@ static std::string joinMissing(const std::vector<std::string>& missing)
     }
     return out.str();
 }
+}  // namespace
+
+fs::path resolveModelDir(const Config& cfg)
+{
+    return cfg.modelDir;
+}
+
+bool canCreateDirectory(const fs::path& path)
+{
+    fs::path candidate = path;
+    while (!fs::exists(candidate) && candidate != candidate.parent_path()) {
+        candidate = candidate.parent_path();
+    }
+    struct stat st {};
+    if (stat(candidate.c_str(), &st) != 0) {
+        return false;
+    }
+    return access(candidate.c_str(), W_OK | X_OK) == 0;
+}
 
 std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
 {
-    auto modelDir = resolveModelDir(cfg);
-    auto missing = missingModelFiles(modelDir);
-    std::string modelDetail = missing.empty()
-        ? modelDir.string()
-        : modelDir.string() + " missing: " + joinMissing(missing);
+    const fs::path modelDir = resolveModelDir(cfg);
+    const ModelEntry* entry = findModel(cfg.modelName);
+
+    std::string modelDetail;
+    bool modelOk = false;
+    if (modelDir.empty() || entry == nullptr) {
+        const std::string display = modelCatalog().front().displayName;
+        modelDetail = "未下载 — 打开 EchoFlow 设置 → 模型 下载 " + display;
+    } else if (!fs::exists(modelDir)) {
+        modelDetail = "目录不存在: " + modelDir.string();
+    } else {
+        auto missing = missingModelFiles(modelDir, *entry);
+        modelOk = missing.empty();
+        modelDetail = modelOk ? modelDir.string()
+                              : modelDir.string() + " missing: " + joinMissing(missing);
+    }
 
     return {
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
-        {"model dir exists", fs::exists(modelDir), modelDir.string()},
-        {"model files present", missing.empty(), modelDetail},
+        {"model available", modelOk, modelDetail},
         {"control socket path parent", fs::exists(controlSocketPath(cfg).parent_path()),
          controlSocketPath(cfg).string()},
         {"fcitx socket path parent", fs::exists(fcitxSocketPath(cfg).parent_path()),
