@@ -59,7 +59,8 @@ private:
     qint64 currentReceived_ = 0;   // bytes received for the current file
     qint64 bytesTotalKnown_ = 0;   // sum of Content-Length across files (pre-flight)
     qint64 bytesTotalUnknown_ = 0; // set to 1 if any file's size could not be determined
-    int sizesRemaining_ = 0;       // outstanding HEAD requests during the sizing phase
+    std::vector<qint64> fileSizes_; // per pending_ file: sized length, or -1 if unknown
+    int sizesRemaining_ = 0;       // outstanding probe requests during the sizing phase
     std::vector<QNetworkReply*> sizeReplies_;
     bool cancelled_ = false;       // set by cancel() before abort; gates finished()
     QString fileError_;            // non-empty if a local write failed

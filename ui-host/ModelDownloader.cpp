@@ -65,35 +65,55 @@ void ModelDownloader::start() {
 }
 
 void ModelDownloader::beginSizing() {
-    // Pre-flight: HEAD every pending file so the aggregate total is known
-    // before the first byte is downloaded. Without this, the small JSON files
-    // (config.json, vocab.json, ...) would each push progress to 100% before
-    // the multi-GB shards start, because the denominator only reflected the
-    // file currently being transferred.
+    // Pre-flight: probe every pending file so the aggregate total is known
+    // before the first real byte is downloaded. Without this, the small JSON
+    // files (config.json, vocab.json, ...) would each push progress to 100%
+    // before the multi-GB shards start, because the denominator only reflected
+    // the file currently being transferred.
+    //
+    // We issue GETs (not HEADs) because some CDNs reject HEAD on the signed
+    // redirect URLs HuggingFace/hf-mirror hand out for LFS shards (405). The
+    // Content-Length is read once the first body byte arrives (i.e. on the
+    // final post-redirect response), then the reply is aborted — only a
+    // trivial amount of body data is transferred per file.
+    fileSizes_.assign(pending_.size(), -1);
     sizesRemaining_ = static_cast<int>(pending_.size());
-    for (const auto& file : pending_) {
-        QNetworkRequest req(urlFor(file));
+    for (size_t i = 0; i < pending_.size(); ++i) {
+        QNetworkRequest req(urlFor(pending_[i]));
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
         req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("echoflow"));
-        QNetworkReply* h = nam_->head(req);
-        sizeReplies_.push_back(h);
-        QObject::connect(h, &QNetworkReply::finished, this, [this, h]() {
-            h->deleteLater();
-            sizeReplies_.erase(std::remove(sizeReplies_.begin(), sizeReplies_.end(), h),
-                               sizeReplies_.end());
-            bool ok = false;
-            const qint64 len = h->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
-            if (ok && len > 0) {
-                bytesTotalKnown_ += len;
-            } else {
-                bytesTotalUnknown_ = 1;
+        QNetworkReply* g = nam_->get(req);
+        sizeReplies_.push_back(g);
+        QObject::connect(g, &QNetworkReply::readyRead, this, [this, g, i]() {
+            if (fileSizes_[i] >= 0) {
+                return;  // already sized this file
             }
+            bool ok = false;
+            const qint64 len = g->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
+            if (ok && len > 0) {
+                fileSizes_[i] = len;
+            }
+            g->abort();  // length captured (or unknowable); stop the body transfer
+        });
+        QObject::connect(g, &QNetworkReply::finished, this, [this, g]() {
+            g->deleteLater();
+            sizeReplies_.erase(std::remove(sizeReplies_.begin(), sizeReplies_.end(), g),
+                               sizeReplies_.end());
             --sizesRemaining_;
             if (cancelled_) {
                 return;  // cancel() already emitted finished
             }
             if (sizesRemaining_ == 0) {
+                bytesTotalKnown_ = 0;
+                bytesTotalUnknown_ = 0;
+                for (qint64 s : fileSizes_) {
+                    if (s > 0) {
+                        bytesTotalKnown_ += s;
+                    } else {
+                        bytesTotalUnknown_ = 1;
+                    }
+                }
                 currentIndex_ = 0;
                 fetchNext();  // total is known; begin downloading
             }
