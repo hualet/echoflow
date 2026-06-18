@@ -31,6 +31,32 @@ class LlamaRuntimeBuildTests(unittest.TestCase):
         )
         self.assertIn(LLAMA_CPP_PINNED_COMMIT, ls_tree)
 
+    def test_wrapper_cmake_uses_submodule_source(self):
+        cmake = (ROOT / "llama-runtime" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("add_subdirectory", cmake)
+        self.assertIn("third_party/llama.cpp", cmake)
+
+    def test_wrapper_cmake_supports_backend_selection(self):
+        cmake = (ROOT / "llama-runtime" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("ECHOFLOW_LLM_BACKEND", cmake)
+        self.assertIn("find_package(Vulkan", cmake)
+        self.assertIn("GGML_VULKAN", cmake)
+        self.assertIn("GGML_NATIVE", cmake)
+        self.assertIn("GGML_CUDA", cmake)
+
+    def test_wrapper_cmake_installs_to_qwen_inference_bin(self):
+        cmake = (ROOT / "llama-runtime" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("QWEN_ASR_PROJECT_DIR", cmake)
+        self.assertIn("qwen_asr_gguf/inference/bin", cmake)
+        self.assertIn("libllama*.so*", cmake)
+        self.assertIn("libggml*.so*", cmake)
+        # cp -a preserves the libllama.so -> libllama.so.0 symlink chain that
+        # the dynamic loader expects; file(COPY) would dereference symlinks.
+        self.assertIn("cp -a", cmake)
+
 
 if __name__ == "__main__":
     unittest.main()
