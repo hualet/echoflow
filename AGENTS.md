@@ -45,9 +45,6 @@ sh -n run.sh
 # Install for the current user
 ./install-user.sh
 ./install-user.sh --no-start
-
-# Prepare the default qwen-asr 0.6B safetensors model
-./scripts/setup-qwen-asr-0.6b.sh
 ```
 
 ## Architecture — boundaries you must respect
@@ -86,13 +83,19 @@ sh -n run.sh
   `SPDX-FileCopyrightText: 2026 Hualet Wang` and
   `SPDX-License-Identifier: GPL-3.0-or-later`.
 - Do not commit model weights, recordings, build directories, or installed
-  runtime artifacts. Models live outside the repo, by default under
-  `$HOME/AI/Model/qwen3-asr-0.6b`.
+  runtime artifacts. Models are downloaded from the settings dialog (DTK
+  `modeldownload` rows) into the config directory
+  (`~/.config/echoflow/qwen3-asr-0.6b` / `qwen3-asr-1.7b`). There is no download
+  script.
+- `service/ModelCatalog.h` is the single source of truth for model id / display
+  name / HF repo / file list; both `ui-host` (download) and `service/SelfTest`
+  (verification) include it. Do not duplicate the file lists elsewhere.
+- Model download lives in `ui-host` (Qt6 Network). `echoflow-service` never
+  performs HTTP. `Config::modelDir` is derived from `model_name` + the
+  config-file directory; the `model_dir` config key no longer exists.
 - Config lives at `~/.config/echoflow/echoflow.conf`. Paths inside use `$HOME`
   expansion. `install-user.sh` writes a default config only if it does not
   already exist.
-- `model-0.6B` and `model/` fallback handling still exists for compatibility,
-  but the default model path is `$HOME/AI/Model/qwen3-asr-0.6b`.
 - `install-user.sh` installs binaries and services but does not restart Fcitx;
   after addon changes, restart Fcitx manually with `fcitx5 -rd`.
 

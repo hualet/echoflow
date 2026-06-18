@@ -45,19 +45,21 @@ ctest --test-dir build --output-on-failure
 
 ## 准备模型
 
-EchoFlow 不把模型权重放进仓库。默认使用 qwen-asr 0.6B safetensors 模型：
+模型权重不放进仓库。打开 EchoFlow 托盘菜单 → **设置** → **模型**，点击对应模型右侧的 **下载** 按钮即可：
 
-```bash
-./scripts/setup-qwen-asr-0.6b.sh
-```
+- **Qwen3-ASR-0.6B**：默认模型，体积小、速度快。
+- **Qwen3-ASR-1.7B**：精度更高，体积更大。
 
-默认安装到：
+下载进度会实时显示在按钮左侧；下载完成后按钮变为 **已下载**。默认下载源为 `hf-mirror`（国内可达），可在「下载源」切换为 `official`（huggingface.co）。
+
+模型下载到与配置文件相同的目录：
 
 ```text
-$HOME/AI/Model/qwen3-asr-0.6b
+~/.config/echoflow/qwen3-asr-0.6b
+~/.config/echoflow/qwen3-asr-1.7b
 ```
 
-安装后可用已有 wav 文件验证：
+下载完成后可用已有 wav 验证：
 
 ```bash
 ./build/service/echoflow-service --transcribe-file third_party/qwen-asr/samples/jfk.wav
@@ -116,7 +118,8 @@ UI host 可直接运行：
 
 关键项：
 
-- `advanced.runtime.model_dir`: qwen-asr safetensors 模型目录。
+- `basic.model.model_name`: 活动模型，`qwen3-asr-0.6b` 或 `qwen3-asr-1.7b`（模型目录由该值推导）。
+- `basic.model.mirror`: 下载源，`hf-mirror`（默认）或 `official`。
 - `basic.recognition.language`: 识别语言，默认 `Chinese`。
 - `basic.recognition.prompt`: 可选提示词，用于术语纠正。
 - `basic.recognition.strip_trailing_punctuation`: 是否去除识别结果尾部标点。
