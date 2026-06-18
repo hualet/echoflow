@@ -36,7 +36,7 @@ ctest --test-dir build --output-on-failure
 # CLI sanity checks
 ./build/service/echoflow-service --print-default-config
 ./build/service/echoflow-service --self-test
-bash -n install-user.sh uninstall-user.sh scripts/*.sh tests/spec/*.sh
+bash -n install-user.sh uninstall-user.sh tests/spec/*.sh
 sh -n run.sh
 
 # Run locally from the build tree

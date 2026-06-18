@@ -96,13 +96,25 @@ void ModelDownloader::fetchNext() {
         if (!fileError_.isEmpty()) {
             return;  // already failed to write; drop further data until abort lands
         }
+        const QByteArray chunk = reply_->readAll();
+        if (chunk.isEmpty()) {
+            return;
+        }
         QFile f(partPath);
         if (!f.open(QIODevice::Append)) {
             fileError_ = QStringLiteral("无法写入: ") + partPath;
             reply_->abort();  // finished lambda surfaces fileError_
             return;
         }
-        f.write(reply_->readAll());
+        const qint64 written = f.write(chunk);
+        f.close();  // flush; deferred disk-full / I/O errors surface via error()
+        if (written != chunk.size() || f.error() != QFileDevice::NoError) {
+            // Short write or I/O error (e.g. disk full): the .part is truncated.
+            // Flag it so the finished handler removes the .part instead of
+            // renaming a corrupt file that qwen-asr would fail to load.
+            fileError_ = QStringLiteral("写入失败（磁盘已满？）: ") + partPath;
+            reply_->abort();
+        }
     });
 
     // Count each file's total exactly once, summed across all files.
