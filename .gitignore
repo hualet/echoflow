@@ -64,8 +64,6 @@ __pycache__/
 *.egg-info/
 
 # EchoFlow — user config, recordings, and model artifacts
-# (config.example.json is tracked; config.json is user-specific)
-/config.json
 *.wav
 /model/
 /model-0.6B/

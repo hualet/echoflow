@@ -10,6 +10,7 @@ service owns the push-to-talk state machine, recording, ASR, and text commit.
 from __future__ import annotations
 
 import argparse
+import configparser
 import dataclasses
 import json
 import os
@@ -44,9 +45,6 @@ class Config:
     min_record_seconds: float
     pw_record: dict[str, Any]
     fcitx_commit: bool
-    fcitx_socket: Optional[str]
-    control_socket: Optional[str]
-    ui_socket: Optional[str]
     strip_trailing_punctuation: bool
 
     @classmethod
@@ -63,9 +61,6 @@ class Config:
             min_record_seconds=0.25,
             pw_record={"rate": 16000, "channels": 1, "format": "s16"},
             fcitx_commit=True,
-            fcitx_socket=None,
-            control_socket=None,
-            ui_socket=None,
             strip_trailing_punctuation=False,
         )
 
@@ -118,6 +113,66 @@ def expand_path(value: Any, base_dir: Path) -> str:
     return str(expanded)
 
 
+_DTK_PATH_TO_CONFIG_KEY = {
+    "basic.model.model_name": "model_name",
+    "basic.recognition.language": "language",
+    "basic.recognition.strip_trailing_punctuation": "strip_trailing_punctuation",
+    "basic.recording.min_record_seconds": "min_record_seconds",
+    "basic.recording.rate": "pw_record.rate",
+    "basic.recording.channels": "pw_record.channels",
+    "basic.recording.format": "pw_record.format",
+    "advanced.runtime.asr_project_dir": "asr_project_dir",
+    "advanced.runtime.model_dir": "model_dir",
+    "advanced.runtime.asr_runner": "asr_runner",
+    "advanced.runtime.asr_timeout_seconds": "asr_timeout_seconds",
+    "advanced.fcitx.fcitx_commit": "fcitx_commit",
+    "advanced.storage.recordings_dir": "recordings_dir",
+}
+
+
+def _convert_conf_value(config_key: str, value: str) -> Any:
+    if config_key in {"asr_timeout_seconds", "pw_record.rate", "pw_record.channels"}:
+        return int(value)
+    if config_key == "min_record_seconds":
+        return float(value)
+    if config_key in {"fcitx_commit", "strip_trailing_punctuation"}:
+        return value.lower() in {"true", "1", "yes", "on"}
+    return value
+
+
+def load_dtk_conf(path: Path) -> Config:
+    path = path.expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    parser = configparser.ConfigParser()
+    parser.read(path, encoding="utf-8")
+
+    raw: dict[str, Any] = {}
+    pw_record: dict[str, Any] = {}
+    for section in parser.sections():
+        config_key = _DTK_PATH_TO_CONFIG_KEY.get(section)
+        if not config_key:
+            continue
+        if not parser.has_option(section, "value"):
+            continue
+        value = _convert_conf_value(config_key, parser.get(section, "value"))
+        if config_key.startswith("pw_record."):
+            pw_record[config_key.split(".", 1)[1]] = value
+        else:
+            raw[config_key] = value
+
+    defaults = dataclasses.asdict(Config.default())
+    defaults.update(raw)
+    if pw_record:
+        defaults["pw_record"] = {**defaults["pw_record"], **pw_record}
+
+    for key in {"recordings_dir", "asr_project_dir", "model_dir"}:
+        if defaults.get(key) is not None:
+            defaults[key] = expand_path(defaults[key], path.parent)
+    allowed = {field.name for field in dataclasses.fields(Config)}
+    return Config(**{key: value for key, value in defaults.items() if key in allowed})
+
+
 def load_config(path: Path) -> Config:
     path = path.expanduser()
     if not path.is_absolute():
@@ -126,28 +181,22 @@ def load_config(path: Path) -> Config:
     base = path.parent
     defaults = dataclasses.asdict(Config.default())
     defaults.update(raw)
-    for key in {"recordings_dir", "asr_project_dir", "model_dir", "fcitx_socket", "control_socket", "ui_socket"}:
+    for key in {"recordings_dir", "asr_project_dir", "model_dir"}:
         if defaults.get(key) is not None:
             defaults[key] = expand_path(defaults[key], base)
     allowed = {field.name for field in dataclasses.fields(Config)}
     return Config(**{key: value for key, value in defaults.items() if key in allowed})
 
 
-def control_socket_path(cfg: Config) -> Path:
-    if cfg.control_socket:
-        return Path(cfg.control_socket).expanduser()
+def control_socket_path(_cfg: Config) -> Path:
     return runtime_dir() / "echoflow-control.sock"
 
 
-def fcitx_socket_path(cfg: Config) -> Path:
-    if cfg.fcitx_socket:
-        return Path(cfg.fcitx_socket).expanduser()
+def fcitx_socket_path(_cfg: Config) -> Path:
     return runtime_dir() / "echoflow-fcitx.sock"
 
 
-def ui_socket_path(cfg: Config) -> Path:
-    if cfg.ui_socket:
-        return Path(cfg.ui_socket).expanduser()
+def ui_socket_path(_cfg: Config) -> Path:
     return runtime_dir() / "echoflow-ui.sock"
 
 
@@ -550,9 +599,16 @@ def serve(cfg: Config) -> int:
                     log(f"reply to control peer failed ({peer}): {exc}")
 
 
+def default_config_path() -> Path:
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "echoflow" / "echoflow.conf"
+    return Path.home() / ".config" / "echoflow" / "echoflow.conf"
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="EchoFlow offline voice input service")
-    parser.add_argument("--config", type=Path, default=Path("config.json"))
+    parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument("--print-default-config", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument(
@@ -564,7 +620,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.print_default_config:
         print(json.dumps(dataclasses.asdict(Config.default()), ensure_ascii=False, indent=2))
         return 0
-    cfg = load_config(args.config) if args.config.exists() else Config.default()
+    cfg = load_dtk_conf(args.config) if args.config.exists() else Config.default()
     if args.self_test:
         return self_test(cfg)
     if args.transcribe_file:

@@ -47,5 +47,5 @@ Next:
      "asr_project_dir": "$PROJECT_DIR"
      "model_dir": "$MODEL_DIR"
   3. Run:
-     echoflow-service --config <config.json> --self-test
+     echoflow-service --self-test
 EOF

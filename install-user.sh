@@ -45,23 +45,42 @@ mkdir -p "$STATE_DIR" "$CONFIG_DIR" "$SYSTEMD_USER_DIR"
 uv venv "$STATE_DIR/.venv"
 uv pip install --python "$STATE_DIR/.venv/bin/python" "$ROOT_DIR"
 
-if [[ ! -e "$CONFIG_DIR/config.json" ]]; then
-  install -m 0644 "$ROOT_DIR/config.example.json" "$CONFIG_DIR/config.json"
-fi
-
 ASR_RUNNER="$STATE_DIR/.venv/bin/qwen-asr-transcribe"
-python3 - "$CONFIG_DIR/config.json" "$ASR_RUNNER" <<'PY'
-import json
+if [[ ! -e "$CONFIG_DIR/echoflow.conf" ]]; then
+  python3 - "$CONFIG_DIR" "$ASR_RUNNER" <<'PY'
+import configparser
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+config_dir = Path(sys.argv[1])
+config_dir.mkdir(parents=True, exist_ok=True)
+conf_path = config_dir / "echoflow.conf"
 runner = sys.argv[2]
-data = json.loads(path.read_text(encoding="utf-8"))
-if data.get("asr_runner") in (None, "qwen-asr-transcribe"):
-    data["asr_runner"] = runner
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+defaults = {
+    "basic.model.model_name": "qwen-asr-0.6b",
+    "basic.recognition.language": "Chinese",
+    "basic.recognition.strip_trailing_punctuation": "false",
+    "basic.recording.min_record_seconds": "0.25",
+    "basic.recording.rate": "16000",
+    "basic.recording.channels": "1",
+    "basic.recording.format": "s16",
+    "advanced.runtime.asr_project_dir": "$HOME/AI/Model/Qwen3-ASR-GGUF",
+    "advanced.runtime.model_dir": "$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B",
+    "advanced.runtime.asr_runner": runner,
+    "advanced.runtime.asr_timeout_seconds": "120",
+    "advanced.fcitx.fcitx_commit": "true",
+    "advanced.storage.recordings_dir": "$HOME/.local/share/echoflow/recordings",
+}
+
+parser = configparser.ConfigParser()
+for key, value in defaults.items():
+    parser.add_section(key)
+    parser.set(key, "value", value)
+with open(conf_path, "w", encoding="utf-8") as f:
+    parser.write(f)
 PY
+fi
 
 cmake -S "$ROOT_DIR/fcitx-addon" -B "$BUILD_DIR/fcitx-addon" \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
@@ -100,7 +119,7 @@ else
 fi
 
 echo "EchoFlow installed."
-echo "Config: $CONFIG_DIR/config.json"
+echo "Config: $CONFIG_DIR/echoflow.conf"
 echo "Fcitx addon: $FCITX_ADDON_DIR/echoflow.conf"
 echo "Restart Fcitx if needed: fcitx5 -rd"
 if [[ "$START_SERVICES" == "0" ]]; then

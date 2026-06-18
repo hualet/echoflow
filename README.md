@@ -79,11 +79,10 @@ LLAMA_BUILD_DIR=$HOME/AI/Model/llama.cpp-build/build \
 ### 4. 从源码运行（开发调试）
 
 ```bash
-cp config.example.json config.json
-./run.sh --config config.json
+./run.sh
 ```
 
-`run.sh` 会在缺少 `.venv` 时自动创建虚拟环境。
+`run.sh` 会在缺少 `.venv` 时自动创建虚拟环境。首次启动 `echoflow-ui` 时会自动生成默认配置。
 
 ## 使用说明
 
@@ -94,6 +93,26 @@ cp config.example.json config.json
 ```bash
 systemctl --user start echoflow.service echoflow-ui.service
 systemctl --user enable echoflow.service echoflow-ui.service
+```
+
+### 设置对话框
+
+`echoflow-ui` 启动后会在系统托盘显示图标，右键点击图标选择“设置”即可打开 DTK 设置对话框：
+
+```bash
+$HOME/.local/bin/echoflow-ui
+```
+
+开发调试时直接运行构建产物：
+
+```bash
+./build/ui-host/echoflow-ui
+```
+
+配置按 DTK 标准位置存放在 `~/.config/echoflow/echoflow.conf`，修改保存后需要重启服务以生效：
+
+```bash
+systemctl --user restart echoflow.service echoflow-ui.service
 ```
 
 ### 语音输入
@@ -108,9 +127,7 @@ systemctl --user enable echoflow.service echoflow-ui.service
 配置好模型路径后，建议先跑自检：
 
 ```bash
-$HOME/.local/share/echoflow/.venv/bin/echoflow-service \
-  --config $HOME/.config/echoflow/config.json \
-  --self-test
+$HOME/.local/share/echoflow/.venv/bin/echoflow-service --self-test
 ```
 
 自检会检查录音目录、ASR runner、模型文件、`pw-record`、llama.cpp 共享库、通知命令以及 socket 路径是否具备运行条件。
@@ -121,7 +138,6 @@ $HOME/.local/share/echoflow/.venv/bin/echoflow-service \
 
 ```bash
 $HOME/.local/share/echoflow/.venv/bin/echoflow-service \
-  --config $HOME/.config/echoflow/config.json \
   --transcribe-file /path/to/sample.wav
 ```
 

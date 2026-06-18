@@ -10,7 +10,7 @@ through a Fcitx5 addon. Three layers must stay cleanly separated.
 - Python >= 3.11 via `uv`; console scripts `echoflow-service`
   (`echoflow.service:main`) and `qwen-asr-transcribe` (`echoflow.asr_runner:main`).
 - C++17, CMake >= 3.16: `fcitx-addon/` (Fcitx5 addon) and `ui-host/` (Qt6
-  Core/Gui/Qml/Quick/Widgets).
+  Core/Gui/Qml/Quick/Widgets + DTK6 Widget/Core/Gui).
 - Recording: PipeWire (`pw-record`). ASR: Qwen3-ASR-GGUF (llama.cpp + onnxruntime).
 - No packaging (no debian/linglong), no CI, no pre-commit.
 
@@ -25,14 +25,12 @@ uv run python -m unittest tests.test_service -v
 uv run python -m unittest tests.test_service.MainCliTests.test_transcribe_file_prints_asr_text_without_starting_service
 
 # Run service locally (auto-creates .venv if missing via `uv venv`, then `uv run`)
-cp config.example.json config.json
-./run.sh --config config.json
+./run.sh
 
 # CLI sanity checks (these are the real "lint/typecheck" — there is no CI)
 uv run echoflow-service --print-default-config
 uv run qwen-asr-transcribe --help
 python3 -m py_compile echoflow/*.py tests/*.py
-python3 -m json.tool config.example.json
 bash -n install-user.sh uninstall-user.sh run.sh scripts/*.sh
 
 # Build the two C++ components (need Qt6 + Fcitx5 dev packages)
@@ -51,9 +49,10 @@ cmake -S fcitx-addon -B build/fcitx-addon -DCMAKE_BUILD_TYPE=RelWithDebInfo && c
 - `fcitx-addon/` (C++) — owns input-context events and **right** `Ctrl` capture;
   talks to the Python service over `echoflow-fcitx.sock` and commits results to
   Fcitx.
-- `ui-host/` + `qml/EchoFlowTooltip.qml` (C++/Qt) — tooltip host over
-  `echoflow-ui.sock`. **Deliberately not PySide/PyQt** (a test enforces their
-  absence from `pyproject.toml`); future settings UI stays C++/Qt/DTK.
+- `ui-host/` + `qml/EchoFlowTooltip.qml` (C++/Qt/DTK) — tooltip host over
+  `echoflow-ui.sock` plus a system tray icon that opens the DTK settings dialog.
+  **Deliberately not PySide/PyQt** (a test enforces their absence from
+  `pyproject.toml`).
 - Runtime sockets live under `/run/user/$UID/`.
 
 ## Testing quirks
@@ -81,9 +80,10 @@ the suite runs with no model weights, no PipeWire, and no Fcitx.
 - **Do not commit** model weights, llama.cpp builds/shared libs, recordings, or
   `.venv/`. They are gitignored and provisioned by `scripts/*.sh` to
   `$HOME/AI/Model/Qwen3-ASR-GGUF`.
-- Config: copy `config.example.json` → `config.json`. Paths inside use `$HOME`
-  expansion. `install-user.sh` rewrites `asr_runner` to the installed venv path
-  and never overwrites an existing `config.json`.
+- Config: DTK standard location at `~/.config/echoflow/echoflow.conf`. Paths
+  inside use `$HOME` expansion. `install-user.sh` writes a default `.conf` with
+  `asr_runner` pointing to the installed venv entrypoint and never overwrites an
+  existing `.conf`.
 - ASR runtime needs `libllama*.so*` + `libggml*.so*` placed at
   `<project>/qwen_asr_gguf/inference/bin/`; this is machine/GPU-specific and not
   automated. Use `echoflow-service --self-test` to see what's missing.

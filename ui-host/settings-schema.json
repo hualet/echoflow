@@ -1,0 +1,133 @@
+{
+  "groups": [
+    {
+      "key": "basic",
+      "name": "基础设置",
+      "groups": [
+        {
+          "key": "model",
+          "name": "模型",
+          "options": [
+            {
+              "key": "model_name",
+              "name": "模型名称",
+              "type": "combobox",
+              "default": "qwen-asr-0.6b"
+            }
+          ]
+        },
+        {
+          "key": "recognition",
+          "name": "识别选项",
+          "options": [
+            {
+              "key": "language",
+              "name": "识别语言",
+              "type": "combobox",
+              "default": "Chinese"
+            },
+            {
+              "key": "strip_trailing_punctuation",
+              "text": "去除识别结果尾部标点",
+              "type": "checkbox",
+              "default": false
+            }
+          ]
+        },
+        {
+          "key": "recording",
+          "name": "录音",
+          "options": [
+            {
+              "key": "min_record_seconds",
+              "name": "最短录音时间（秒）",
+              "type": "lineedit",
+              "default": "0.25"
+            },
+            {
+              "key": "rate",
+              "name": "采样率（Hz）",
+              "type": "combobox",
+              "default": 16000
+            },
+            {
+              "key": "channels",
+              "name": "声道数",
+              "type": "combobox",
+              "default": 1
+            },
+            {
+              "key": "format",
+              "name": "采样格式",
+              "type": "combobox",
+              "default": "s16"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "advanced",
+      "name": "高级设置",
+      "groups": [
+        {
+          "key": "runtime",
+          "name": "运行环境",
+          "options": [
+            {
+              "key": "asr_project_dir",
+              "name": "ASR 项目目录（含推理代码与 llama.cpp 运行库）",
+              "type": "lineedit",
+              "default": "$HOME/AI/Model/Qwen3-ASR-GGUF"
+            },
+            {
+              "key": "model_dir",
+              "name": "模型权重目录（如 model-0.6B）",
+              "type": "lineedit",
+              "default": "$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B"
+            },
+            {
+              "key": "asr_runner",
+              "name": "ASR 运行器",
+              "type": "lineedit",
+              "default": "qwen-asr-transcribe"
+            },
+            {
+              "key": "asr_timeout_seconds",
+              "name": "识别超时（秒）",
+              "type": "spinbutton",
+              "default": 120,
+              "min": 10,
+              "max": 3600,
+              "step": 10
+            }
+          ]
+        },
+        {
+          "key": "fcitx",
+          "name": "Fcitx",
+          "options": [
+            {
+              "key": "fcitx_commit",
+              "text": "启用 Fcitx 上屏",
+              "type": "checkbox",
+              "default": true
+            }
+          ]
+        },
+        {
+          "key": "storage",
+          "name": "存储",
+          "options": [
+            {
+              "key": "recordings_dir",
+              "name": "录音保存目录",
+              "type": "lineedit",
+              "default": "$HOME/.local/share/echoflow/recordings"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

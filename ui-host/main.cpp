@@ -14,16 +14,28 @@
 #include <unistd.h>
 #include <utility>
 
+#include <QAction>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QMenu>
+#include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QScreen>
 #include <QSocketNotifier>
+#include <QStandardPaths>
+#include <QStyle>
 #include <QString>
+#include <QSystemTrayIcon>
 #include <QUrl>
+
+#include "EchoFlowSettings.h"
+#include "SettingsDialog.h"
 
 namespace {
 
@@ -51,11 +63,20 @@ std::string defaultUiSocketPath() {
 }
 
 QString defaultQmlPath() {
-    return QStringLiteral(ECHOFLOW_QML_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
+    const QString installed = QStringLiteral(ECHOFLOW_QML_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
+    if (QFile::exists(installed)) {
+        return installed;
+    }
+    return QStringLiteral(ECHOFLOW_QML_SOURCE_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
 }
 
 std::string defaultControlSocketPath() {
     return runtimeDir() + "/echoflow-control.sock";
+}
+
+QString defaultConfigPath() {
+    return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+           QStringLiteral("/echoflow/echoflow.conf");
 }
 
 // Fire-and-forget datagram to the echoflow-service control socket, mirroring the
@@ -245,24 +266,31 @@ private:
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("EchoFlow"));
+    app.setApplicationName(QStringLiteral("echoflow-ui"));
+    app.setOrganizationName(QStringLiteral("echoflow"));
+    app.setQuitOnLastWindowClosed(false);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("EchoFlow QML tooltip host"));
     parser.addHelpOption();
-    QCommandLineOption socketOption(QStringLiteral("socket"), QStringLiteral("UI socket path"), QStringLiteral("path"),
-                                    QString::fromStdString(defaultUiSocketPath()));
+
     QCommandLineOption qmlOption(QStringLiteral("qml"), QStringLiteral("QML file path"), QStringLiteral("path"),
                                  defaultQmlPath());
-    QCommandLineOption controlSocketOption(
-        QStringLiteral("control-socket"), QStringLiteral("echoflow-service control socket path"),
-        QStringLiteral("path"), QString::fromStdString(defaultControlSocketPath()));
-    parser.addOption(socketOption);
+    QCommandLineOption configOption(
+        QStringLiteral("config"), QStringLiteral("Path to echoflow.conf"),
+        QStringLiteral("path"), defaultConfigPath());
     parser.addOption(qmlOption);
-    parser.addOption(controlSocketOption);
+    parser.addOption(configOption);
     parser.process(app);
 
-    TooltipController controller(parser.value(controlSocketOption));
+    const QString configPath = parser.value(configOption);
+    if (!echoflow::EchoFlowSettings::instance()->init(configPath)) {
+        QMessageBox::critical(nullptr, QStringLiteral("EchoFlow"),
+                              QStringLiteral("无法加载设置 schema。"));
+        return 1;
+    }
+
+    TooltipController controller(QString::fromStdString(defaultControlSocketPath()));
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("tooltipController"), &controller);
     engine.load(QUrl::fromLocalFile(parser.value(qmlOption)));
@@ -270,12 +298,41 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    UiSocketServer server(parser.value(socketOption), &controller);
+    UiSocketServer server(QString::fromStdString(defaultUiSocketPath()), &controller);
     QString error;
     if (!server.start(&error)) {
         qCritical("%s", qPrintable(error));
         return 1;
     }
+
+    QMenu trayMenu;
+    QAction *settingsAction = trayMenu.addAction(QObject::tr("设置"));
+    QAction *quitAction = trayMenu.addAction(QObject::tr("退出"));
+
+    QSystemTrayIcon trayIcon;
+    trayIcon.setContextMenu(&trayMenu);
+    trayIcon.setIcon(app.style()->standardIcon(QStyle::SP_ComputerIcon));
+    trayIcon.setToolTip(QStringLiteral("EchoFlow"));
+    trayIcon.show();
+
+    echoflow::SettingsDialog *settingsDialog = nullptr;
+    auto openSettings = [&]() {
+        if (!settingsDialog) {
+            settingsDialog = new echoflow::SettingsDialog(
+                echoflow::EchoFlowSettings::instance()->dsettings());
+            settingsDialog->setAttribute(Qt::WA_DeleteOnClose);
+            QObject::connect(settingsDialog, &QObject::destroyed, [&]() {
+                echoflow::EchoFlowSettings::instance()->sync();
+                settingsDialog = nullptr;
+            });
+        }
+        settingsDialog->show();
+        settingsDialog->raise();
+        settingsDialog->activateWindow();
+    };
+
+    QObject::connect(settingsAction, &QAction::triggered, openSettings);
+    QObject::connect(quitAction, &QAction::triggered, &app, &QApplication::quit);
 
     return app.exec();
 }

@@ -578,17 +578,15 @@ class ServerProtocolTests(unittest.TestCase):
     def test_service_survives_fire_and_forget_addon_datagrams(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            control_socket = root / "control.sock"
-            ui_socket = root / "ui.sock"
-            config = root / "config.json"
+            control_socket = root / "echoflow-control.sock"
+            ui_socket = root / "echoflow-ui.sock"
+            config = root / "echoflow.conf"
             config.write_text(
-                json.dumps({
-                    "control_socket": str(control_socket),
-                    "ui_socket": str(ui_socket),
-                    "fcitx_commit": False,
-                }),
+                "[advanced.fcitx.fcitx_commit]\nvalue=false\n",
                 encoding="utf-8",
             )
+            env = os.environ.copy()
+            env["XDG_RUNTIME_DIR"] = str(root)
             proc = subprocess.Popen(
                 [
                     sys.executable,
@@ -601,6 +599,7 @@ class ServerProtocolTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env,
             )
             output = ""
             try:
@@ -633,16 +632,17 @@ class ServerProtocolTests(unittest.TestCase):
 
 
 class ConfigLoadingTests(unittest.TestCase):
-    def test_load_config_expands_paths_from_json(self):
+    def test_load_dtk_conf_expands_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.json"
+            path = Path(tmp) / "echoflow.conf"
             path.write_text(
-                '{"recordings_dir":"records","model_dir":"~/models/qwen-asr-0.6b"}',
+                "[advanced.storage.recordings_dir]\nvalue=records\n"
+                "[advanced.runtime.model_dir]\nvalue=~/models/qwen-asr-0.6b\n",
                 encoding="utf-8",
             )
 
             with mock.patch.dict(service.os.environ, {"HOME": "/home/tester"}):
-                cfg = service.load_config(path)
+                cfg = service.load_dtk_conf(path)
 
         self.assertEqual(cfg.recordings_dir, str(Path(tmp) / "records"))
         self.assertEqual(cfg.model_dir, "/home/tester/models/qwen-asr-0.6b")

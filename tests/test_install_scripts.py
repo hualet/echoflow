@@ -52,8 +52,9 @@ class InstallScriptTests(unittest.TestCase):
         script = (ROOT / "install-user.sh").read_text(encoding="utf-8")
 
         self.assertIn("ASR_RUNNER=\"$STATE_DIR/.venv/bin/qwen-asr-transcribe\"", script)
-        self.assertIn("if data.get(\"asr_runner\") in (None, \"qwen-asr-transcribe\"):", script)
-        self.assertIn("data[\"asr_runner\"] = runner", script)
+        self.assertIn("configparser", script)
+        self.assertIn("echoflow.conf", script)
+        self.assertIn("advanced.runtime.asr_runner", script)
 
 
 if __name__ == "__main__":
