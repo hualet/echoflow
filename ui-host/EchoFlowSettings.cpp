@@ -51,7 +51,7 @@ bool EchoFlowSettings::init(const QString &configPath) {
             QStringLiteral("basic.recording.rate"),
             QStringLiteral("basic.recording.channels"),
             QStringLiteral("basic.recording.format"),
-            QStringLiteral("advanced.runtime.model_dir"),
+            QStringLiteral("basic.model.mirror"),
             QStringLiteral("advanced.runtime.asr_timeout_seconds"),
             QStringLiteral("advanced.fcitx.fcitx_commit"),
             QStringLiteral("advanced.storage.recordings_dir"),
@@ -88,7 +88,11 @@ void EchoFlowSettings::sync() {
 
 void EchoFlowSettings::populateComboBoxes() {
     setComboBoxItems(dsettings_, QStringLiteral("basic.model.model_name"),
-                     QStringList{QStringLiteral("qwen-asr-0.6b")});
+                     QStringList{QStringLiteral("qwen3-asr-0.6b"),
+                                 QStringLiteral("qwen3-asr-1.7b")});
+    setComboBoxItems(dsettings_, QStringLiteral("basic.model.mirror"),
+                     QStringList{QStringLiteral("hf-mirror"),
+                                 QStringLiteral("official")});
     setComboBoxItems(dsettings_, QStringLiteral("basic.recognition.language"),
                      QStringList{QStringLiteral("Chinese"), QStringLiteral("English"),
                                   QStringLiteral("Japanese"), QStringLiteral("auto")});

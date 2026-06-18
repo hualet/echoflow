@@ -12,7 +12,25 @@
               "key": "model_name",
               "name": "模型名称",
               "type": "combobox",
-              "default": "qwen-asr-0.6b"
+              "default": "qwen3-asr-0.6b"
+            },
+            {
+              "key": "download_0.6b",
+              "name": "Qwen3-ASR-0.6B",
+              "type": "modeldownload",
+              "default": ""
+            },
+            {
+              "key": "download_1.7b",
+              "name": "Qwen3-ASR-1.7B",
+              "type": "modeldownload",
+              "default": ""
+            },
+            {
+              "key": "mirror",
+              "name": "下载源",
+              "type": "combobox",
+              "default": "hf-mirror"
             }
           ]
         },
@@ -80,12 +98,6 @@
           "key": "runtime",
           "name": "运行环境",
           "options": [
-            {
-              "key": "model_dir",
-              "name": "模型权重目录（safetensors）",
-              "type": "lineedit",
-              "default": "$HOME/AI/Model/qwen3-asr-0.6b"
-            },
             {
               "key": "asr_timeout_seconds",
               "name": "识别超时（秒）",
