@@ -13,24 +13,25 @@ class TestConfig : public QObject {
 private slots:
     void defaultConfigHasExpectedFields();
     void expandPathResolvesHome();
-    void loadDtkConfParsesValues();
-    void loadDtkConfMigratesLegacyDefaultModelDir();
+    void normalizeModelNameMapsVariants();
+    void loadDtkConfDerivesModelDirFromName();
+    void loadDtkConfNormalizesLegacyModelName();
+    void loadDtkConfIgnoresModelDirKey();
     void loadDtkConfIgnoresUnknownSections();
 };
 
-void TestConfig::defaultConfigHasExpectedFields()
-{
+void TestConfig::defaultConfigHasExpectedFields() {
     Config c = Config::defaultConfig();
-    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen3-asr-0.6b"));
     QCOMPARE(c.pwRecord.rate, 16000);
     QCOMPARE(QString::fromStdString(c.pwRecord.format), QStringLiteral("s16"));
     QCOMPARE(c.fcitxCommit, true);
     QVERIFY(c.language.has_value());
     QCOMPARE(QString::fromStdString(*c.language), QStringLiteral("Chinese"));
+    QVERIFY(c.modelDir.empty());
 }
 
-void TestConfig::expandPathResolvesHome()
-{
+void TestConfig::expandPathResolvesHome() {
     setenv("HOME", "/tmp/fakehome", 1);
     std::filesystem::path base("/home/u/.config/echoflow");
     QCOMPARE(QString::fromStdString(expandPath("$HOME/AI/Model/qwen3-asr-0.6b", base)),
@@ -39,48 +40,69 @@ void TestConfig::expandPathResolvesHome()
              QStringLiteral("/home/u/.config/echoflow/recordings"));
 }
 
-void TestConfig::loadDtkConfParsesValues()
-{
+void TestConfig::normalizeModelNameMapsVariants() {
+    QCOMPARE(QString::fromStdString(normalizeModelName("qwen-asr-0.6b")), QStringLiteral("qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("0.6b")), QStringLiteral("qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("0.6B")), QStringLiteral("qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("1.7B")), QStringLiteral("qwen3-asr-1.7b"));
+    // Unknown / empty are returned unchanged (no invented default).
+    QCOMPARE(QString::fromStdString(normalizeModelName("something-else")), QStringLiteral("something-else"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("")), QStringLiteral(""));
+}
+
+void TestConfig::loadDtkConfDerivesModelDirFromName() {
     QTemporaryFile f;
     QVERIFY(f.open());
-    f.write("[basic.model.model_name]\nvalue=qwen-asr-0.6b\n"
+    f.write("[basic.model.model_name]\nvalue=qwen3-asr-1.7b\n"
             "[basic.recognition.language]\nvalue=English\n"
             "[basic.recognition.prompt]\nvalue=Preserve spelling: CUDA\n"
             "[basic.recording.rate]\nvalue=22050\n"
             "[basic.recording.min_record_seconds]\nvalue=0.5\n"
             "[basic.recognition.strip_trailing_punctuation]\nvalue=true\n"
-            "[advanced.fcitx.fcitx_commit]\nvalue=false\n"
-            "[advanced.runtime.model_dir]\nvalue=$HOME/AI/Model/qwen3-asr-0.6b\n");
+            "[advanced.fcitx.fcitx_commit]\nvalue=false\n");
     f.close();
 
     Config c = loadDtkConf(f.fileName().toStdString());
-    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen3-asr-1.7b"));
     QCOMPARE(QString::fromStdString(*c.language), QStringLiteral("English"));
     QCOMPARE(QString::fromStdString(c.prompt), QStringLiteral("Preserve spelling: CUDA"));
     QCOMPARE(c.pwRecord.rate, 22050);
     QCOMPARE(c.minRecordSeconds, 0.5);
     QCOMPARE(c.stripTrailingPunctuation, true);
     QCOMPARE(c.fcitxCommit, false);
-    QVERIFY(c.modelDir.find("qwen3-asr-0.6b") != std::string::npos);
+    QCOMPARE(QString::fromStdString(c.modelDir),
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "qwen3-asr-1.7b").string()));
 }
 
-void TestConfig::loadDtkConfMigratesLegacyDefaultModelDir()
-{
-    setenv("HOME", "/tmp/echoflow-home", 1);
-
+void TestConfig::loadDtkConfNormalizesLegacyModelName() {
     QTemporaryFile f;
     QVERIFY(f.open());
-    f.write("[advanced.runtime.model_dir]\n"
-            "value=$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B\n");
+    f.write("[basic.model.model_name]\nvalue=qwen-asr-0.6b\n");
     f.close();
 
     Config c = loadDtkConf(f.fileName().toStdString());
     QCOMPARE(QString::fromStdString(c.modelDir),
-             QStringLiteral("/tmp/echoflow-home/AI/Model/qwen3-asr-0.6b"));
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "qwen3-asr-0.6b").string()));
 }
 
-void TestConfig::loadDtkConfIgnoresUnknownSections()
-{
+void TestConfig::loadDtkConfIgnoresModelDirKey() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[basic.model.model_name]\nvalue=qwen3-asr-0.6b\n"
+            "[advanced.runtime.model_dir]\nvalue=$HOME/AI/Model/should-be-ignored\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    // modelDir is derived purely from model_name + config dir, never from the key.
+    QCOMPARE(QString::fromStdString(c.modelDir),
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "qwen3-asr-0.6b").string()));
+    QVERIFY(c.modelDir.find("should-be-ignored") == std::string::npos);
+}
+
+void TestConfig::loadDtkConfIgnoresUnknownSections() {
     QTemporaryFile f;
     QVERIFY(f.open());
     f.write("[some.unknown.thing]\nvalue=ignored\n"
@@ -88,7 +110,7 @@ void TestConfig::loadDtkConfIgnoresUnknownSections()
     f.close();
 
     Config c = loadDtkConf(f.fileName().toStdString());
-    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen3-asr-0.6b"));
 }
 
 QTEST_GUILESS_MAIN(TestConfig)

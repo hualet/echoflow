@@ -35,13 +35,6 @@ bool parseBool(const std::string& value)
     return lower == "true" || lower == "1" || lower == "yes" || lower == "on";
 }
 
-std::string legacyDefaultModelDir()
-{
-    const char* home = std::getenv("HOME");
-    std::string h = home ? home : "/tmp";
-    return h + "/AI/Model/Qwen3-ASR-GGUF/model-0.6B";
-}
-
 }  // namespace
 
 Config Config::defaultConfig()
@@ -51,8 +44,18 @@ Config Config::defaultConfig()
 
     Config c;
     c.recordingsDir = h + "/.local/share/echoflow/recordings";
-    c.modelDir = h + "/AI/Model/qwen3-asr-0.6b";
     return c;
+}
+
+std::string normalizeModelName(const std::string& value)
+{
+    if (value == "qwen-asr-0.6b" || value == "0.6b" || value == "0.6B") {
+        return "qwen3-asr-0.6b";
+    }
+    if (value == "qwen-asr-1.7b" || value == "1.7b" || value == "1.7B") {
+        return "qwen3-asr-1.7b";
+    }
+    return value;
 }
 
 std::string expandPath(const std::string& value, const fs::path& baseDir)
@@ -170,8 +173,6 @@ Config loadDtkConf(const fs::path& path)
             cfg.pwRecord.channels = std::stoi(val);
         } else if (section == "basic.recording.format") {
             cfg.pwRecord.format = val;
-        } else if (section == "advanced.runtime.model_dir") {
-            cfg.modelDir = val;
         } else if (section == "advanced.runtime.asr_timeout_seconds") {
             cfg.asrTimeoutSeconds = std::stoi(val);
         } else if (section == "advanced.fcitx.fcitx_commit") {
@@ -183,10 +184,8 @@ Config loadDtkConf(const fs::path& path)
 
     fs::path base = path.parent_path();
     cfg.recordingsDir = expandPath(cfg.recordingsDir, base);
-    cfg.modelDir = expandPath(cfg.modelDir, base);
-    if (cfg.modelDir == legacyDefaultModelDir()) {
-        cfg.modelDir = Config::defaultConfig().modelDir;
-    }
+    cfg.modelName = normalizeModelName(cfg.modelName);
+    cfg.modelDir = (base / cfg.modelName).string();
     return cfg;
 }
 

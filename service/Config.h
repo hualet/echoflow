@@ -19,7 +19,7 @@ struct PipeWireRecordConfig {
 struct Config {
     std::string recordingsDir;
     std::string modelDir;
-    std::string modelName = "qwen-asr-0.6b";
+    std::string modelName = "qwen3-asr-0.6b";
     std::optional<std::string> language = "Chinese";
     std::string prompt;
     int asrTimeoutSeconds = 120;
@@ -32,6 +32,7 @@ struct Config {
 };
 
 Config loadDtkConf(const std::filesystem::path& path);
+std::string normalizeModelName(const std::string& value);
 std::string expandPath(const std::string& value, const std::filesystem::path& baseDir);
 std::filesystem::path runtimeDir();
 std::filesystem::path controlSocketPath(const Config& cfg);
