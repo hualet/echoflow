@@ -57,6 +57,15 @@ class LlamaRuntimeBuildTests(unittest.TestCase):
         # the dynamic loader expects; file(COPY) would dereference symlinks.
         self.assertIn("cp -a", cmake)
 
+    def test_wrapper_cmake_redirects_default_install_prefix(self):
+        cmake = (ROOT / "llama-runtime" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        # llama.cpp's own install(TARGETS ...) rules default to /usr/local and
+        # would fail or pollute system paths. The wrapper redirects them to a
+        # build-local discard dir when the user hasn't set an explicit prefix.
+        self.assertIn("CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT", cmake)
+        self.assertIn("discard-install", cmake)
+
     def test_install_llama_runtime_script_is_removed(self):
         # The script itself must be gone — its job is now done by
         # llama-runtime/CMakeLists.txt's install target.

@@ -16,6 +16,19 @@ project(echoflow-llama-runtime LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# llama.cpp's own CMakeLists defines install(TARGETS ...) for ggml/llama which
+# default to /usr/local and fail (Permission denied) or pollute system paths if
+# the caller doesn't pass -DCMAKE_INSTALL_PREFIX. Our real install target is the
+# install(CODE) block at the bottom, which copies runtime libs into
+# QWEN_ASR_PROJECT_DIR regardless of the prefix. Redirect the submodule's install
+# debris to a build-local discard dir so `cmake --install` succeeds without sudo
+# and without polluting system paths. An explicit -DCMAKE_INSTALL_PREFIX=... is
+# still honored.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/discard-install"
+        CACHE PATH "" FORCE)
+endif()
+
 # --- Configuration knobs ---------------------------------------------------
 set(ECHOFLOW_LLM_BACKEND "AUTO" CACHE STRING
     "llama.cpp backend: AUTO (Vulkan if SDK present, else CPU) | Vulkan | CPU")
