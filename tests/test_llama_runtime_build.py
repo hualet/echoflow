@@ -42,6 +42,11 @@ class LlamaRuntimeBuildTests(unittest.TestCase):
 
         self.assertIn("ECHOFLOW_LLM_BACKEND", cmake)
         self.assertIn("find_package(Vulkan", cmake)
+        # glslc component is required: llama.cpp's ggml-vulkan backend calls
+        # find_package(Vulkan COMPONENTS glslc) itself and fails deep inside
+        # the submodule if glslc is missing. Bare find_package(Vulkan) would
+        # false-positive on loader+headers alone.
+        self.assertIn("glslc", cmake)
         self.assertIn("GGML_VULKAN", cmake)
         self.assertIn("GGML_NATIVE", cmake)
         self.assertIn("GGML_CUDA", cmake)
