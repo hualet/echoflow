@@ -91,9 +91,14 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    echoflow::Config cfg = fs::exists(configPath)
-        ? echoflow::loadDtkConf(configPath)
-        : echoflow::Config::defaultConfig();
+    echoflow::Config cfg;
+    if (fs::exists(configPath)) {
+        cfg = echoflow::loadDtkConf(configPath);
+    } else {
+        cfg = echoflow::Config::defaultConfig();
+        cfg.modelDir =
+            (configPath.parent_path() / echoflow::normalizeModelName(cfg.modelName)).string();
+    }
 
     if (selfTest) {
         return echoflow::runSelfTest(cfg);
