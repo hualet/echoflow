@@ -9,7 +9,8 @@ set(ECHOFLOW_TESTS
     test_config
     test_voice_session
     test_committer
-    test_selftest)
+    test_selftest
+    test_model_catalog)
 
 foreach(test_target ${ECHOFLOW_TESTS})
     add_executable(${test_target} ${test_target}.cpp)
