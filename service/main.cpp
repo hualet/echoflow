@@ -39,8 +39,8 @@ void printDefaultConfig()
 {
     auto cfg = echoflow::Config::defaultConfig();
     std::printf("{\n"
-                "  \"model_dir\": \"%s\",\n"
                 "  \"model_name\": \"%s\",\n"
+                "  \"model_dir\": \"(derived at runtime: <config_dir>/<model_name>)\",\n"
                 "  \"language\": \"%s\",\n"
                 "  \"prompt\": \"%s\",\n"
                 "  \"recordings_dir\": \"%s\",\n"
@@ -50,7 +50,7 @@ void printDefaultConfig()
                 "  \"format\": \"%s\",\n"
                 "  \"fcitx_commit\": %s\n"
                 "}\n",
-                cfg.modelDir.c_str(), cfg.modelName.c_str(),
+                cfg.modelName.c_str(),
                 cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
