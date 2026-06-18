@@ -449,6 +449,7 @@ class VoiceSession:
         self.ui = ui or NullUiNotifier()
         self.state = SessionState.IDLE
         self.tooltip_visible = False
+        self.typed_hidden = False
 
     def handle_command(self, command: str) -> str:
         command = command.strip()
@@ -456,17 +457,30 @@ class VoiceSession:
         verb = verb.upper()
         if verb == "FOCUS":
             self.tooltip_visible = True
+            if self.typed_hidden:
+                return "TOOLTIP suppressed"
             argument = argument.strip()
             suffix = f" {argument}" if argument else ""
             self.ui.send(f"SHOW_TOOLTIP{suffix} 按右 Ctrl 语音输入")
             return "TOOLTIP show"
         if verb == "BLUR":
             self.tooltip_visible = False
+            self.typed_hidden = False
             if self.state == SessionState.RECORDING:
                 self.recorder.stop()
             self.state = SessionState.IDLE
             self.ui.send("HIDE_TOOLTIP")
             return "TOOLTIP hide"
+        if verb == "TYPED":
+            if (
+                self.state == SessionState.IDLE
+                and self.tooltip_visible
+                and not self.typed_hidden
+            ):
+                self.typed_hidden = True
+                self.ui.send("HIDE_TOOLTIP")
+                return "TYPING hide"
+            return "IGNORED"
         if verb == "CTRL_DOWN":
             if self.state == SessionState.IDLE:
                 return self._start_recording()
@@ -500,7 +514,7 @@ class VoiceSession:
         return "COMMITTED" if ok else f"ERR {detail}"
 
 
-ALLOWED_COMMANDS = {"FOCUS", "BLUR", "CTRL_DOWN"}
+ALLOWED_COMMANDS = {"FOCUS", "BLUR", "CTRL_DOWN", "TYPED"}
 
 
 def handle_protocol_message(session: VoiceSession, payload: bytes) -> bytes:

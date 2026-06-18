@@ -32,6 +32,11 @@ class UiHostStructureTests(unittest.TestCase):
         self.assertIn("moveY", main_cpp)
         self.assertIn("TRANSCRIBING", main_cpp)
 
+    def test_ui_host_pins_capsule_to_fixed_bottom_center(self):
+        main_cpp = (ROOT / "ui-host" / "main.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("fixedCapsulePosition", main_cpp)
+
     def test_fcitx_addon_only_unlinks_owned_commit_socket(self):
         addon_cpp = (ROOT / "fcitx-addon" / "echoflow.cpp").read_text(encoding="utf-8")
 
@@ -56,6 +61,12 @@ class UiHostStructureTests(unittest.TestCase):
         addon_cpp = (ROOT / "fcitx-addon" / "echoflow.cpp").read_text(encoding="utf-8")
 
         self.assertIn("rightCtrlDown_", addon_cpp)
+
+    def test_fcitx_addon_declutters_capsule_on_typing(self):
+        addon_cpp = (ROOT / "fcitx-addon" / "echoflow.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("TYPED", addon_cpp)
+        self.assertIn("isModifier()", addon_cpp)
 
 
 if __name__ == "__main__":

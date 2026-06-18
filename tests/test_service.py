@@ -357,6 +357,75 @@ class VoiceSessionTests(unittest.TestCase):
         self.assertEqual(session.handle_command("FOCUS 120 240 2 18"), "TOOLTIP show")
         self.assertEqual(ui.messages, ["SHOW_TOOLTIP 120 240 2 18 按右 Ctrl 语音输入"])
 
+    def test_typed_hides_tooltip_when_idle(self):
+        ui = FakeUiNotifier()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=FakeRecorder(),
+            asr=FakeAsr(),
+            committer=FakeCommitter(),
+            ui=ui,
+        )
+        session.handle_command("FOCUS")
+        ui.messages.clear()
+
+        self.assertEqual(session.handle_command("TYPED"), "TYPING hide")
+        self.assertEqual(ui.messages, ["HIDE_TOOLTIP"])
+        self.assertTrue(session.typed_hidden)
+
+    def test_focus_after_typed_stays_hidden(self):
+        ui = FakeUiNotifier()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=FakeRecorder(),
+            asr=FakeAsr(),
+            committer=FakeCommitter(),
+            ui=ui,
+        )
+        session.handle_command("FOCUS")
+        session.handle_command("TYPED")
+        ui.messages.clear()
+
+        self.assertEqual(
+            session.handle_command("FOCUS 120 240 2 18"), "TOOLTIP suppressed"
+        )
+        self.assertEqual(ui.messages, [])
+
+    def test_typed_while_recording_is_ignored(self):
+        ui = FakeUiNotifier()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=FakeRecorder(),
+            asr=FakeAsr(),
+            committer=FakeCommitter(),
+            ui=ui,
+        )
+        session.handle_command("FOCUS")
+        session.handle_command("CTRL_DOWN")
+        ui.messages.clear()
+
+        self.assertEqual(session.handle_command("TYPED"), "IGNORED")
+        self.assertEqual(ui.messages, [])
+        self.assertEqual(session.state, service.SessionState.RECORDING)
+
+    def test_blur_clears_suppression_and_refocus_shows(self):
+        ui = FakeUiNotifier()
+        session = service.VoiceSession(
+            service.Config.default(),
+            recorder=FakeRecorder(),
+            asr=FakeAsr(),
+            committer=FakeCommitter(),
+            ui=ui,
+        )
+        session.handle_command("FOCUS")
+        session.handle_command("TYPED")
+        session.handle_command("BLUR")
+        ui.messages.clear()
+
+        self.assertEqual(session.handle_command("FOCUS"), "TOOLTIP show")
+        self.assertEqual(ui.messages, ["SHOW_TOOLTIP 按右 Ctrl 语音输入"])
+        self.assertFalse(session.typed_hidden)
+
     def test_second_ctrl_toggle_stops_transcribes_and_commits(self):
         recorder = FakeRecorder()
         asr = FakeAsr("离线语音输入")
@@ -492,6 +561,13 @@ class ServerProtocolTests(unittest.TestCase):
 
         self.assertEqual(service.handle_protocol_message(session, b"FOCUS 120 240 2 18\n"), b"OK\n")
         session.handle_command.assert_called_once_with("FOCUS 120 240 2 18")
+
+    def test_protocol_routes_typed_command(self):
+        session = mock.Mock()
+        session.handle_command.return_value = "OK"
+
+        self.assertEqual(service.handle_protocol_message(session, b"TYPED\n"), b"OK\n")
+        session.handle_command.assert_called_once_with("TYPED")
 
     def test_protocol_rejects_unknown_commands(self):
         session = mock.Mock()

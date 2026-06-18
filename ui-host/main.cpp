@@ -99,6 +99,22 @@ bool sendControlCommand(const QString &controlPath, std::string_view command) {
     return ok;
 }
 
+struct TooltipPos {
+    bool hasPosition = false;
+    int x = 0;
+    int y = 0;
+};
+
+// The voice capsule always sits at the primary screen's bottom-center, ~8px
+// above the panel (availableGeometry already excludes panels).
+TooltipPos fixedCapsulePosition() {
+    if (auto *screen = QGuiApplication::primaryScreen()) {
+        const QRect avail = screen->availableGeometry();
+        return {true, avail.left() + avail.width() / 2, avail.bottom() - 8};
+    }
+    return {};
+}
+
 class TooltipController final : public QObject {
     Q_OBJECT
 public:
@@ -189,57 +205,29 @@ private slots:
 private:
     void applyMessage(const QString &message) {
         if (message.startsWith(QStringLiteral("SHOW_TOOLTIP"))) {
+            // The capsule is fixed in place; we only parse off any leading
+            // "x y w h" cursor rect the service forwarded to recover the text.
             QString text = message.mid(QStringLiteral("SHOW_TOOLTIP").size()).trimmed();
-            bool hasPosition = false;
-            int moveX = 0;
-            int moveY = 0;
             const QStringList parts = text.split(QChar(' '), Qt::SkipEmptyParts);
-            if (parts.size() >= 5) {
-                bool okX = false;
-                bool okY = false;
-                bool okW = false;
-                bool okH = false;
-                const int x = parts.at(0).toInt(&okX);
-                const int y = parts.at(1).toInt(&okY);
-                const int width = parts.at(2).toInt(&okW);
-                const int height = parts.at(3).toInt(&okH);
+            if (parts.size() >= 4) {
+                bool okX = false, okY = false, okW = false, okH = false;
+                parts.at(0).toInt(&okX);
+                parts.at(1).toInt(&okY);
+                parts.at(2).toInt(&okW);
+                parts.at(3).toInt(&okH);
                 if (okX && okY && okW && okH) {
-                    hasPosition = true;
-                    qreal dpr = 1.0;
-                    if (auto *screen = QGuiApplication::primaryScreen()) {
-                        dpr = screen->devicePixelRatio();
-                    }
-                    // The trigger button floats at the cursor-rect top-left, so we
-                    // pass the cursor's top-left (x, y) rather than the rect's bottom.
-                    const int physX = x;
-                    const int physY = y;
-                    moveX = dpr > 1.0
-                                ? static_cast<int>(std::round(physX / dpr))
-                                : physX;
-                    moveY = dpr > 1.0
-                                ? static_cast<int>(std::round(physY / dpr))
-                                : physY;
                     text = parts.mid(4).join(QChar(' '));
                 }
             }
             if (text.isEmpty()) {
-                text = QStringLiteral("长按 Ctrl 语音输入");
+                text = QStringLiteral("按右 Ctrl 语音输入");
             }
-            controller_->setTooltip(true, text, false, hasPosition, moveX, moveY);
+            const TooltipPos pos = fixedCapsulePosition();
+            controller_->setTooltip(true, text, false, pos.hasPosition, pos.x, pos.y);
         } else if (message == QStringLiteral("RECORDING")) {
-            // Position the capsule at the bottom-center of the primary screen,
-            // 8px above the taskbar (availableGeometry already excludes panels).
-            int centerX = 0;
-            int bottomY = 0;
-            bool hasPosition = false;
-            if (auto *screen = QGuiApplication::primaryScreen()) {
-                const QRect avail = screen->availableGeometry();
-                centerX = avail.left() + avail.width() / 2;
-                bottomY = avail.bottom() - 8;
-                hasPosition = true;
-            }
+            const TooltipPos pos = fixedCapsulePosition();
             controller_->setTooltip(true, QStringLiteral("正在聆听"), true,
-                                     hasPosition, centerX, bottomY);
+                                     pos.hasPosition, pos.x, pos.y);
         } else if (message == QStringLiteral("TRANSCRIBING")) {
             controller_->setTooltip(true, QStringLiteral("正在转写"), true);
         } else if (message == QStringLiteral("HIDE_TOOLTIP") || message == QStringLiteral("IDLE")) {

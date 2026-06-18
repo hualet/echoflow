@@ -244,18 +244,27 @@ private:
 
     void handleKeyEvent(fcitx::Event &event) {
         auto *keyEvent = static_cast<fcitx::KeyEvent *>(&event);
-        if (!isRightCtrl(keyEvent->key())) {
+        const fcitx::Key key = keyEvent->key();
+
+        if (isRightCtrl(key)) {
+            if (keyEvent->isRelease()) {
+                rightCtrlDown_ = false;
+                return;
+            }
+            if (rightCtrlDown_) {
+                return;
+            }
+            rightCtrlDown_ = true;
+            sendControlCommand("CTRL_DOWN");
             return;
         }
-        if (keyEvent->isRelease()) {
-            rightCtrlDown_ = false;
-            return;
+
+        // Any other non-modifier key press means the user is typing/editing in
+        // the focused input context, so tell the service to declutter the voice
+        // capsule. Observer only: we never consume the event (no accept/filter).
+        if (!keyEvent->isRelease() && !key.isModifier()) {
+            sendControlCommand("TYPED");
         }
-        if (rightCtrlDown_) {
-            return;
-        }
-        rightCtrlDown_ = true;
-        sendControlCommand("CTRL_DOWN");
     }
 
     static bool isRightCtrl(const fcitx::Key &key) {
