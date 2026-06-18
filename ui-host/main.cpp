@@ -19,7 +19,6 @@
 #include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMenu>
@@ -63,11 +62,7 @@ std::string defaultUiSocketPath() {
 }
 
 QString defaultQmlPath() {
-    const QString installed = QStringLiteral(ECHOFLOW_QML_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
-    if (QFile::exists(installed)) {
-        return installed;
-    }
-    return QStringLiteral(ECHOFLOW_QML_SOURCE_DIR) + QStringLiteral("/EchoFlowTooltip.qml");
+    return QStringLiteral("qrc:/qml/EchoFlowTooltip.qml");
 }
 
 std::string defaultControlSocketPath() {
@@ -293,7 +288,11 @@ int main(int argc, char **argv) {
     TooltipController controller(QString::fromStdString(defaultControlSocketPath()));
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("tooltipController"), &controller);
-    engine.load(QUrl::fromLocalFile(parser.value(qmlOption)));
+    const QString qmlValue = parser.value(qmlOption);
+    const QUrl qmlUrl = qmlValue.startsWith(QStringLiteral("qrc:"))
+                            ? QUrl(qmlValue)
+                            : QUrl::fromLocalFile(qmlValue);
+    engine.load(qmlUrl);
     if (engine.rootObjects().isEmpty()) {
         return 2;
     }

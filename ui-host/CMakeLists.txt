@@ -18,6 +18,7 @@ add_executable(echoflow-ui
     EchoFlowSettings.cpp
     SettingsDialog.cpp
     settings.qrc
+    qml.qrc
 )
 
 target_link_libraries(echoflow-ui
@@ -32,11 +33,4 @@ target_link_libraries(echoflow-ui
         Dtk6::Gui
 )
 
-target_compile_definitions(echoflow-ui PRIVATE
-    ECHOFLOW_QML_DIR="${CMAKE_INSTALL_FULL_DATADIR}/echoflow/qml"
-    ECHOFLOW_QML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../qml"
-)
-
 install(TARGETS echoflow-ui RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../qml/EchoFlowTooltip.qml"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/echoflow/qml")
