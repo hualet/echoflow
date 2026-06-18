@@ -92,6 +92,7 @@ Window {
         readonly property int kHeight: 40
         readonly property int kButtonSize: 32
         readonly property int kRadius: kHeight / 2
+        readonly property int kButtonInset: kRadius - kButtonSize / 2
         readonly property int kHPad: 14
         readonly property int kGap: 12
         readonly property int kWaveBars: 11
@@ -107,10 +108,10 @@ Window {
         clip: true
 
         width: root.recording
-               ? waveArea.width + kHPad + kGap + kButtonSize + kHPad
+               ? waveArea.width + kHPad + kGap + kButtonSize + kButtonInset
                : (root.transcribing
                   ? statusLabel.implicitWidth + 2 * kHPad
-                  : idleHint.implicitWidth + kGap + kButtonSize + 2 * kHPad)
+                  : idleHint.implicitWidth + kGap + kButtonSize + kHPad + kButtonInset)
 
         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
@@ -185,7 +186,7 @@ Window {
             visible: root.idle || root.recording
             anchors {
                 right: parent.right
-                rightMargin: capsule.kHPad
+                rightMargin: capsule.kButtonInset
                 verticalCenter: parent.verticalCenter
             }
 
