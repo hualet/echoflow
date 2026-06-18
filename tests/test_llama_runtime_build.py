@@ -57,6 +57,15 @@ class LlamaRuntimeBuildTests(unittest.TestCase):
         # the dynamic loader expects; file(COPY) would dereference symlinks.
         self.assertIn("cp -a", cmake)
 
+    def test_install_llama_runtime_script_is_removed(self):
+        # The script itself must be gone — its job is now done by
+        # llama-runtime/CMakeLists.txt's install target.
+        self.assertFalse(
+            (ROOT / "scripts" / "install-llama-runtime.sh").exists(),
+            "scripts/install-llama-runtime.sh should be removed; "
+            "its job is now done by llama-runtime/CMakeLists.txt",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
