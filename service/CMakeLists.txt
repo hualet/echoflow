@@ -5,6 +5,7 @@ add_library(echoflow_service STATIC
     AsrEngine.cpp
     Committer.cpp
     Config.cpp
+    LiveAudioBuffer.cpp
     Recorder.cpp
     SelfTest.cpp
     Server.cpp

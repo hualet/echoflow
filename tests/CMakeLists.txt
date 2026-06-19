@@ -11,6 +11,7 @@ set(ECHOFLOW_TESTS
     test_committer
     test_selftest
     test_model_catalog
+    test_live_audio_buffer
     test_single_instance)
 
 foreach(test_target ${ECHOFLOW_TESTS})
