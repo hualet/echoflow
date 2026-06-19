@@ -1,5 +1,13 @@
 echoflow (0.1.0) unstable; urgency=medium
 
-  * Add CMake-backed Debian packaging and GitHub build workflows.
+  * Initial release of EchoFlow, an offline voice input method for
+    deepin/Fcitx5 powered by the Qwen ASR runtime.
+  * Download and manage 0.6B/1.7B Qwen ASR models directly from the
+    settings UI, replacing the legacy setup script.
+  * Toggle recording with right-Ctrl and get visual feedback through an
+    animated capsule tooltip near the cursor.
+  * DTK-integrated settings dialog that follows system theme colors.
+  * Native C++17 service with tuned ASR startup and OpenBLAS latency.
+  * CMake-backed Debian packaging with a GitHub Actions release workflow.
 
  -- Hualet Wang <hualet@deepin.org>  Fri, 19 Jun 2026 09:30:00 +0800
