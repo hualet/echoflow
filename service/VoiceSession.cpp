@@ -74,7 +74,11 @@ std::string VoiceSession::handleCommand(const std::string& command)
         typedHidden_ = false;
         if (state_ == SessionState::Recording) {
             if (livePipeline_) {
-                livePipeline_->cancel();
+                try {
+                    livePipeline_->cancel();
+                } catch (const std::exception& e) {
+                    log(std::string("voice cancel failed: ") + e.what());
+                }
             } else {
                 recorder_->stop();
             }

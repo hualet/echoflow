@@ -47,6 +47,7 @@ struct FakeLivePipeline : ILiveVoicePipeline {
     std::string result = "hello";
     bool throwOnStart = false;
     bool throwOnFinish = false;
+    bool throwOnCancel = false;
 
     void start() override
     {
@@ -65,7 +66,13 @@ struct FakeLivePipeline : ILiveVoicePipeline {
         return result;
     }
 
-    void cancel() override { ++cancels; }
+    void cancel() override
+    {
+        ++cancels;
+        if (throwOnCancel) {
+            throw std::runtime_error("live cancel unavailable");
+        }
+    }
 };
 
 struct FakeCommitter : ICommitter {
@@ -102,6 +109,7 @@ private slots:
     void liveEmptyResultDoesNotCommit();
     void liveFinishExceptionReturnsToIdle();
     void liveBlurCancelsAndDiscards();
+    void liveCancelExceptionStillReturnsToIdleAndHidesTooltip();
     void liveStartExceptionReturnsToIdle();
     void unknownCommandReturnsError();
 };
@@ -345,6 +353,23 @@ void TestVoiceSession::liveFinishExceptionReturnsToIdle()
 void TestVoiceSession::liveBlurCancelsAndDiscards()
 {
     FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
+    QCOMPARE(pipeline.cancels, 1);
+    QCOMPARE(pipeline.finishes, 0);
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+}
+
+void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
+{
+    FakeLivePipeline pipeline;
+    pipeline.throwOnCancel = true;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
