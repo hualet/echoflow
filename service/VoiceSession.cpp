@@ -36,8 +36,17 @@ std::string upper(std::string value)
 VoiceSession::VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
                            ICommitter& committer, IUiNotifier& ui)
     : cfg_(std::move(cfg))
-    , recorder_(recorder)
-    , asr_(asr)
+    , recorder_(&recorder)
+    , asr_(&asr)
+    , committer_(committer)
+    , ui_(ui)
+{
+}
+
+VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
+                           ICommitter& committer, IUiNotifier& ui)
+    : cfg_(std::move(cfg))
+    , livePipeline_(&livePipeline)
     , committer_(committer)
     , ui_(ui)
 {
@@ -64,7 +73,11 @@ std::string VoiceSession::handleCommand(const std::string& command)
         tooltipVisible_ = false;
         typedHidden_ = false;
         if (state_ == SessionState::Recording) {
-            recorder_.stop();
+            if (livePipeline_) {
+                livePipeline_->cancel();
+            } else {
+                recorder_->stop();
+            }
         }
         state_ = SessionState::Idle;
         ui_.send("HIDE_TOOLTIP");
@@ -95,7 +108,18 @@ std::string VoiceSession::handleCommand(const std::string& command)
 
 std::string VoiceSession::startRecording()
 {
-    recorder_.start();
+    try {
+        if (livePipeline_) {
+            livePipeline_->start();
+        } else {
+            recorder_->start();
+        }
+    } catch (const std::exception& e) {
+        log(std::string("voice start failed: ") + e.what());
+        state_ = SessionState::Idle;
+        ui_.send("IDLE");
+        return "ERR " + std::string(e.what());
+    }
     ui_.send("RECORDING");
     state_ = SessionState::Recording;
     return "RECORDING";
@@ -106,18 +130,26 @@ std::string VoiceSession::stopTranscribeCommit()
     state_ = SessionState::Transcribing;
     ui_.send("TRANSCRIBING");
 
-    auto audio = recorder_.stop();
-    if (audio.empty()) {
-        state_ = SessionState::Idle;
-        ui_.send("IDLE");
-        return "CANCELLED";
-    }
-
     std::string text;
-    try {
-        text = asr_.transcribe(audio);
-    } catch (const std::exception& e) {
-        log(std::string("asr transcribe failed: ") + e.what());
+    if (livePipeline_) {
+        try {
+            text = livePipeline_->finish();
+        } catch (const std::exception& e) {
+            log(std::string("asr transcribe failed: ") + e.what());
+        }
+    } else {
+        auto audio = recorder_->stop();
+        if (audio.empty()) {
+            state_ = SessionState::Idle;
+            ui_.send("IDLE");
+            return "CANCELLED";
+        }
+
+        try {
+            text = asr_->transcribe(audio);
+        } catch (const std::exception& e) {
+            log(std::string("asr transcribe failed: ") + e.what());
+        }
     }
     if (cfg_.stripTrailingPunctuation) {
         text = stripPunctuation(text);

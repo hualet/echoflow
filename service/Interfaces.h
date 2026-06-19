@@ -23,6 +23,14 @@ public:
     virtual std::string transcribe(const std::filesystem::path& audio) = 0;
 };
 
+class ILiveVoicePipeline {
+public:
+    virtual ~ILiveVoicePipeline() = default;
+    virtual void start() = 0;
+    virtual std::string finish() = 0;
+    virtual void cancel() = 0;
+};
+
 class ICommitter {
 public:
     virtual ~ICommitter() = default;

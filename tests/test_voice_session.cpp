@@ -40,6 +40,34 @@ struct FakeAsr : IAsrEngine {
     }
 };
 
+struct FakeLivePipeline : ILiveVoicePipeline {
+    int starts = 0;
+    int finishes = 0;
+    int cancels = 0;
+    std::string result = "hello";
+    bool throwOnStart = false;
+    bool throwOnFinish = false;
+
+    void start() override
+    {
+        ++starts;
+        if (throwOnStart) {
+            throw std::runtime_error("live start unavailable");
+        }
+    }
+
+    std::string finish() override
+    {
+        ++finishes;
+        if (throwOnFinish) {
+            throw std::runtime_error("live finish unavailable");
+        }
+        return result;
+    }
+
+    void cancel() override { ++cancels; }
+};
+
 struct FakeCommitter : ICommitter {
     std::vector<std::string> texts;
     std::pair<bool, std::string> ret = {true, "OK"};
@@ -69,6 +97,12 @@ private slots:
     void transcribeExceptionReturnsToIdle();
     void tooShortAudioIsCancelled();
     void blurWhileRecordingCancelsAndDiscards();
+    void liveCtrlStartsPipeline();
+    void liveSecondCtrlFinishesAndCommits();
+    void liveEmptyResultDoesNotCommit();
+    void liveFinishExceptionReturnsToIdle();
+    void liveBlurCancelsAndDiscards();
+    void liveStartExceptionReturnsToIdle();
     void unknownCommandReturnsError();
 };
 
@@ -76,6 +110,12 @@ static VoiceSession makeSession(FakeRecorder& recorder, FakeAsr& asr,
                                 FakeCommitter& committer, FakeUi& ui)
 {
     return VoiceSession(Config::defaultConfig(), recorder, asr, committer, ui);
+}
+
+static VoiceSession makeLiveSession(FakeLivePipeline& pipeline,
+                                    FakeCommitter& committer, FakeUi& ui)
+{
+    return VoiceSession(Config::defaultConfig(), pipeline, committer, ui);
 }
 
 void TestVoiceSession::focusThenCtrlStartsRecording()
@@ -232,6 +272,105 @@ void TestVoiceSession::blurWhileRecordingCancelsAndDiscards()
     QVERIFY(committer.texts.empty());
     QCOMPARE(session.state(), SessionState::Idle);
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+}
+
+void TestVoiceSession::liveCtrlStartsPipeline()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QCOMPARE(pipeline.starts, 1);
+    QCOMPARE(session.state(), SessionState::Recording);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("RECORDING"));
+}
+
+void TestVoiceSession::liveSecondCtrlFinishesAndCommits()
+{
+    FakeLivePipeline pipeline;
+    pipeline.result = "实时语音输入";
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("COMMITTED"));
+    QCOMPARE(pipeline.finishes, 1);
+    QCOMPARE(committer.texts.size(), size_t(1));
+    QCOMPARE(QString::fromStdString(committer.texts.front()), QStringLiteral("实时语音输入"));
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::liveEmptyResultDoesNotCommit()
+{
+    FakeLivePipeline pipeline;
+    pipeline.result.clear();
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("EMPTY"));
+    QCOMPARE(pipeline.finishes, 1);
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::liveFinishExceptionReturnsToIdle()
+{
+    FakeLivePipeline pipeline;
+    pipeline.throwOnFinish = true;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("EMPTY"));
+    QCOMPARE(pipeline.finishes, 1);
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::liveBlurCancelsAndDiscards()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
+    QCOMPARE(pipeline.cancels, 1);
+    QCOMPARE(pipeline.finishes, 0);
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+}
+
+void TestVoiceSession::liveStartExceptionReturnsToIdle()
+{
+    FakeLivePipeline pipeline;
+    pipeline.throwOnStart = true;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")),
+             QStringLiteral("ERR live start unavailable"));
+    QCOMPARE(pipeline.starts, 1);
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::unknownCommandReturnsError()

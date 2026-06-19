@@ -19,6 +19,8 @@ class VoiceSession {
 public:
     VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
                  ICommitter& committer, IUiNotifier& ui);
+    VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
+                 ICommitter& committer, IUiNotifier& ui);
 
     std::string handleCommand(const std::string& command);
     SessionState state() const { return state_; }
@@ -30,8 +32,9 @@ private:
     std::string stopTranscribeCommit();
 
     Config cfg_;
-    IRecorder& recorder_;
-    IAsrEngine& asr_;
+    IRecorder* recorder_ = nullptr;
+    IAsrEngine* asr_ = nullptr;
+    ILiveVoicePipeline* livePipeline_ = nullptr;
     ICommitter& committer_;
     IUiNotifier& ui_;
     SessionState state_ = SessionState::Idle;
