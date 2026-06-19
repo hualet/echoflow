@@ -7,6 +7,11 @@ On the tested AMD Ryzen 7 6800H system, the portable `x86-64-v3` baseline and
 The measured `native` build was slightly slower by 0.3% to 1.1%, which is within
 normal run-to-run noise for this workload.
 
+An additional AVX-512 test using `x86-64-v4` built successfully but could not
+run the real ASR workload on this host. The process exited with code 132
+(`SIGILL`) during model loading because the test CPU does not advertise AVX-512
+support.
+
 The result supports keeping `x86-64-v3` as the default EchoFlow qwen-asr build
 baseline. It already enables the AVX2/FMA path used by the current kernels while
 remaining portable across Haswell-era and newer x86_64 CPUs.
@@ -26,10 +31,15 @@ GCC target expansion on this machine:
 - `-march=x86-64-v3`: generic tuning with AVX2, FMA, BMI2 enabled.
 - `-march=native`: `-march=znver3 -mtune=znver3`, additionally enabling
   features such as SHA, VAES, VPCLMULQDQ, CLWB, and CLZERO.
+- `-march=x86-64-v4`: generic tuning with AVX-512F, AVX-512BW, AVX-512CD,
+  AVX-512DQ, and AVX-512VL enabled.
 
 The extra `native` features are not expected to materially affect the current
 ASR hot path, which is dominated by AVX2/FMA-capable qwen-asr kernels and
 OpenBLAS work.
+
+The tested CPU flags include AVX2 and FMA but no `avx512*` features, so the
+`x86-64-v4` build is useful only as a compile check on this machine.
 
 ## Build Commands
 
@@ -42,10 +52,17 @@ cmake -S . -B /tmp/echoflow-bench-native \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DECHOFLOW_TARGET_ARCH=native
 
+cmake -S . -B /tmp/echoflow-bench-v4 \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DECHOFLOW_TARGET_ARCH=x86-64-v4
+
 cmake --build /tmp/echoflow-bench-v3 \
   --target voice_latency_benchmark -j 16
 
 cmake --build /tmp/echoflow-bench-native \
+  --target voice_latency_benchmark -j 16
+
+cmake --build /tmp/echoflow-bench-v4 \
   --target voice_latency_benchmark -j 16
 ```
 
@@ -67,6 +84,13 @@ Short sample, 2.37 seconds:
   --model-dir "$HOME/.config/echoflow/qwen3-asr-0.6b" \
   --openblas-threads 4 \
   --iterations 6
+
+/tmp/echoflow-bench-v4/tests/voice_latency_benchmark \
+  --transcribe-file "$HOME/.local/share/echoflow/recordings/voice-20260619-005648.wav" \
+  --config "$HOME/.config/echoflow/echoflow.conf" \
+  --model-dir "$HOME/.config/echoflow/qwen3-asr-0.6b" \
+  --openblas-threads 4 \
+  --iterations 1
 ```
 
 Longer sample, 13.01 seconds:
@@ -88,6 +112,22 @@ Longer sample, 13.01 seconds:
 ```
 
 ## Results
+
+The `x86-64-v4` build completed, and a synthetic service-only benchmark ran:
+
+```json
+{"mode":"session-synthetic","iteration":1,"stop_to_reply_ms":0.006,"record_stop_ms":0.000,"transcribe_ms":0.000,"commit_ms":0.001,"ui_messages":3,"reply":"COMMITTED"}
+```
+
+The real qwen-asr benchmark did not complete:
+
+```text
+[2026-06-19 14:56:50] loading qwen-asr model: /home/hualet/.config/echoflow/qwen3-asr-0.6b
+exit code: 132
+```
+
+That exit code is the expected illegal-instruction failure for an AVX-512 binary
+on this Ryzen 7 6800H host.
 
 | Audio sample | `x86-64-v3` mean | `native` mean | Difference |
 | --- | ---: | ---: | ---: |
@@ -125,3 +165,5 @@ small to overcome normal scheduling, CPU frequency, and OpenBLAS variability.
 
 Keeping `ECHOFLOW_TARGET_ARCH=x86-64-v3` therefore preserves portable release
 builds without giving up measurable local performance on the tested machine.
+An AVX-512 build needs to be benchmarked on real AVX-512 hardware before making
+any claim about its performance.
