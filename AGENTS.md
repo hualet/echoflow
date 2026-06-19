@@ -63,10 +63,12 @@ Use Conventional Commits for each subject, for example
 `fix(service): handle ASR setup failure`. Each commit must include a body that
 explains why the change is needed and what changed, wrapped near 72 columns.
 Before committing, run `git status --short` and stage only intended source,
-test, and documentation files. Do not stage model weights, recordings, build
-directories, or installed artifacts. Pull requests should describe behavior
-changes, verification commands, and manual runtime steps such as `fcitx5 -rd`
-after addon changes.
+test, and documentation files. If the work generated spec or plan documents
+under `docs/superpowers/specs/` or `docs/superpowers/plans/`, include those in
+the same commit. Do not stage model weights, recordings, build directories, or
+installed artifacts. Pull requests should describe behavior changes,
+verification commands, and manual runtime steps such as `fcitx5 -rd` after
+addon changes.
 
 ## Configuration & Runtime Notes
 
