@@ -27,6 +27,7 @@ void ModelDownloadCoordinator::start(const ModelEntry& entry,
     auto* d = new ModelDownloader(entry, dir, baseUrl, this);
     active_.insert(id, d);
     cache_[id] = DownloadSnapshot{DownloadState::Downloading, 0, 0, QString(), QString()};
+    emit stateChanged(id, DownloadState::Downloading, QString());
 
     // Each downloader's signals are connected with a lambda capturing its id,
     // so the coordinator can fan out one set of signals to N widgets without
@@ -60,7 +61,8 @@ void ModelDownloadCoordinator::cancel(const QString& id) {
     auto it = active_.find(id);
     if (it != active_.end()) {
         // cancel() emits finished(false, "已取消") synchronously; the finished
-        // lambda above handles the cache/signal/cleanup.
+        // lambda above handles the cache/signal/cleanup and erases from
+        // active_, invalidating `it`. Do not reuse `it` below.
         it.value()->cancel();
     }
 }

@@ -32,7 +32,8 @@ struct DownloadSnapshot {
 // row widget never touches a ModelDownloader directly: it reads snapshot() and
 // connects to progress()/stateChanged(). Reparenting downloaders to this
 // singleton (new ModelDownloader(..., this)) is what detaches their lifetime
-// from the dialog's.
+// from the dialog's. All methods must be called from the UI/main thread (Qt
+// Network is main-thread; download signals are delivered there).
 class ModelDownloadCoordinator : public QObject {
     Q_OBJECT
 public:
