@@ -34,8 +34,8 @@ void TestConfig::defaultConfigHasExpectedFields() {
 void TestConfig::expandPathResolvesHome() {
     setenv("HOME", "/tmp/fakehome", 1);
     std::filesystem::path base("/home/u/.config/echoflow");
-    QCOMPARE(QString::fromStdString(expandPath("$HOME/AI/Model/qwen3-asr-0.6b", base)),
-             QStringLiteral("/tmp/fakehome/AI/Model/qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(expandPath("$HOME/.local/share/echoflow/recordings", base)),
+             QStringLiteral("/tmp/fakehome/.local/share/echoflow/recordings"));
     QCOMPARE(QString::fromStdString(expandPath("recordings", base)),
              QStringLiteral("/home/u/.config/echoflow/recordings"));
 }
@@ -91,7 +91,7 @@ void TestConfig::loadDtkConfIgnoresModelDirKey() {
     QTemporaryFile f;
     QVERIFY(f.open());
     f.write("[basic.model.model_name]\nvalue=qwen3-asr-0.6b\n"
-            "[advanced.runtime.model_dir]\nvalue=$HOME/AI/Model/should-be-ignored\n");
+            "[advanced.runtime.model_dir]\nvalue=$HOME/.local/share/echoflow/should-be-ignored\n");
     f.close();
 
     Config c = loadDtkConf(f.fileName().toStdString());
