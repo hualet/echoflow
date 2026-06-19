@@ -19,6 +19,11 @@ Window {
     property bool busy: false
     property int targetX: 0
     property int targetY: 0
+    readonly property color capsuleBackground: typeof theme !== "undefined" ? theme.capsuleBackground : "#232629"
+    readonly property color capsuleBorder: typeof theme !== "undefined" ? theme.capsuleBorder : "#3f4348"
+    readonly property color capsuleText: typeof theme !== "undefined" ? theme.capsuleText : "#f4f6f8"
+    readonly property color accent: typeof theme !== "undefined" ? theme.accent : "#0081ff"
+    readonly property color accentText: typeof theme !== "undefined" ? theme.accentText : "white"
 
     readonly property bool recording: root.busy && root.message === "正在聆听"
     readonly property bool transcribing: root.busy && root.message === "正在转写"
@@ -102,8 +107,8 @@ Window {
 
         height: kHeight
         radius: kRadius
-        color: "#0f3d3e"
-        border.color: "#18a6a7"
+        color: root.capsuleBackground
+        border.color: root.capsuleBorder
         border.width: 1
         clip: true
 
@@ -137,7 +142,7 @@ Window {
                     Rectangle {
                         width: capsule.kWaveBarWidth
                         radius: width / 2
-                        color: "#18a6a7"
+                        color: root.accent
                         height: [4, 10, 16, 22, 18, 14, 18, 22, 16, 10, 4][index]
                         transformOrigin: Item.Center
                         SequentialAnimation on scale {
@@ -162,7 +167,7 @@ Window {
             }
             visible: root.idle
             text: "按右 Ctrl 语音输入"
-            color: "#f4f6f8"
+            color: root.capsuleText
             font.pixelSize: 13
         }
 
@@ -172,7 +177,7 @@ Window {
             anchors.centerIn: parent
             visible: root.transcribing
             text: root.message
-            color: "#f4f6f8"
+            color: root.capsuleText
             font.pixelSize: 13
         }
 
@@ -182,7 +187,7 @@ Window {
             width: capsule.kButtonSize
             height: capsule.kButtonSize
             radius: width / 2
-            color: "#18a6a7"
+            color: root.accent
             visible: root.idle || root.recording
             anchors {
                 right: parent.right
@@ -195,9 +200,9 @@ Window {
                 anchors.centerIn: parent
                 spacing: 1
                 visible: root.idle
-                Rectangle { width: 8; height: 12; radius: 4; color: "white"; anchors.horizontalCenter: parent.horizontalCenter }
-                Rectangle { width: 2; height: 3; color: "white"; anchors.horizontalCenter: parent.horizontalCenter }
-                Rectangle { width: 12; height: 2; radius: 1; color: "white"; anchors.horizontalCenter: parent.horizontalCenter }
+                Rectangle { width: 8; height: 12; radius: 4; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
+                Rectangle { width: 2; height: 3; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
+                Rectangle { width: 12; height: 2; radius: 1; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
             }
 
             // pause glyph (recording)
@@ -208,7 +213,7 @@ Window {
                 Repeater {
                     model: 2
                     Rectangle {
-                        width: 4; height: 12; radius: 1; color: "white"
+                        width: 4; height: 12; radius: 1; color: root.accentText
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }

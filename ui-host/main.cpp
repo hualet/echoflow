@@ -37,6 +37,7 @@
 #include <QUrl>
 
 #include <DGuiApplicationHelper>
+#include <DPalette>
 
 #include "EchoFlowSettings.h"
 #include "SettingsDialog.h"
@@ -205,6 +206,53 @@ private:
     QString controlPath_;
 };
 
+class ThemeBridge final : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QColor capsuleBackground READ capsuleBackground NOTIFY paletteChanged)
+    Q_PROPERTY(QColor capsuleBorder READ capsuleBorder NOTIFY paletteChanged)
+    Q_PROPERTY(QColor capsuleText READ capsuleText NOTIFY paletteChanged)
+    Q_PROPERTY(QColor accent READ accent NOTIFY paletteChanged)
+    Q_PROPERTY(QColor accentText READ accentText NOTIFY paletteChanged)
+public:
+    explicit ThemeBridge(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+        auto *helper = Dtk::Gui::DGuiApplicationHelper::instance();
+        connect(helper, &Dtk::Gui::DGuiApplicationHelper::applicationPaletteChanged,
+                this, &ThemeBridge::paletteChanged);
+        connect(helper, &Dtk::Gui::DGuiApplicationHelper::themeTypeChanged,
+                this, &ThemeBridge::paletteChanged);
+    }
+
+    QColor capsuleBackground() const {
+        return palette().color(QPalette::ToolTipBase);
+    }
+
+    QColor capsuleBorder() const {
+        return palette().color(Dtk::Gui::DPalette::FrameBorder);
+    }
+
+    QColor capsuleText() const {
+        return palette().color(QPalette::ToolTipText);
+    }
+
+    QColor accent() const {
+        return palette().color(QPalette::Highlight);
+    }
+
+    QColor accentText() const {
+        return palette().color(QPalette::HighlightedText);
+    }
+
+signals:
+    void paletteChanged();
+
+private:
+    Dtk::Gui::DPalette palette() const {
+        return Dtk::Gui::DGuiApplicationHelper::instance()->applicationPalette();
+    }
+};
+
 class UiSocketServer final : public QObject {
     Q_OBJECT
 public:
@@ -348,8 +396,10 @@ int main(int argc, char **argv) {
     }
 
     TooltipController controller(QString::fromStdString(defaultControlSocketPath()));
+    ThemeBridge theme;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("tooltipController"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("theme"), &theme);
     const QString qmlValue = parser.value(qmlOption);
     const QUrl qmlUrl = qmlValue.startsWith(QStringLiteral("qrc:"))
                             ? QUrl(qmlValue)
