@@ -171,8 +171,9 @@ Window {
             text: root.message
             color: root.capsuleText
             font.pixelSize: 13
-            width: Math.min(implicitWidth, 220)
-            elide: Text.ElideRight
+            width: Math.min(implicitWidth, 420)
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideLeft
         }
 
         // ---- idle: hint text (left) ----

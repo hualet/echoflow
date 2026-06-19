@@ -318,6 +318,7 @@ private slots:
 private:
     void applyMessage(const QString &message) {
         if (message.startsWith(QStringLiteral("SHOW_TOOLTIP"))) {
+            recordingStreamActive_ = false;
             // The capsule is fixed in place; we only parse off any leading
             // "x y w h" cursor rect the service forwarded to recover the text.
             QString text = message.mid(QStringLiteral("SHOW_TOOLTIP").size()).trimmed();
@@ -338,18 +339,24 @@ private:
             const TooltipPos pos = fixedCapsulePosition();
             controller_->setTooltip(true, text, false, pos.hasPosition, pos.x, pos.y);
         } else if (message == QStringLiteral("RECORDING")) {
+            recordingStreamActive_ = true;
             const TooltipPos pos = fixedCapsulePosition();
             controller_->setTooltip(true, QStringLiteral("正在聆听"), true,
                                      pos.hasPosition, pos.x, pos.y);
         } else if (message.startsWith(QStringLiteral("STREAM_TEXT"))) {
+            if (!recordingStreamActive_) {
+                return;
+            }
             QString text = message.mid(QStringLiteral("STREAM_TEXT").size()).trimmed();
             if (!text.isEmpty()) {
                 const TooltipPos pos = fixedCapsulePosition();
                 controller_->setTooltip(true, text, true, pos.hasPosition, pos.x, pos.y);
             }
         } else if (message == QStringLiteral("TRANSCRIBING")) {
+            recordingStreamActive_ = false;
             controller_->setTooltip(true, QStringLiteral("正在转写"), true);
         } else if (message == QStringLiteral("HIDE_TOOLTIP") || message == QStringLiteral("IDLE")) {
+            recordingStreamActive_ = false;
             controller_->setTooltip(false, QString(), false);
         }
     }
@@ -357,6 +364,7 @@ private:
     QString path_;
     TooltipController *controller_ = nullptr;
     int fd_ = -1;
+    bool recordingStreamActive_ = false;
     std::unique_ptr<QSocketNotifier> notifier_;
 };
 
