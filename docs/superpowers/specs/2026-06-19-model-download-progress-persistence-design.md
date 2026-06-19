@@ -57,6 +57,12 @@
    self-contained, signal-driven unit; the bug was purely that its parent was
    a dialog-lifetime widget. All new logic lives in the coordinator and the
    view-ified row widget.
+4. **An in-flight download keeps its original mirror.** `baseUrl` is captured
+   at `start()` time and handed to the `ModelDownloader`, which never re-reads
+   it. Changing the 下载源 combobox while a download is running does **not**
+   retarget the live transfer (impossible mid-stream anyway); it only affects
+   the next `start()`. This matches today's behavior and keeps the coordinator
+   settings-agnostic.
 
 ## Architecture & boundaries
 
@@ -167,8 +173,19 @@ ownership. Talks only to `ModelDownloadCoordinator::instance()`:
     from a previous session. (Live errors during an open dialog still surface
     via `stateChanged`.)
 - `connect(coordinator, progress, this, [id-filter] onCoordinatorProgress)`;
-  same for `stateChanged`. Qt auto-disconnects when `this` is destroyed, so
-  no manual cleanup is needed even though the coordinator outlives the widget.
+  same for `stateChanged`. The id filter is a guard at the top of each Qt
+  lambda (both rows share the coordinator's signals, each keeps only its own):
+
+  ```cpp
+  connect(c, &ModelDownloadCoordinator::progress, this,
+          [this](const QString& id, qint64 done, qint64 total, const QString& f) {
+              if (id != QString::fromStdString(entry_->id)) return;
+              // …render %  or MB, button stays 取消 + enabled
+          });
+  ```
+
+  Qt auto-disconnects when `this` is destroyed, so no manual cleanup is needed
+  even though the coordinator outlives the widget.
 - `onClicked`:
   - If `snapshot(id).state == Downloading` → `coordinator->cancel(id)`.
   - Else → `coordinator->start(*entry_, dir, baseUrlFromMirror())`, set
