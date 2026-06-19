@@ -5,7 +5,6 @@
 #include "Committer.h"
 #include "Config.h"
 #include "PipeWireLiveVoicePipeline.h"
-#include "Recorder.h"
 #include "SelfTest.h"
 #include "Server.h"
 #include "UiNotifier.h"
