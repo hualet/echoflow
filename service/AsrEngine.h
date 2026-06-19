@@ -7,11 +7,8 @@
 #include "Config.h"
 #include "Interfaces.h"
 
-extern "C" {
-#include "qwen_asr.h"
-}
-
 #include <filesystem>
+#include <string>
 
 namespace echoflow {
 
@@ -25,12 +22,13 @@ public:
 
     bool preload();
     std::string transcribe(const std::filesystem::path& audio) override;
+    std::string transcribeLive(void* liveAudio);
 
 private:
     bool ensureLoaded();
 
     Config cfg_;
-    qwen_ctx_t* ctx_ = nullptr;
+    void* ctx_ = nullptr;
 };
 
 }  // namespace echoflow

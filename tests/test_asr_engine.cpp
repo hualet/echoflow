@@ -4,6 +4,7 @@
 #include <QtTest/QtTest>
 
 #include "AsrEngine.h"
+#include "LiveAudioBuffer.h"
 
 using namespace echoflow;
 
@@ -13,6 +14,7 @@ class TestAsrEngine : public QObject {
 private slots:
     void preloadReturnsFalseWhenModelCannotLoad();
     void transcribeReturnsEmptyWhenModelCannotLoad();
+    void transcribeLiveReturnsEmptyWhenModelCannotLoad();
 };
 
 void TestAsrEngine::preloadReturnsFalseWhenModelCannotLoad()
@@ -35,6 +37,21 @@ void TestAsrEngine::transcribeReturnsEmptyWhenModelCannotLoad()
                  QString());
     } catch (const std::exception& e) {
         QFAIL(qPrintable(QStringLiteral("transcribe threw: %1").arg(e.what())));
+    }
+}
+
+void TestAsrEngine::transcribeLiveReturnsEmptyWhenModelCannotLoad()
+{
+    Config cfg = Config::defaultConfig();
+    cfg.modelDir = "/tmp/echoflow-model-that-does-not-exist";
+
+    AsrEngine engine(cfg);
+    LiveAudioBuffer buffer;
+    buffer.markEof();
+    try {
+        QCOMPARE(QString::fromStdString(engine.transcribeLive(buffer.get())), QString());
+    } catch (const std::exception& e) {
+        QFAIL(qPrintable(QStringLiteral("transcribeLive threw: %1").arg(e.what())));
     }
 }
 
