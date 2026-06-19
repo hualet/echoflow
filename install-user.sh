@@ -70,6 +70,8 @@ value=1
 value=s16
 [advanced.runtime.asr_timeout_seconds]
 value=120
+[advanced.runtime.openblas_threads]
+value=4
 [advanced.fcitx.fcitx_commit]
 value=true
 [advanced.storage.recordings_dir]

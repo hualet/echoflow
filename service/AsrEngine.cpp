@@ -6,6 +6,11 @@
 #include "SelfTest.h"
 #include "log.h"
 
+extern "C" {
+#include <cblas.h>
+#include "qwen_asr_audio.h"
+}
+
 #include <chrono>
 #include <cstdlib>
 
@@ -30,6 +35,9 @@ bool AsrEngine::ensureLoaded()
     }
 
     auto modelDir = resolveModelDir(cfg_);
+    if (cfg_.openBlasThreads > 0) {
+        openblas_set_num_threads(cfg_.openBlasThreads);
+    }
     log("loading qwen-asr model: " + modelDir.string());
     ctx_ = qwen_load(modelDir.c_str());
     if (!ctx_) {
@@ -47,7 +55,13 @@ bool AsrEngine::ensureLoaded()
             log("qwen_set_prompt failed");
         }
     }
+    ctx_->skip_silence = cfg_.skipSilence ? 1 : 0;
     return true;
+}
+
+bool AsrEngine::preload()
+{
+    return ensureLoaded();
 }
 
 std::string AsrEngine::transcribe(const std::filesystem::path& audio)
@@ -58,7 +72,17 @@ std::string AsrEngine::transcribe(const std::filesystem::path& audio)
 
     auto started = std::chrono::steady_clock::now();
     log("transcribing audio: " + audio.string());
-    char* raw = qwen_transcribe(ctx_, audio.c_str());
+    char* raw = nullptr;
+    if (cfg_.streamTranscription) {
+        int nSamples = 0;
+        float* samples = qwen_load_wav(audio.c_str(), &nSamples);
+        if (samples) {
+            raw = qwen_transcribe_stream(ctx_, samples, nSamples);
+            std::free(samples);
+        }
+    } else {
+        raw = qwen_transcribe(ctx_, audio.c_str());
+    }
     if (!raw) {
         log("qwen_transcribe returned empty result");
         return {};

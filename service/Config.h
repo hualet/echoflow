@@ -27,6 +27,9 @@ struct Config {
     PipeWireRecordConfig pwRecord;
     bool fcitxCommit = true;
     bool stripTrailingPunctuation = false;
+    bool skipSilence = false;
+    bool streamTranscription = false;
+    int openBlasThreads = 4;
 
     static Config defaultConfig();
 };

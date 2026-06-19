@@ -4,6 +4,7 @@
 #include "Config.h"
 
 #include <cctype>
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -175,6 +176,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.pwRecord.format = val;
         } else if (section == "advanced.runtime.asr_timeout_seconds") {
             cfg.asrTimeoutSeconds = std::stoi(val);
+        } else if (section == "advanced.runtime.openblas_threads") {
+            cfg.openBlasThreads = std::max(1, std::stoi(val));
         } else if (section == "advanced.fcitx.fcitx_commit") {
             cfg.fcitxCommit = parseBool(val);
         } else if (section == "advanced.storage.recordings_dir") {

@@ -11,8 +11,18 @@ class TestAsrEngine : public QObject {
     Q_OBJECT
 
 private slots:
+    void preloadReturnsFalseWhenModelCannotLoad();
     void transcribeReturnsEmptyWhenModelCannotLoad();
 };
+
+void TestAsrEngine::preloadReturnsFalseWhenModelCannotLoad()
+{
+    Config cfg = Config::defaultConfig();
+    cfg.modelDir = "/tmp/echoflow-model-that-does-not-exist";
+
+    AsrEngine engine(cfg);
+    QVERIFY(!engine.preload());
+}
 
 void TestAsrEngine::transcribeReturnsEmptyWhenModelCannotLoad()
 {

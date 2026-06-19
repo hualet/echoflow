@@ -21,3 +21,6 @@ endforeach()
 add_test(NAME spec_tests
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/spec/run_spec.sh
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(voice_latency_benchmark benchmarks/voice_latency_benchmark.cpp)
+target_link_libraries(voice_latency_benchmark PRIVATE echoflow_service pthread)

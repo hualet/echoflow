@@ -29,6 +29,9 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QVERIFY(c.language.has_value());
     QCOMPARE(QString::fromStdString(*c.language), QStringLiteral("Chinese"));
     QVERIFY(c.modelDir.empty());
+    QVERIFY(!c.skipSilence);
+    QVERIFY(!c.streamTranscription);
+    QCOMPARE(c.openBlasThreads, 4);
 }
 
 void TestConfig::expandPathResolvesHome() {
@@ -59,6 +62,7 @@ void TestConfig::loadDtkConfDerivesModelDirFromName() {
             "[basic.recording.rate]\nvalue=22050\n"
             "[basic.recording.min_record_seconds]\nvalue=0.5\n"
             "[basic.recognition.strip_trailing_punctuation]\nvalue=true\n"
+            "[advanced.runtime.openblas_threads]\nvalue=2\n"
             "[advanced.fcitx.fcitx_commit]\nvalue=false\n");
     f.close();
 
@@ -69,6 +73,7 @@ void TestConfig::loadDtkConfDerivesModelDirFromName() {
     QCOMPARE(c.pwRecord.rate, 22050);
     QCOMPARE(c.minRecordSeconds, 0.5);
     QCOMPARE(c.stripTrailingPunctuation, true);
+    QCOMPARE(c.openBlasThreads, 2);
     QCOMPARE(c.fcitxCommit, false);
     QCOMPARE(QString::fromStdString(c.modelDir),
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()

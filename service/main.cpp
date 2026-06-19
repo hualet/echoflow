@@ -48,13 +48,14 @@ void printDefaultConfig()
                 "  \"rate\": %d,\n"
                 "  \"channels\": %d,\n"
                 "  \"format\": \"%s\",\n"
+                "  \"openblas_threads\": %d,\n"
                 "  \"fcitx_commit\": %s\n"
                 "}\n",
                 cfg.modelName.c_str(),
                 cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
-                cfg.fcitxCommit ? "true" : "false");
+                cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false");
 }
 
 }  // namespace
@@ -116,6 +117,7 @@ int main(int argc, char** argv)
 
     echoflow::PipeWireRecorder recorder(cfg);
     echoflow::AsrEngine asr(cfg);
+    asr.preload();
     echoflow::Committer committer(cfg, echoflow::fcitxSocketPath(cfg));
     echoflow::UnixDatagramUiNotifier ui(echoflow::uiSocketPath(cfg));
     echoflow::VoiceSession session(cfg, recorder, asr, committer, ui);

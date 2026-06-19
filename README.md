@@ -123,6 +123,7 @@ UI host 可直接运行：
 - `basic.recognition.language`: 识别语言，默认 `Chinese`。
 - `basic.recognition.prompt`: 可选提示词，用于术语纠正。
 - `basic.recognition.strip_trailing_punctuation`: 是否去除识别结果尾部标点。
+- `advanced.runtime.openblas_threads`: ASR 计算使用的 OpenBLAS 线程数，默认 `4`。
 - `advanced.storage.recordings_dir`: 录音保存目录。
 
 修改配置后重启服务：

@@ -23,6 +23,7 @@ public:
     AsrEngine(const AsrEngine&) = delete;
     AsrEngine& operator=(const AsrEngine&) = delete;
 
+    bool preload();
     std::string transcribe(const std::filesystem::path& audio) override;
 
 private:
