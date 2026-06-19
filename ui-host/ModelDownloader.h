@@ -20,9 +20,9 @@ namespace echoflow {
 
 // Downloads every missing file of one ModelEntry into targetDir via Qt6 Network.
 // Files already present at their final name are skipped. Before downloading,
-// issues HEAD requests for all pending files so the aggregate byte total is
-// known up front — otherwise the small JSON files would each push progress to
-// 100% before the large shards begin. Each in-flight file is written to
+// issues probe GET requests for all pending files so the aggregate byte total
+// is known up front — otherwise the small JSON files would each push progress
+// to 100% before the large shards begin. Each in-flight file is written to
 // <dir>/.<file>.part and renamed on completion; stale .part files are removed
 // before fetching. Sequential downloads.
 class ModelDownloader : public QObject {

@@ -134,7 +134,13 @@ void ModelDownloader::cancel() {
         // cancelled_ and returns without emitting.
         reply_->abort();
     }
-    for (QNetworkReply* h : sizeReplies_) {
+    // abort() can fire `finished` synchronously, whose lambda erases the reply
+    // from sizeReplies_ — swap to a local first so we iterate a stable copy and
+    // the lambda's erase hits the now-empty member (a no-op). Without this the
+    // range-for's cached end iterator would dangle mid-loop (UB).
+    std::vector<QNetworkReply*> replies;
+    replies.swap(sizeReplies_);
+    for (QNetworkReply* h : replies) {
         h->abort();  // sizing replies' finished lambdas see cancelled_ and return
     }
     if (!currentFile_.isEmpty()) {
