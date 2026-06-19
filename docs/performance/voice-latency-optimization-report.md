@@ -17,6 +17,11 @@ Implemented optimizations:
   dictation samples improved from roughly 2.0-2.7 seconds with one OpenBLAS
   thread to roughly 1.5-2.1 seconds with four threads.
 
+Follow-up comparison against the previous Python/GGUF runner found one major
+optimization in that stack: the GGUF `asr.py` pads every final short chunk to 40
+seconds. Removing that pad makes the old Python engine competitive with, and in
+some runs faster than, the current qwen-asr-c path for short dictation.
+
 ## Benchmark Design
 
 Added `tests/benchmarks/voice_latency_benchmark.cpp`, built as
@@ -137,6 +142,56 @@ Rejected runtime knobs:
 - Auto language detection was not faster than forcing `Chinese` for the tested
   samples.
 
+## Python/GGUF Comparison
+
+The pre-C++ EchoFlow path was:
+
+```text
+echoflow/service.py -> qwen-asr-transcribe subprocess ->
+Qwen3-ASR-GGUF/qwen_asr_gguf/inference/asr.py
+```
+
+That runner used `$HOME/AI/Model/Qwen3-ASR-GGUF/model-0.6B` with ONNX encoder
+files and a `qwen3_asr_llm.q4_k.gguf` decoder. The current qwen-asr-c path uses
+`$HOME/.config/echoflow/qwen3-asr-0.6b/model.safetensors`.
+
+The important Python/GGUF finding is in `asr.py`: for each chunk it sliced the
+real audio and then padded the final chunk to `chunk_size_sec=40.0`. For
+2-5 second dictation, that made the encoder and LLM prefill process a mostly
+empty 40 second chunk. The test below removed only that pad in memory with a
+runtime monkey patch; the external Python checkout was not modified.
+
+Benchmark environment:
+
+- Same three real EchoFlow recordings under
+  `$HOME/.local/share/echoflow/recordings/`.
+- Python dependency runner: `uv run --with gguf --with onnxruntime --with
+  soundfile --with numpy --with srt`.
+- Python engine settings matched the old EchoFlow adapter: ONNX `CPU`,
+  `llm_use_gpu=True`, aligner disabled, language forced to `Chinese`.
+
+Measured on 2026-06-19 morning:
+
+| Audio | Duration | qwen-asr-c warm | Python/GGUF pad warm | Python/GGUF no-pad warm | Python/GGUF no-pad cold total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `voice-20260619-005149.wav` | 3.84 s | 1800 / 1714 ms | 4064 ms | 1810 / 1761 ms | 1903 ms |
+| `voice-20260619-005209.wav` | 4.95 s | 2008 / 1982 ms | 3844 ms | 2562 / 2354 ms | 1721 ms |
+| `voice-20260619-005648.wav` | 2.36 s | 1612 / 1512 ms | 3883 ms | 1411 / 2108 ms | 1394 ms |
+
+Interpretation:
+
+- The no-pad change is real and large. It turns the previous Python/GGUF runner
+  from a 3.8-4.1 second warm path into a roughly 1.4-2.6 second warm path on
+  these samples.
+- qwen-asr-c remains simpler for the product: no Python runtime, no ONNX runtime,
+  no llama.cpp shared libraries, no subprocess runner, and one CMake build.
+- Pure latency is no longer a decisive win for qwen-asr-c. With the no-pad fix,
+  Python/GGUF is in the same range and sometimes faster for short dictation.
+- Returning to Python/GGUF as the product path would require intentionally
+  reversing the current architecture constraint. A narrower option would be to
+  upstream or carry the no-pad fix in the external Python project for comparison
+  work, while keeping the shipped EchoFlow service on qwen-asr-c.
+
 ## Changes Made
 
 - Added `AsrEngine::preload()` as an explicit API over the existing lazy
@@ -149,6 +204,9 @@ Rejected runtime knobs:
 - Added native benchmark tooling under `tests/benchmarks/`.
 - Added `advanced.runtime.openblas_threads` with a default of `4`, parsed by the
   service and printed by `--print-default-config`.
+- Compared the current qwen-asr-c path with the previous Python/GGUF path and
+  verified the old runner's short-audio 40 second pad as the main avoidable
+  latency source.
 
 ## Remaining Opportunities
 
