@@ -177,8 +177,8 @@ std::string PipeWireLiveVoicePipeline::finish()
     if (live_) {
         live_->markEof();
     }
-    joinThreads();
     closeReadFd();
+    joinThreads();
     active_ = false;
     live_.reset();
     std::string finalText = cancelled_ ? std::string() : result_;
@@ -195,8 +195,8 @@ void PipeWireLiveVoicePipeline::cancel()
         if (live_) {
             live_->markEof();
         }
-        joinThreads();
         closeReadFd();
+        joinThreads();
         active_ = false;
         live_.reset();
         result_.clear();
