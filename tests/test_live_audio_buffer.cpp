@@ -28,15 +28,17 @@ void TestLiveAudioBuffer::appendS16leConvertsSamples() {
 
     buffer.appendS16le(bytes.data(), bytes.size());
 
-    qwen_live_audio_t* live = buffer.get();
-    pthread_mutex_lock(&live->mutex);
-    QCOMPARE(live->n_samples, 4);
-    QCOMPARE(live->eof, 0);
-    QVERIFY(qAbs(live->samples[0] - 0.0f) < 0.0001f);
-    QVERIFY(qAbs(live->samples[1] - 0.5f) < 0.0001f);
-    QVERIFY(qAbs(live->samples[2] - -1.0f) < 0.0001f);
-    QVERIFY(live->samples[3] > 0.9999f);
-    pthread_mutex_unlock(&live->mutex);
+    const int64_t sampleCount = buffer.sampleCountForTest();
+    const int eof = buffer.eofForTest();
+    const std::vector<float> samples = buffer.samplesForTest();
+
+    QCOMPARE(sampleCount, 4);
+    QCOMPARE(eof, 0);
+    QCOMPARE(samples.size(), size_t(4));
+    QVERIFY(qAbs(samples[0] - 0.0f) < 0.0001f);
+    QVERIFY(qAbs(samples[1] - 0.5f) < 0.0001f);
+    QVERIFY(qAbs(samples[2] - -1.0f) < 0.0001f);
+    QVERIFY(samples[3] > 0.9999f);
 }
 
 void TestLiveAudioBuffer::markEofIsIdempotent() {
@@ -45,10 +47,9 @@ void TestLiveAudioBuffer::markEofIsIdempotent() {
     buffer.markEof();
     buffer.markEof();
 
-    qwen_live_audio_t* live = buffer.get();
-    pthread_mutex_lock(&live->mutex);
-    QCOMPARE(live->eof, 1);
-    pthread_mutex_unlock(&live->mutex);
+    const int eof = buffer.eofForTest();
+
+    QCOMPARE(eof, 1);
 }
 
 QTEST_MAIN(TestLiveAudioBuffer)

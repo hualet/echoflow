@@ -4,29 +4,34 @@
 #ifndef ECHOFLOW_LIVE_AUDIO_BUFFER_H
 #define ECHOFLOW_LIVE_AUDIO_BUFFER_H
 
-extern "C" {
-#include "qwen_asr.h"
-}
-
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 
 namespace echoflow {
 
 class LiveAudioBuffer {
 public:
     LiveAudioBuffer();
+    // Lifetime contract: callers must call markEof() and ensure all ASR
+    // consumers have stopped or joined before destroying this object.
     ~LiveAudioBuffer();
 
     LiveAudioBuffer(const LiveAudioBuffer&) = delete;
     LiveAudioBuffer& operator=(const LiveAudioBuffer&) = delete;
 
-    qwen_live_audio_t* get() const;
+    void* get();
+    const void* get() const;
     void appendS16le(const unsigned char* data, size_t size);
     void appendFloatSamples(const float* samples, int count);
     void markEof();
 
+    int64_t sampleCountForTest() const;
+    int eofForTest() const;
+    std::vector<float> samplesForTest() const;
+
 private:
-    qwen_live_audio_t* live_ = nullptr;
+    void* live_ = nullptr;
 };
 
 }  // namespace echoflow
