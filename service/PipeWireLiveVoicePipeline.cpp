@@ -222,6 +222,13 @@ void PipeWireLiveVoicePipeline::cancel()
     }
 }
 
+void PipeWireLiveVoicePipeline::setPartialTextCallback(
+    std::function<void(const std::string&)> callback)
+{
+    std::lock_guard<std::mutex> lock(partialTextMutex_);
+    partialTextCallback_ = std::move(callback);
+}
+
 void PipeWireLiveVoicePipeline::readerLoop()
 {
     try {
@@ -265,7 +272,13 @@ void PipeWireLiveVoicePipeline::readerLoop()
 void PipeWireLiveVoicePipeline::asrLoop()
 {
     try {
-        result_ = live_ ? asr_.transcribeLive(live_->get()) : std::string();
+        std::function<void(const std::string&)> partialTextCallback;
+        {
+            std::lock_guard<std::mutex> lock(partialTextMutex_);
+            partialTextCallback = partialTextCallback_;
+        }
+        result_ = live_ ? asr_.transcribeLive(live_->get(), std::move(partialTextCallback))
+                        : std::string();
     } catch (const std::exception& e) {
         log(std::string("live ASR failed: ") + e.what());
         result_.clear();

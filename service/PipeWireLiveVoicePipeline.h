@@ -11,7 +11,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <sys/types.h>
 #include <thread>
@@ -29,6 +31,7 @@ public:
     void start() override;
     std::string finish() override;
     void cancel() override;
+    void setPartialTextCallback(std::function<void(const std::string&)> callback) override;
 
 private:
     void readerLoop();
@@ -46,6 +49,8 @@ private:
     std::thread readerThread_;
     std::thread asrThread_;
     std::string result_;
+    std::function<void(const std::string&)> partialTextCallback_;
+    std::mutex partialTextMutex_;
     std::chrono::steady_clock::time_point startedAt_{};
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};

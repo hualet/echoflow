@@ -14,8 +14,55 @@ extern "C" {
 
 #include <chrono>
 #include <cstdlib>
+#include <memory>
 
 namespace echoflow {
+
+namespace {
+
+struct LiveTokenCallbackState {
+    std::string text;
+    std::function<void(const std::string&)> callback;
+};
+
+void liveTokenCallback(const char* piece, void* userdata)
+{
+    if (!piece || !userdata) {
+        return;
+    }
+
+    auto* state = static_cast<LiveTokenCallbackState*>(userdata);
+    state->text += piece;
+    try {
+        state->callback(state->text);
+    } catch (const std::exception& e) {
+        log(std::string("live token callback failed: ") + e.what());
+    } catch (...) {
+        log("live token callback failed");
+    }
+}
+
+class TokenCallbackScope {
+public:
+    TokenCallbackScope(qwen_ctx_t* ctx, qwen_token_cb callback, void* userdata)
+        : ctx_(ctx)
+    {
+        qwen_set_token_callback(ctx_, callback, userdata);
+    }
+
+    ~TokenCallbackScope()
+    {
+        qwen_set_token_callback(ctx_, nullptr, nullptr);
+    }
+
+    TokenCallbackScope(const TokenCallbackScope&) = delete;
+    TokenCallbackScope& operator=(const TokenCallbackScope&) = delete;
+
+private:
+    qwen_ctx_t* ctx_ = nullptr;
+};
+
+}  // namespace
 
 AsrEngine::AsrEngine(Config cfg)
     : cfg_(std::move(cfg))
@@ -96,7 +143,9 @@ std::string AsrEngine::transcribe(const std::filesystem::path& audio)
     return text;
 }
 
-std::string AsrEngine::transcribeLive(void* liveAudio)
+std::string AsrEngine::transcribeLive(
+    void* liveAudio,
+    std::function<void(const std::string&)> partialTextCallback)
 {
     if (!liveAudio || !ensureLoaded()) {
         return {};
@@ -105,6 +154,13 @@ std::string AsrEngine::transcribeLive(void* liveAudio)
     auto* live = static_cast<qwen_live_audio_t*>(liveAudio);
     auto started = std::chrono::steady_clock::now();
     log("transcribing live audio stream");
+    LiveTokenCallbackState callbackState;
+    callbackState.callback = std::move(partialTextCallback);
+    std::unique_ptr<TokenCallbackScope> callbackScope;
+    if (callbackState.callback) {
+        callbackScope =
+            std::make_unique<TokenCallbackScope>(ctx_, liveTokenCallback, &callbackState);
+    }
     char* raw = qwen_transcribe_stream_live(ctx_, live);
     if (!raw) {
         log("qwen_transcribe_stream_live returned empty result");

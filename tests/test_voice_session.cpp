@@ -5,6 +5,7 @@
 
 #include "VoiceSession.h"
 
+#include <functional>
 #include <stdexcept>
 #include <vector>
 
@@ -48,6 +49,7 @@ struct FakeLivePipeline : ILiveVoicePipeline {
     bool throwOnStart = false;
     bool throwOnFinish = false;
     bool throwOnCancel = false;
+    std::function<void(const std::string&)> partialTextCallback;
 
     void start() override
     {
@@ -72,6 +74,11 @@ struct FakeLivePipeline : ILiveVoicePipeline {
         if (throwOnCancel) {
             throw std::runtime_error("live cancel unavailable");
         }
+    }
+
+    void setPartialTextCallback(std::function<void(const std::string&)> callback) override
+    {
+        partialTextCallback = std::move(callback);
     }
 };
 
@@ -110,6 +117,7 @@ private slots:
     void liveFinishExceptionReturnsToIdle();
     void liveBlurCancelsAndDiscards();
     void liveCancelExceptionStillReturnsToIdleAndHidesTooltip();
+    void livePartialTextUpdatesTooltip();
     void liveStartExceptionReturnsToIdle();
     void unknownCommandReturnsError();
 };
@@ -381,6 +389,19 @@ void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
     QVERIFY(committer.texts.empty());
     QCOMPARE(session.state(), SessionState::Idle);
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+}
+
+void TestVoiceSession::livePartialTextUpdatesTooltip()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    QVERIFY(pipeline.partialTextCallback);
+    pipeline.partialTextCallback("实时文本");
+
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("STREAM_TEXT 实时文本"));
 }
 
 void TestVoiceSession::liveStartExceptionReturnsToIdle()

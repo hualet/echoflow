@@ -12,6 +12,7 @@ extern "C" {
 }
 
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace echoflow {
@@ -26,7 +27,9 @@ public:
 
     bool preload();
     std::string transcribe(const std::filesystem::path& audio) override;
-    std::string transcribeLive(void* liveAudio);
+    std::string transcribeLive(
+        void* liveAudio,
+        std::function<void(const std::string&)> partialTextCallback = {});
 
 private:
     bool ensureLoaded();

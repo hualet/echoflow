@@ -5,6 +5,7 @@
 #define ECHOFLOW_INTERFACES_H
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <utility>
 
@@ -29,6 +30,7 @@ public:
     virtual void start() = 0;
     virtual std::string finish() = 0;
     virtual void cancel() = 0;
+    virtual void setPartialTextCallback(std::function<void(const std::string&)> callback) = 0;
 };
 
 class ICommitter {

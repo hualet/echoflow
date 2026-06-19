@@ -50,6 +50,11 @@ VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
     , committer_(committer)
     , ui_(ui)
 {
+    livePipeline_->setPartialTextCallback([this](const std::string& text) {
+        if (!text.empty()) {
+            ui_.send("STREAM_TEXT " + text);
+        }
+    });
 }
 
 std::string VoiceSession::handleCommand(const std::string& command)

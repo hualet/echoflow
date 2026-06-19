@@ -25,8 +25,9 @@ Window {
     readonly property color accent: typeof theme !== "undefined" ? theme.accent : "#0081ff"
     readonly property color accentText: typeof theme !== "undefined" ? theme.accentText : "white"
 
-    readonly property bool recording: root.busy && root.message === "正在聆听"
     readonly property bool transcribing: root.busy && root.message === "正在转写"
+    readonly property bool recording: root.busy && !root.transcribing
+    readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
     readonly property bool idle: root.visible && !root.busy
 
     // (targetX, targetY) is the capsule's bottom-center anchor.
@@ -113,7 +114,8 @@ Window {
         clip: true
 
         width: root.recording
-               ? waveArea.width + kHPad + kGap + kButtonSize + kButtonInset
+               ? waveArea.width + kHPad + (root.hasLiveText ? kGap + liveText.width : 0)
+                 + kGap + kButtonSize + kButtonInset
                : (root.transcribing
                   ? statusLabel.implicitWidth + 2 * kHPad
                   : idleHint.implicitWidth + kGap + kButtonSize + kHPad + kButtonInset)
@@ -155,6 +157,22 @@ Window {
                     }
                 }
             }
+        }
+
+        // ---- recording: live ASR text ----
+        Label {
+            id: liveText
+            anchors {
+                left: waveArea.right
+                leftMargin: capsule.kGap
+                verticalCenter: parent.verticalCenter
+            }
+            visible: root.hasLiveText
+            text: root.message
+            color: root.capsuleText
+            font.pixelSize: 13
+            width: Math.min(implicitWidth, 220)
+            elide: Text.ElideRight
         }
 
         // ---- idle: hint text (left) ----

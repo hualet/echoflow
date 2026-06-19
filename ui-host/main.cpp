@@ -341,6 +341,12 @@ private:
             const TooltipPos pos = fixedCapsulePosition();
             controller_->setTooltip(true, QStringLiteral("正在聆听"), true,
                                      pos.hasPosition, pos.x, pos.y);
+        } else if (message.startsWith(QStringLiteral("STREAM_TEXT"))) {
+            QString text = message.mid(QStringLiteral("STREAM_TEXT").size()).trimmed();
+            if (!text.isEmpty()) {
+                const TooltipPos pos = fixedCapsulePosition();
+                controller_->setTooltip(true, text, true, pos.hasPosition, pos.x, pos.y);
+            }
         } else if (message == QStringLiteral("TRANSCRIBING")) {
             controller_->setTooltip(true, QStringLiteral("正在转写"), true);
         } else if (message == QStringLiteral("HIDE_TOOLTIP") || message == QStringLiteral("IDLE")) {
