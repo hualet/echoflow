@@ -93,8 +93,8 @@ mkdir -p "$FCITX_ADDON_DIR"
 sed "s|^Library=.*|Library=${ADDON_LIB%.so}|" \
   "$ROOT_DIR/fcitx-addon/echoflow.conf.in" > "$FCITX_ADDON_DIR/echoflow.conf"
 
-install -m 0644 "$ROOT_DIR/systemd/user/echoflow.service" "$SYSTEMD_USER_DIR/echoflow.service"
-install -m 0644 "$ROOT_DIR/systemd/user/echoflow-ui.service" "$SYSTEMD_USER_DIR/echoflow-ui.service"
+install -m 0644 "$BUILD_DIR/systemd/user/echoflow.service" "$SYSTEMD_USER_DIR/echoflow.service"
+install -m 0644 "$BUILD_DIR/systemd/user/echoflow-ui.service" "$SYSTEMD_USER_DIR/echoflow-ui.service"
 
 systemctl --user daemon-reload
 if [[ "$START_SERVICES" == "1" ]]; then

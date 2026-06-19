@@ -1,0 +1,6 @@
+# Keep DTK6 runtime dependency versions at the minor-version floor instead of
+# propagating the exact build-machine DTK package version into ${shlibs:Depends}.
+libdtk6core   6 libdtk6core   (>= 6.7)
+libdtk6gui    6 libdtk6gui    (>= 6.7)
+libdtk6widget 6 libdtk6widget (>= 6.7)
+libdtk6log    0 libdtk6log    (>= 6.7)

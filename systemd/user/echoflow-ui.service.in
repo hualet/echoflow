@@ -7,7 +7,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/echoflow-ui
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui
 Restart=on-failure
 
 [Install]

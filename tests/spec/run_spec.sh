@@ -40,11 +40,16 @@ assert_absent "$ROOT/install-user.sh" "asr_runner" "install-user.sh has no asr_r
 assert_absent "$ROOT/install-user.sh" "asr_project_dir" "install-user.sh has no asr_project_dir key"
 assert_contains "$ROOT/install-user.sh" 'cmake -S "$ROOT_DIR"' "install-user.sh configures root CMake"
 assert_contains "$ROOT/install-user.sh" 'cmake --install "$BUILD_DIR"' "install-user.sh installs root build"
+assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow.service' "install-user.sh installs configured service unit"
+assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow-ui.service' "install-user.sh installs configured UI service unit"
 
 assert_contains "$ROOT/CMakeLists.txt" "qwen-asr-runtime" "top-level builds qwen-asr-runtime"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(fcitx-addon)" "top-level builds fcitx-addon"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(ui-host)" "top-level builds ui-host"
 assert_contains "$ROOT/qwen-asr-runtime/CMakeLists.txt" "USE_OPENBLAS" "qwen-asr runtime enables OpenBLAS"
+assert_contains "$ROOT/CMakeLists.txt" 'DESTINATION "lib/systemd/user"' "top-level installs systemd user units in systemd search path"
+assert_contains "$ROOT/systemd/user/echoflow.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-service" "service unit uses configured service path"
+assert_contains "$ROOT/systemd/user/echoflow-ui.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui" "UI service unit uses configured UI path"
 
 assert_contains "$ROOT/service/AsrEngine.h" 'qwen_asr.h' "AsrEngine is qwen-asr boundary"
 assert_absent "$ROOT/service/Server.cpp" 'qwen_asr.h' "Server does not touch qwen-asr"
@@ -96,6 +101,21 @@ else
   echo "ok   - no PySide/PyQt in native sources"
   pass=$((pass + 1))
 fi
+
+assert_contains "$ROOT/debian/control" "Package: echoflow" "debian control defines echoflow package"
+assert_contains "$ROOT/debian/control" "debhelper-compat (= 13)" "debian control uses debhelper compat 13"
+assert_contains "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7)" "debian control keeps DTK widget dependency at minor version"
+assert_absent "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7." "debian control does not pin DTK widget dependency to patch/build"
+assert_contains "$ROOT/debian/shlibs.local" "libdtk6widget 6 libdtk6widget (>= 6.7)" "debian shlibs keeps DTK widget runtime dependency at minor version"
+assert_absent "$ROOT/debian/shlibs.local" ">= 6.7." "debian shlibs does not pin DTK runtime dependency to patch/build"
+assert_contains "$ROOT/debian/control" "fcitx5" "debian package depends on fcitx5"
+assert_contains "$ROOT/debian/control" "pipewire-bin" "debian package depends on PipeWire tools"
+assert_contains "$ROOT/debian/rules" "dh $@" "debian rules delegates to debhelper"
+assert_contains "$ROOT/debian/source/format" "3.0 (native)" "debian source format is native"
+assert_contains "$ROOT/.github/workflows/build.yml" "cmake --build build" "build workflow builds CMake tree"
+assert_contains "$ROOT/.github/workflows/build.yml" "ctest --test-dir build --output-on-failure" "build workflow runs tests"
+assert_contains "$ROOT/.github/workflows/deb.yml" "dpkg-buildpackage -us -uc -b" "deb workflow builds binary package"
+assert_contains "$ROOT/.github/workflows/deb.yml" "softprops/action-gh-release" "deb workflow publishes release assets"
 
 echo "---"
 echo "spec: $pass passed, $fail failed"

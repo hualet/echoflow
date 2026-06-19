@@ -1,0 +1,5 @@
+echoflow (0.1.0) unstable; urgency=medium
+
+  * Add CMake-backed Debian packaging and GitHub build workflows.
+
+ -- Hualet Wang <hualet@deepin.org>  Fri, 19 Jun 2026 09:30:00 +0800
