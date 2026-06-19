@@ -17,15 +17,6 @@ extern "C" {
 
 namespace echoflow {
 
-namespace {
-
-qwen_ctx_t* qwenCtx(void* ctx)
-{
-    return static_cast<qwen_ctx_t*>(ctx);
-}
-
-}  // namespace
-
 AsrEngine::AsrEngine(Config cfg)
     : cfg_(std::move(cfg))
 {
@@ -34,7 +25,7 @@ AsrEngine::AsrEngine(Config cfg)
 AsrEngine::~AsrEngine()
 {
     if (ctx_) {
-        qwen_free(qwenCtx(ctx_));
+        qwen_free(ctx_);
     }
 }
 
@@ -56,16 +47,16 @@ bool AsrEngine::ensureLoaded()
     }
 
     if (cfg_.language.has_value() && !cfg_.language->empty()) {
-        if (qwen_set_force_language(qwenCtx(ctx_), cfg_.language->c_str()) != 0) {
+        if (qwen_set_force_language(ctx_, cfg_.language->c_str()) != 0) {
             log("unsupported qwen-asr language, falling back to auto: " + *cfg_.language);
         }
     }
     if (!cfg_.prompt.empty()) {
-        if (qwen_set_prompt(qwenCtx(ctx_), cfg_.prompt.c_str()) != 0) {
+        if (qwen_set_prompt(ctx_, cfg_.prompt.c_str()) != 0) {
             log("qwen_set_prompt failed");
         }
     }
-    qwenCtx(ctx_)->skip_silence = cfg_.skipSilence ? 1 : 0;
+    ctx_->skip_silence = cfg_.skipSilence ? 1 : 0;
     return true;
 }
 
@@ -87,11 +78,11 @@ std::string AsrEngine::transcribe(const std::filesystem::path& audio)
         int nSamples = 0;
         float* samples = qwen_load_wav(audio.c_str(), &nSamples);
         if (samples) {
-            raw = qwen_transcribe_stream(qwenCtx(ctx_), samples, nSamples);
+            raw = qwen_transcribe_stream(ctx_, samples, nSamples);
             std::free(samples);
         }
     } else {
-        raw = qwen_transcribe(qwenCtx(ctx_), audio.c_str());
+        raw = qwen_transcribe(ctx_, audio.c_str());
     }
     if (!raw) {
         log("qwen_transcribe returned empty result");
@@ -114,7 +105,7 @@ std::string AsrEngine::transcribeLive(void* liveAudio)
     auto* live = static_cast<qwen_live_audio_t*>(liveAudio);
     auto started = std::chrono::steady_clock::now();
     log("transcribing live audio stream");
-    char* raw = qwen_transcribe_stream_live(qwenCtx(ctx_), live);
+    char* raw = qwen_transcribe_stream_live(ctx_, live);
     if (!raw) {
         log("qwen_transcribe_stream_live returned empty result");
         return {};

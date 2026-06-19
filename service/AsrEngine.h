@@ -7,6 +7,10 @@
 #include "Config.h"
 #include "Interfaces.h"
 
+extern "C" {
+#include "qwen_asr.h"
+}
+
 #include <filesystem>
 #include <string>
 
@@ -28,7 +32,7 @@ private:
     bool ensureLoaded();
 
     Config cfg_;
-    void* ctx_ = nullptr;
+    qwen_ctx_t* ctx_ = nullptr;
 };
 
 }  // namespace echoflow
