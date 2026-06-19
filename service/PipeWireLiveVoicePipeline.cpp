@@ -181,7 +181,9 @@ std::string PipeWireLiveVoicePipeline::finish()
     closeReadFd();
     active_ = false;
     live_.reset();
-    return cancelled_ ? std::string() : result_;
+    std::string finalText = cancelled_ ? std::string() : result_;
+    result_.clear();
+    return finalText;
 }
 
 void PipeWireLiveVoicePipeline::cancel()
