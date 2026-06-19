@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstring>
 #include <spawn.h>
@@ -22,6 +23,13 @@ extern char** environ;
 namespace echoflow {
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double elapsedSeconds(Clock::time_point started)
+{
+    return std::chrono::duration<double>(Clock::now() - started).count();
+}
 
 void closeIfOpen(int& fd)
 {
@@ -153,6 +161,7 @@ void PipeWireLiveVoicePipeline::start()
     live_ = std::move(nextLive);
     cancelled_ = false;
     result_.clear();
+    startedAt_ = Clock::now();
     active_ = true;
 
     try {
@@ -172,6 +181,9 @@ std::string PipeWireLiveVoicePipeline::finish()
         return {};
     }
 
+    auto finishStarted = Clock::now();
+    log("live recording stop requested after " + std::to_string(elapsedSeconds(startedAt_)) +
+        "s");
     stopRecorder();
     cleanupProcess();
     if (live_) {
@@ -183,6 +195,9 @@ std::string PipeWireLiveVoicePipeline::finish()
     live_.reset();
     std::string finalText = cancelled_ ? std::string() : result_;
     result_.clear();
+    log("live pipeline finish returned in " + std::to_string(elapsedSeconds(finishStarted)) +
+        "s, total=" + std::to_string(elapsedSeconds(startedAt_)) +
+        "s, chars=" + std::to_string(finalText.size()));
     return finalText;
 }
 

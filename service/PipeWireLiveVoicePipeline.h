@@ -10,6 +10,7 @@
 #include "LiveAudioBuffer.h"
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <sys/types.h>
@@ -45,6 +46,7 @@ private:
     std::thread readerThread_;
     std::thread asrThread_;
     std::string result_;
+    std::chrono::steady_clock::time_point startedAt_{};
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};
 };
