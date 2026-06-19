@@ -83,6 +83,10 @@ assert_contains "$ROOT/ui-host/settings-schema.json" "qwen3-asr-0.6b" "settings 
 assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "asr_runner" "EchoFlowSettings writes no asr_runner default"
 assert_contains "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.prompt" "EchoFlowSettings writes prompt default"
 
+assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
+assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "ModelDownloadCoordinator" "ModelRowWidget talks to the coordinator"
+assert_absent  "$ROOT/ui-host/ModelRowWidget.cpp" "new ModelDownloader" "ModelRowWidget no longer owns a downloader"
+
 if grep -rEq "PySide|PyQt" "$ROOT"/service "$ROOT"/fcitx-addon "$ROOT"/ui-host 2>/dev/null; then
   echo "FAIL - no PySide/PyQt in native sources"
   fail=$((fail + 1))

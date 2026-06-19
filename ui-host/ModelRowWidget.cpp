@@ -4,7 +4,7 @@
 #include "ModelRowWidget.h"
 
 #include "EchoFlowSettings.h"
-#include "ModelDownloader.h"
+#include "ModelDownloadCoordinator.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -24,7 +24,8 @@ QString configDir() {
     return slash > 0 ? conf.left(slash) : QStringLiteral(".");
 }
 
-// Read the mirror setting live (so changing the combobox takes effect).
+// Read the mirror setting live (so changing the combobox takes effect on the
+// NEXT start; an in-flight download keeps the mirror it was started with).
 QString baseUrlFromMirror() {
     auto* ds = EchoFlowSettings::instance()->dsettings();
     QString mirror = QStringLiteral("hf-mirror");
@@ -56,7 +57,41 @@ ModelRowWidget::ModelRowWidget(const ModelEntry* entry, QWidget* parent)
     lay->addWidget(button_);
 
     connect(button_, &QPushButton::clicked, this, &ModelRowWidget::onClicked);
-    refreshState();
+
+    auto* c = ModelDownloadCoordinator::instance();
+    // Both rows share the coordinator's signals; each slot filters by id.
+    // Qt auto-disconnects when `this` is destroyed, so reopening the dialog
+    // (which deletes the old widget) needs no manual cleanup.
+    connect(c, &ModelDownloadCoordinator::progress, this,
+            &ModelRowWidget::onCoordinatorProgress);
+    connect(c, &ModelDownloadCoordinator::stateChanged, this,
+            &ModelRowWidget::onCoordinatorStateChanged);
+
+    // Paint immediately from the snapshot — the widget missed any progress
+    // signals emitted before it existed.
+    const DownloadSnapshot snap = c->snapshot(modelId());
+    if (snap.state == DownloadState::Downloading) {
+        renderProgress(snap.done, snap.total);
+        button_->setText(QStringLiteral("取消"));
+        button_->setEnabled(true);
+    } else {
+        refreshState();
+    }
+}
+
+QString ModelRowWidget::modelId() const {
+    return entry_ ? QString::fromStdString(entry_->id) : QString();
+}
+
+void ModelRowWidget::renderProgress(qint64 done, qint64 total) {
+    if (total > 0) {
+        const int pct = static_cast<int>((done * 100) / total);
+        status_->setText(QString::number(qBound(0, pct, 100)) + QStringLiteral("%"));
+    } else {
+        // Indeterminate (no Content-Length): show downloaded megabytes.
+        const double mb = done / (1024.0 * 1024.0);
+        status_->setText(QString("%1 MB").arg(mb, 0, 'f', 1));
+    }
 }
 
 void ModelRowWidget::refreshState() {
@@ -66,11 +101,12 @@ void ModelRowWidget::refreshState() {
         button_->setEnabled(false);
         return;
     }
-    if (downloader_) {
-        return;  // downloading; state driven by onProgress/onFinished
+    // A download in flight is driven by the coordinator signals, not disk.
+    if (ModelDownloadCoordinator::instance()->snapshot(modelId()).state
+        == DownloadState::Downloading) {
+        return;
     }
-    const QString dir = configDir() + QStringLiteral("/") +
-                        QString::fromStdString(entry_->id);
+    const QString dir = configDir() + QStringLiteral("/") + modelId();
     const bool present = isModelPresent(std::filesystem::path(dir.toStdString()), *entry_);
     if (present) {
         status_->setText(QString());
@@ -87,49 +123,53 @@ void ModelRowWidget::onClicked() {
     if (!entry_) {
         return;
     }
-    if (downloader_) {
-        // A download is in flight: the button is the cancel affordance.
-        downloader_->cancel();  // emits finished(false, "已取消"); onFinished resets state
+    auto* c = ModelDownloadCoordinator::instance();
+    if (c->snapshot(modelId()).state == DownloadState::Downloading) {
+        // Download in flight: the button is the cancel affordance.
+        c->cancel(modelId());  // coordinator emits stateChanged(Failed, "已取消")
         return;
     }
-    const QString dir = configDir() + QStringLiteral("/") +
-                        QString::fromStdString(entry_->id);
-    downloader_ = new ModelDownloader(*entry_, dir, baseUrlFromMirror(), this);
-    connect(downloader_, &ModelDownloader::progress, this, &ModelRowWidget::onProgress);
-    connect(downloader_, &ModelDownloader::finished, this, &ModelRowWidget::onFinished);
+    const QString dir = configDir() + QStringLiteral("/") + modelId();
+    c->start(*entry_, dir, baseUrlFromMirror());
     button_->setText(QStringLiteral("取消"));
     button_->setEnabled(true);
     status_->setText(QString());
-    downloader_->start();
 }
 
-void ModelRowWidget::onProgress(qint64 done, qint64 total, const QString& /*currentFile*/) {
-    // Throughout a download the button is the cancel affordance and stays enabled
-    // — including indeterminate mode and indeterminate->determinate transitions.
+void ModelRowWidget::onCoordinatorProgress(const QString& id, qint64 done, qint64 total,
+                                           const QString& /*file*/) {
+    if (id != modelId()) {
+        return;
+    }
+    // Throughout a download the button is the cancel affordance and stays
+    // enabled — including indeterminate mode and indeterminate->determinate
+    // transitions (matches the pre-refactor behavior).
     button_->setText(QStringLiteral("取消"));
     button_->setEnabled(true);
-    if (total > 0) {
-        const int pct = static_cast<int>((done * 100) / total);
-        status_->setText(QString::number(qBound(0, pct, 100)) + QStringLiteral("%"));
-    } else {
-        // Indeterminate (no Content-Length yet): show downloaded megabytes.
-        const double mb = done / (1024.0 * 1024.0);
-        status_->setText(QString("%1 MB").arg(mb, 0, 'f', 1));
-    }
+    renderProgress(done, total);
 }
 
-void ModelRowWidget::onFinished(bool ok, const QString& error) {
-    downloader_->deleteLater();
-    downloader_ = nullptr;
-    if (!ok && !error.isEmpty()) {
+void ModelRowWidget::onCoordinatorStateChanged(const QString& id, DownloadState state,
+                                               const QString& error) {
+    if (id != modelId()) {
+        return;
+    }
+    if (state == DownloadState::Downloading) {
+        button_->setText(QStringLiteral("取消"));
+        button_->setEnabled(true);
+        return;
+    }
+    if (state == DownloadState::Failed) {
+        // Covers user cancel too: the downloader emits finished(false,"已取消"),
+        // so the status reads 已取消 and the button becomes 重试.
         status_->setText(error);
         button_->setText(QStringLiteral("重试"));
         button_->setEnabled(true);
         return;
     }
+    // Succeeded (or Idle): re-evaluate against disk; a model was (possibly)
+    // added, so rebuild the model_name combobox so it becomes selectable.
     refreshState();
-    // A model was (possibly) added to disk; rebuild the model_name combobox
-    // so the just-downloaded model becomes selectable.
     EchoFlowSettings::instance()->refreshModelNameItems();
 }
 
