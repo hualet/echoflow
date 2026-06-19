@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -21,6 +22,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QMenu>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
@@ -33,10 +36,52 @@
 #include <QSystemTrayIcon>
 #include <QUrl>
 
+#include <DGuiApplicationHelper>
+
 #include "EchoFlowSettings.h"
 #include "SettingsDialog.h"
 
 namespace {
+
+QtMessageHandler previousMessageHandler = nullptr;
+
+void echoflowMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message) {
+    if (message == QStringLiteral(
+                       "setHighDpiScaleFactorRoundingPolicy must be called before creating the QGuiApplication instance")) {
+        return;
+    }
+
+    if (previousMessageHandler) {
+        previousMessageHandler(type, context, message);
+        return;
+    }
+    qt_message_output(type, context, message);
+}
+
+bool setDtkSingleInstance(const QString &key) {
+    return Dtk::Gui::DGuiApplicationHelper::setSingleInstance(key);
+}
+
+void logDuplicateInstanceExit() {
+    qInfo("echoflow-ui is already running; exiting duplicate instance");
+    std::fprintf(stderr, "echoflow-ui is already running; exiting duplicate instance\n");
+}
+
+bool acquireUiInstanceServer(QLocalServer *server, const QString &path) {
+    server->setSocketOptions(QLocalServer::UserAccessOption);
+    if (server->listen(path)) {
+        return true;
+    }
+
+    QLocalSocket socket;
+    socket.connectToServer(path);
+    if (socket.waitForConnected(100)) {
+        return false;
+    }
+
+    QLocalServer::removeServer(path);
+    return server->listen(path);
+}
 
 bool isUsableRuntimeDirectory(const std::string &path) {
     struct stat st {};
@@ -59,6 +104,10 @@ std::string runtimeDir() {
 
 std::string defaultUiSocketPath() {
     return runtimeDir() + "/echoflow-ui.sock";
+}
+
+QString defaultUiLockPath() {
+    return QString::fromStdString(runtimeDir() + "/echoflow-ui.instance");
 }
 
 QString defaultQmlPath() {
@@ -260,10 +309,23 @@ private:
 } // namespace
 
 int main(int argc, char **argv) {
+    previousMessageHandler = qInstallMessageHandler(echoflowMessageHandler);
+
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("echoflow-ui"));
     app.setOrganizationName(QStringLiteral("echoflow"));
     app.setQuitOnLastWindowClosed(false);
+
+    QLocalServer uiInstanceServer;
+    if (!acquireUiInstanceServer(&uiInstanceServer, defaultUiLockPath())) {
+        logDuplicateInstanceExit();
+        return 0;
+    }
+
+    if (!setDtkSingleInstance(QStringLiteral("echoflow-ui"))) {
+        logDuplicateInstanceExit();
+        return 0;
+    }
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("EchoFlow QML tooltip host"));
