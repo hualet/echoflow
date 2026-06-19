@@ -23,6 +23,8 @@ namespace {
 struct LiveTokenCallbackState {
     std::string text;
     std::function<void(const std::string&)> callback;
+    std::chrono::steady_clock::time_point started;
+    bool loggedFirstToken = false;
 };
 
 void liveTokenCallback(const char* piece, void* userdata)
@@ -33,6 +35,13 @@ void liveTokenCallback(const char* piece, void* userdata)
 
     auto* state = static_cast<LiveTokenCallbackState*>(userdata);
     state->text += piece;
+    if (!state->loggedFirstToken) {
+        const auto elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - state->started)
+                .count();
+        log("first live ASR token emitted after " + std::to_string(elapsed) + "s");
+        state->loggedFirstToken = true;
+    }
     try {
         state->callback(state->text);
     } catch (const std::exception& e) {
@@ -104,6 +113,10 @@ bool AsrEngine::ensureLoaded()
         }
     }
     ctx_->skip_silence = cfg_.skipSilence ? 1 : 0;
+    ctx_->stream_chunk_sec = 1.0f;
+    ctx_->stream_unfixed_chunks = 0;
+    ctx_->stream_rollback = 2;
+    log("live stream params: chunk=1.0s, unfixed=0, rollback=2");
     return true;
 }
 
@@ -155,6 +168,7 @@ std::string AsrEngine::transcribeLive(
     auto started = std::chrono::steady_clock::now();
     log("transcribing live audio stream");
     LiveTokenCallbackState callbackState;
+    callbackState.started = started;
     callbackState.callback = std::move(partialTextCallback);
     std::unique_ptr<TokenCallbackScope> callbackScope;
     if (callbackState.callback) {
