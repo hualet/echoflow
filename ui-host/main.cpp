@@ -325,6 +325,7 @@ int main(int argc, char **argv) {
                 settingsDialog = nullptr;
             });
         }
+        echoflow::EchoFlowSettings::instance()->refreshModelNameItems();
         settingsDialog->show();
         settingsDialog->raise();
         settingsDialog->activateWindow();
