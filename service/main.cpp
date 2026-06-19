@@ -4,6 +4,7 @@
 #include "AsrEngine.h"
 #include "Committer.h"
 #include "Config.h"
+#include "PipeWireLiveVoicePipeline.h"
 #include "Recorder.h"
 #include "SelfTest.h"
 #include "Server.h"
@@ -115,12 +116,12 @@ int main(int argc, char** argv)
         return text.empty() ? 1 : 0;
     }
 
-    echoflow::PipeWireRecorder recorder(cfg);
     echoflow::AsrEngine asr(cfg);
     asr.preload();
+    echoflow::PipeWireLiveVoicePipeline livePipeline(cfg, asr);
     echoflow::Committer committer(cfg, echoflow::fcitxSocketPath(cfg));
     echoflow::UnixDatagramUiNotifier ui(echoflow::uiSocketPath(cfg));
-    echoflow::VoiceSession session(cfg, recorder, asr, committer, ui);
+    echoflow::VoiceSession session(cfg, livePipeline, committer, ui);
     echoflow::Server server(cfg, session);
     return server.run();
 }
