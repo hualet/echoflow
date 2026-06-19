@@ -85,16 +85,22 @@ void ModelDownloader::beginSizing() {
         req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("echoflow"));
         QNetworkReply* g = nam_->get(req);
         sizeReplies_.push_back(g);
-        QObject::connect(g, &QNetworkReply::readyRead, this, [this, g, i]() {
-            if (fileSizes_[i] >= 0) {
-                return;  // already sized this file
-            }
+        // Capture Content-Length as each response's metadata arrives. Redirect
+        // hops also emit metaDataChanged (with the small redirect-body length),
+        // so overwrite on every emission — the final post-redirect response
+        // wins. metaDataChanged is where Qt exposes stable headers; reading
+        // the header inside readyRead returned stale/empty values mid-redirect.
+        QObject::connect(g, &QNetworkReply::metaDataChanged, this, [this, g, i]() {
             bool ok = false;
             const qint64 len = g->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
             if (ok && len > 0) {
                 fileSizes_[i] = len;
             }
-            g->abort();  // length captured (or unknowable); stop the body transfer
+        });
+        // Abort once the body starts — that only happens on the final response,
+        // so fileSizes_[i] now holds the real length (or -1 if unknowable).
+        QObject::connect(g, &QNetworkReply::readyRead, this, [this, g]() {
+            g->abort();
         });
         QObject::connect(g, &QNetworkReply::finished, this, [this, g]() {
             g->deleteLater();
