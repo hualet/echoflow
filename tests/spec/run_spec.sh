@@ -85,7 +85,9 @@ assert_contains "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.prompt" 
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "ModelDownloadCoordinator" "ModelRowWidget talks to the coordinator"
-assert_absent  "$ROOT/ui-host/ModelRowWidget.cpp" "new ModelDownloader" "ModelRowWidget no longer owns a downloader"
+assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "onCoordinatorStateChanged" "ModelRowWidget handles coordinator state changes"
+assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "snapshot(modelId())" "ModelRowWidget reads the coordinator snapshot"
+assert_absent "$ROOT/ui-host/ModelRowWidget.cpp" "new ModelDownloader" "ModelRowWidget no longer owns a downloader"
 
 if grep -rEq "PySide|PyQt" "$ROOT"/service "$ROOT"/fcitx-addon "$ROOT"/ui-host 2>/dev/null; then
   echo "FAIL - no PySide/PyQt in native sources"

@@ -131,9 +131,6 @@ void ModelRowWidget::onClicked() {
     }
     const QString dir = configDir() + QStringLiteral("/") + modelId();
     c->start(*entry_, dir, baseUrlFromMirror());
-    button_->setText(QStringLiteral("取消"));
-    button_->setEnabled(true);
-    status_->setText(QString());
 }
 
 void ModelRowWidget::onCoordinatorProgress(const QString& id, qint64 done, qint64 total,
@@ -157,6 +154,7 @@ void ModelRowWidget::onCoordinatorStateChanged(const QString& id, DownloadState 
     if (state == DownloadState::Downloading) {
         button_->setText(QStringLiteral("取消"));
         button_->setEnabled(true);
+        status_->setText(QString());
         return;
     }
     if (state == DownloadState::Failed) {
