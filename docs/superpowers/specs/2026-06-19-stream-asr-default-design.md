@@ -158,8 +158,15 @@ Use TDD for the implementation.
 - `ctest --test-dir build --output-on-failure`
 - `./build/service/echoflow-service --self-test`
 - Manual runtime check after install: restart `echoflow.service`,
-  `echoflow-ui.service`, and Fcitx if addon behavior was touched, then record a
-  short utterance and verify the post-stop wait is shorter than the old WAV path.
+  `echoflow-ui.service`, and Fcitx if addon behavior was touched, then record an
+  utterance and verify the logs show `live recording started` before stop and
+  `transcribing live audio stream` while capture is still active.
+
+Runtime validation should measure both short and longer utterances. qwen-asr's
+true live decoder can be slower than the old full-WAV path for short recordings
+because it performs chunked rollback decoding. The intended first-phase win is
+for longer dictation: ASR work overlaps the recording period, reducing the wait
+after stop even when total ASR wall time is similar or higher.
 
 ## Out of Scope
 
