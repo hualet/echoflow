@@ -21,6 +21,24 @@ namespace {
 
 constexpr int64_t kInitialCapacity = 32000;
 
+class PthreadLockGuard {
+public:
+    explicit PthreadLockGuard(pthread_mutex_t* mutex)
+        : mutex_(mutex) {
+        pthread_mutex_lock(mutex_);
+    }
+
+    ~PthreadLockGuard() {
+        pthread_mutex_unlock(mutex_);
+    }
+
+    PthreadLockGuard(const PthreadLockGuard&) = delete;
+    PthreadLockGuard& operator=(const PthreadLockGuard&) = delete;
+
+private:
+    pthread_mutex_t* mutex_;
+};
+
 qwen_live_audio_t* liveFrom(void* ptr) {
     return static_cast<qwen_live_audio_t*>(ptr);
 }
@@ -102,9 +120,8 @@ void LiveAudioBuffer::appendFloatSamples(const float* samples, int count) {
     }
 
     qwen_live_audio_t* live = liveFrom(live_);
-    pthread_mutex_lock(&live->mutex);
+    PthreadLockGuard lock(&live->mutex);
     if (live->n_samples > std::numeric_limits<int64_t>::max() - static_cast<int64_t>(count)) {
-        pthread_mutex_unlock(&live->mutex);
         throw std::length_error("live audio sample count overflow");
     }
 
@@ -113,7 +130,6 @@ void LiveAudioBuffer::appendFloatSamples(const float* samples, int count) {
         int64_t newCapacity = live->capacity > 0 ? live->capacity : kInitialCapacity;
         while (newCapacity < needed) {
             if (newCapacity > std::numeric_limits<int64_t>::max() / 2) {
-                pthread_mutex_unlock(&live->mutex);
                 throw std::length_error("live audio capacity overflow");
             }
             newCapacity *= 2;
@@ -121,14 +137,12 @@ void LiveAudioBuffer::appendFloatSamples(const float* samples, int count) {
 
         if (static_cast<uint64_t>(newCapacity)
             > static_cast<uint64_t>(std::numeric_limits<size_t>::max() / sizeof(float))) {
-            pthread_mutex_unlock(&live->mutex);
             throw std::length_error("live audio allocation size overflow");
         }
 
         const auto bytes = static_cast<size_t>(newCapacity) * sizeof(float);
         float* grown = static_cast<float*>(realloc(live->samples, bytes));
         if (!grown) {
-            pthread_mutex_unlock(&live->mutex);
             throw std::bad_alloc();
         }
 
@@ -139,42 +153,37 @@ void LiveAudioBuffer::appendFloatSamples(const float* samples, int count) {
     memcpy(live->samples + live->n_samples, samples, static_cast<size_t>(count) * sizeof(float));
     live->n_samples += count;
     pthread_cond_signal(&live->cond);
-    pthread_mutex_unlock(&live->mutex);
 }
 
 void LiveAudioBuffer::markEof() {
     qwen_live_audio_t* live = liveFrom(live_);
-    pthread_mutex_lock(&live->mutex);
+    PthreadLockGuard lock(&live->mutex);
     live->eof = 1;
     pthread_cond_signal(&live->cond);
-    pthread_mutex_unlock(&live->mutex);
 }
 
 int64_t LiveAudioBuffer::sampleCountForTest() const {
     const qwen_live_audio_t* live = liveFrom(live_);
-    pthread_mutex_lock(const_cast<pthread_mutex_t*>(&live->mutex));
+    PthreadLockGuard lock(const_cast<pthread_mutex_t*>(&live->mutex));
     const int64_t count = live->n_samples;
-    pthread_mutex_unlock(const_cast<pthread_mutex_t*>(&live->mutex));
     return count;
 }
 
 int LiveAudioBuffer::eofForTest() const {
     const qwen_live_audio_t* live = liveFrom(live_);
-    pthread_mutex_lock(const_cast<pthread_mutex_t*>(&live->mutex));
+    PthreadLockGuard lock(const_cast<pthread_mutex_t*>(&live->mutex));
     const int eof = live->eof;
-    pthread_mutex_unlock(const_cast<pthread_mutex_t*>(&live->mutex));
     return eof;
 }
 
 std::vector<float> LiveAudioBuffer::samplesForTest() const {
     const qwen_live_audio_t* live = liveFrom(live_);
-    pthread_mutex_lock(const_cast<pthread_mutex_t*>(&live->mutex));
+    PthreadLockGuard lock(const_cast<pthread_mutex_t*>(&live->mutex));
     const int64_t count = live->n_samples;
     std::vector<float> samples;
     if (count > 0) {
         samples.assign(live->samples, live->samples + count);
     }
-    pthread_mutex_unlock(const_cast<pthread_mutex_t*>(&live->mutex));
     return samples;
 }
 
