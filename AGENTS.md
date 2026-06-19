@@ -1,122 +1,79 @@
-# AGENTS.md
+# Repository Guidelines
 
-Offline voice input method for deepin/Fcitx5. Toggle recording by tapping the
-**right** `Ctrl` (press once to start, press again to stop), record with
-PipeWire, transcribe locally with qwen-asr, and commit through a Fcitx5 addon.
-Keep the service, input-method addon, and UI host boundaries clean.
+## Project Structure & Module Organization
 
-## Stack
+EchoFlow is an offline voice input method for deepin/Fcitx5. The top-level
+`CMakeLists.txt` builds native components. `service/` contains the daemon,
+recording lifecycle, ASR integration, sockets, commit client, UI notifications,
+and self-test logic. `fcitx-addon/` captures right `Ctrl`, tracks input-context
+events, and talks to the daemon. `ui-host/` contains the Qt6/DTK tray and
+settings UI, while `qml/` holds tooltip QML.
+`qwen-asr-runtime/` wraps `third_party/qwen-asr/`. Tests live in `tests/`, with
+shell spec checks in `tests/spec/` and performance benchmarks in
+`tests/benchmarks/`.
 
-- C++17, CMake >= 3.16, one top-level build.
-- `service/` builds the `echoflow-service` daemon and the
-  `libechoflow_service.a` logic library.
-- `third_party/qwen-asr/` is the ASR submodule. `qwen-asr-runtime/` builds it as
-  `libqwen_asr.a` with OpenBLAS.
-- `fcitx-addon/` builds the Fcitx5 addon that captures right `Ctrl`, observes
-  input-context focus/typing events, and commits text.
-- `ui-host/` builds the Qt6/DTK tray + tooltip host.
-- Recording: PipeWire (`pw-record`). ASR: antirez `qwen-asr` safetensors model.
-- No Python runtime, no llama.cpp, no GGUF/ONNX runtime, no packaging, no CI, no
-  pre-commit.
+## Build, Test, and Development Commands
 
-Fresh clones must initialize:
+Initialize fresh clones with:
 
 ```bash
 git submodule update --init --recursive third_party/qwen-asr
 ```
 
-## Commands
+Configure, build, and run the full test suite:
 
 ```bash
-# Configure, build every native component, and run all tests
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ctest --test-dir build --output-on-failure
+```
 
-# CLI sanity checks
+Sanity checks:
+
+```bash
 ./build/service/echoflow-service --print-default-config
 ./build/service/echoflow-service --self-test
 bash -n install-user.sh uninstall-user.sh tests/spec/*.sh
 sh -n run.sh
-
-# Run locally from the build tree
-./run.sh
-
-# Install for the current user
-./install-user.sh
-./install-user.sh --no-start
 ```
 
-## Architecture — boundaries you must respect
+Run from the build tree with `./run.sh`; install locally with
+`./install-user.sh` or `./install-user.sh --no-start`.
 
-- `service/` owns the daemon state machine, recording lifecycle, ASR invocation,
-  Fcitx commit client, UI notifications, control-socket server, CLI modes, and
-  self-test.
-- `service/AsrEngine.h` / `service/AsrEngine.cpp` are the **only** service
-  files that know qwen-asr's C API. Do not include `qwen_asr.h` elsewhere.
-- `service/VoiceSession.*` depends on `IRecorder`, `IAsrEngine`, `ICommitter`,
-  and `IUiNotifier`; keep this logic unit-testable without PipeWire, qwen-asr,
-  Fcitx, or the UI host.
-- `fcitx-addon/` owns input-context events and right-`Ctrl` capture; it talks to
-  `echoflow-service` over `echoflow-control.sock` and receives commits through
-  `echoflow-fcitx.sock`.
-- `ui-host/` + `qml/EchoFlowTooltip.qml` own the tooltip and tray/settings UI;
-  they listen on `echoflow-ui.sock`.
-- Runtime sockets live under `/run/user/$UID/`: `echoflow-control.sock`,
-  `echoflow-fcitx.sock`, and `echoflow-ui.sock`.
+## Coding Style & Naming Conventions
 
-## Testing quirks
+Use C++17 and existing local interfaces. Classes are `PascalCase`, methods are
+`camelCase`, members use trailing underscores, and constants use `kCamelCase`.
+Every source file must include SPDX copyright and GPL license headers. Keep
+qwen-asr C API usage isolated to `service/AsrEngine.*`; do not
+include `qwen_asr.h` elsewhere. Prefer concise comments only for non-obvious
+behavior.
 
-- Logic tests are QTest binaries in `tests/*.cpp`; they link
-  `libechoflow_service.a`.
-- Bash spec-as-test lives in `tests/spec/run_spec.sh`; it checks scripts,
-  CMake wiring, settings schema, protocol verbs, and stale dependency removal.
-- Tests do not require model weights, PipeWire capture, or a running Fcitx
-  daemon.
-- `test_committer` uses a real Unix datagram socket loopback server.
-- Full verification is `cmake --build build && ctest --test-dir build
-  --output-on-failure`.
+## Testing Guidelines
 
-## Conventions & gotchas
+Logic tests are QTest binaries in `tests/*.cpp` and link
+`libechoflow_service.a`. Tests must not require model weights, PipeWire capture,
+or a running Fcitx daemon. Add focused tests for service logic through
+`IRecorder`, `IAsrEngine`, `ICommitter`, and `IUiNotifier` boundaries. Run
+`ctest --test-dir build --output-on-failure` before submitting changes.
 
-- Every source file carries:
-  `SPDX-FileCopyrightText: 2026 Hualet Wang` and
-  `SPDX-License-Identifier: GPL-3.0-or-later`.
-- Do not commit model weights, recordings, build directories, or installed
-  runtime artifacts. Models are downloaded from the settings dialog (DTK
-  `modeldownload` rows) into the config directory
-  (`~/.config/echoflow/qwen3-asr-0.6b` / `qwen3-asr-1.7b`). There is no download
-  script.
-- `service/ModelCatalog.h` is the single source of truth for model id / display
-  name / HF repo / file list; both `ui-host` (download) and `service/SelfTest`
-  (verification) include it. Do not duplicate the file lists elsewhere.
-- Model download lives in `ui-host` (Qt6 Network). `echoflow-service` never
-  performs HTTP. `Config::modelDir` is derived from `model_name` + the
-  config-file directory; the `model_dir` config key no longer exists.
-- Config lives at `~/.config/echoflow/echoflow.conf`. Paths inside use `$HOME`
-  expansion. `install-user.sh` writes a default config only if it does not
-  already exist.
-- `install-user.sh` installs binaries and services but does not restart Fcitx;
-  after addon changes, restart Fcitx manually with `fcitx5 -rd`.
+## Commit & Pull Request Guidelines
 
-## Code style
+Use Conventional Commits for each subject, for example
+`fix(service): handle ASR setup failure`. Each commit must include a body that
+explains why the change is needed and what changed, wrapped near 72 columns.
+Before committing, run `git status --short` and stage only intended source,
+test, and documentation files. Do not stage model weights, recordings, build
+directories, or installed artifacts. Pull requests should describe behavior
+changes, verification commands, and manual runtime steps such as `fcitx5 -rd`
+after addon changes.
 
-- C++: classes `PascalCase`; methods `camelCase`; members use trailing
-  underscore; constants use `kCamelCase`.
-- Prefer existing local interfaces and small, testable classes over broad
-  helpers.
-- Add comments only when they clarify non-obvious behavior.
+## Configuration & Runtime Notes
 
-## Logging
-
-- C++ daemon: use `echoflow::log()` from `service/log.h` for timestamped stdout
-  logs. Do not scatter `std::cout` logging.
-- C++ addon: use `FCITX_INFO` / `FCITX_WARN` / `FCITX_ERROR`.
-
-## Git & commits
-
-- Commit only when the user asks.
-- Before committing: `git status --short`, stage only intended files, and never
-  stage model weights, recordings, build output, or installed artifacts.
-- Subject: concise, imperative, describing the actual change. Body: explain why
-  and what, wrapped around 72 columns.
+Runtime sockets live under `/run/user/$UID/`: `echoflow-control.sock`,
+`echoflow-fcitx.sock`, and `echoflow-ui.sock`. Config lives at
+`~/.config/echoflow/echoflow.conf`; `Config::modelDir` is derived from the
+selected model and config directory. `service/ModelCatalog.h` is the single
+source of truth for model IDs, display names, Hugging Face repos, and file
+lists. The service must not perform HTTP downloads; model download belongs in
+`ui-host`.
