@@ -130,12 +130,13 @@ AsrEngine::AsrEngine(Config cfg)
 
 AsrEngine::~AsrEngine()
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (ctx_) {
         qwen_free(ctx_);
     }
 }
 
-bool AsrEngine::ensureLoaded()
+bool AsrEngine::ensureLoadedLocked()
 {
     if (ctx_) {
         return true;
@@ -172,12 +173,14 @@ bool AsrEngine::ensureLoaded()
 
 bool AsrEngine::preload()
 {
-    return ensureLoaded();
+    std::lock_guard<std::mutex> lock(mutex_);
+    return ensureLoadedLocked();
 }
 
 std::string AsrEngine::transcribe(const std::filesystem::path& audio)
 {
-    if (!ensureLoaded()) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ensureLoadedLocked()) {
         return {};
     }
 
@@ -210,7 +213,8 @@ std::string AsrEngine::transcribeLive(
     void* liveAudio,
     std::function<void(const std::string&)> partialTextCallback)
 {
-    if (!liveAudio || !ensureLoaded()) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!liveAudio || !ensureLoadedLocked()) {
         return {};
     }
 

@@ -13,6 +13,7 @@ extern "C" {
 
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <string>
 
 namespace echoflow {
@@ -32,10 +33,11 @@ public:
         std::function<void(const std::string&)> partialTextCallback = {});
 
 private:
-    bool ensureLoaded();
+    bool ensureLoadedLocked();
 
     Config cfg_;
     qwen_ctx_t* ctx_ = nullptr;
+    std::mutex mutex_;
 };
 
 }  // namespace echoflow

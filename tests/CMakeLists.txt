@@ -13,6 +13,7 @@ set(ECHOFLOW_TESTS
     test_model_catalog
     test_live_audio_buffer
     test_audio_segmenter
+    test_segment_asr_worker
     test_segment_text_accumulator
     test_single_instance)
 
