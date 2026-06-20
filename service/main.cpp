@@ -48,6 +48,7 @@ void printDefaultConfig()
                 "  \"rate\": %d,\n"
                 "  \"channels\": %d,\n"
                 "  \"format\": \"%s\",\n"
+                "  \"source\": \"%s\",\n"
                 "  \"openblas_threads\": %d,\n"
                 "  \"fcitx_commit\": %s\n"
                 "}\n",
@@ -55,6 +56,7 @@ void printDefaultConfig()
                 cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
+                cfg.pwRecord.source.c_str(),
                 cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false");
 }
 

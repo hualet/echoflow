@@ -9,9 +9,15 @@
 
 #include <chrono>
 #include <filesystem>
+#include <string>
 #include <sys/types.h>
+#include <vector>
 
 namespace echoflow {
+
+std::vector<std::string> buildPipeWireRecordArgs(const PipeWireRecordConfig& cfg,
+                                                 const std::string& outputPath);
+std::vector<std::string> buildPipeWireLiveRecordArgs(const Config& cfg);
 
 class PipeWireRecorder : public IRecorder {
 public:

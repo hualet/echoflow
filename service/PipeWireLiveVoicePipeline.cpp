@@ -3,6 +3,7 @@
 
 #include "PipeWireLiveVoicePipeline.h"
 
+#include "Recorder.h"
 #include "log.h"
 
 #include <array>
@@ -194,14 +195,7 @@ void PipeWireLiveVoicePipeline::start()
                                  std::strerror(actionError));
     }
 
-    std::vector<std::string> args = {
-        "pw-record",
-        "--rate", std::to_string(kLiveSampleRate),
-        "--channels", std::to_string(kLiveChannels),
-        "--format", kLiveFormat,
-        "--raw",
-        "-",
-    };
+    std::vector<std::string> args = buildPipeWireLiveRecordArgs(cfg_);
 
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
@@ -239,7 +233,8 @@ void PipeWireLiveVoicePipeline::start()
         throw;
     }
 
-    log("live recording started");
+    log("live recording started: source=" +
+        (cfg_.pwRecord.source.empty() ? std::string("default") : cfg_.pwRecord.source));
 }
 
 std::string PipeWireLiveVoicePipeline::finish()

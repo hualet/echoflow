@@ -30,6 +30,35 @@ std::string timestamp()
 
 }  // namespace
 
+std::vector<std::string> buildPipeWireRecordArgs(const PipeWireRecordConfig& cfg,
+                                                 const std::string& outputPath)
+{
+    std::vector<std::string> args = {
+        "pw-record",
+        "--rate", std::to_string(cfg.rate),
+        "--channels", std::to_string(cfg.channels),
+        "--format", cfg.format,
+    };
+    if (!cfg.source.empty()) {
+        args.push_back("--target");
+        args.push_back(cfg.source);
+    }
+    args.push_back(outputPath);
+    return args;
+}
+
+std::vector<std::string> buildPipeWireLiveRecordArgs(const Config& cfg)
+{
+    PipeWireRecordConfig recordCfg = cfg.pwRecord;
+    recordCfg.rate = 16000;
+    recordCfg.channels = 1;
+    recordCfg.format = "s16";
+
+    std::vector<std::string> args = buildPipeWireRecordArgs(recordCfg, "-");
+    args.insert(args.end() - 1, "--raw");
+    return args;
+}
+
 PipeWireRecorder::PipeWireRecorder(Config cfg)
     : cfg_(std::move(cfg))
 {
@@ -44,15 +73,7 @@ void PipeWireRecorder::start()
     fs::create_directories(cfg_.recordingsDir);
     path_ = fs::path(cfg_.recordingsDir) / ("voice-" + timestamp() + ".wav");
 
-    std::string rate = std::to_string(cfg_.pwRecord.rate);
-    std::string channels = std::to_string(cfg_.pwRecord.channels);
-    std::vector<std::string> args = {
-        "pw-record",
-        "--rate", rate,
-        "--channels", channels,
-        "--format", cfg_.pwRecord.format,
-        path_.string(),
-    };
+    std::vector<std::string> args = buildPipeWireRecordArgs(cfg_.pwRecord, path_.string());
 
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
@@ -71,7 +92,8 @@ void PipeWireRecorder::start()
 
     child_ = pid;
     startedAt_ = std::chrono::steady_clock::now();
-    log("recording started: " + path_.string());
+    log("recording started: " + path_.string() +
+        ", source=" + (cfg_.pwRecord.source.empty() ? std::string("default") : cfg_.pwRecord.source));
 }
 
 fs::path PipeWireRecorder::stop()

@@ -4,7 +4,9 @@
 #pragma once
 
 #include <QObject>
+#include <QMap>
 #include <QString>
+#include <QVariant>
 
 namespace Dtk {
 namespace Core {
@@ -37,6 +39,10 @@ private:
     static void setComboBoxItems(Dtk::Core::DSettings *settings,
                                  const QString &path,
                                  const QStringList &items);
+    static void setComboBoxItems(Dtk::Core::DSettings *settings,
+                                 const QString &path,
+                                 const QStringList &keys,
+                                 const QStringList &values);
 
     Dtk::Core::DSettings *dsettings_ = nullptr;
     Dtk::Core::QSettingBackend *backend_ = nullptr;

@@ -14,6 +14,7 @@ struct PipeWireRecordConfig {
     int rate = 16000;
     int channels = 1;
     std::string format = "s16";
+    std::string source;
 };
 
 struct Config {

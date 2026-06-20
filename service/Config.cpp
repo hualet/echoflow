@@ -174,6 +174,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.pwRecord.channels = std::stoi(val);
         } else if (section == "basic.recording.format") {
             cfg.pwRecord.format = val;
+        } else if (section == "basic.recording.source") {
+            cfg.pwRecord.source = val;
         } else if (section == "advanced.runtime.asr_timeout_seconds") {
             cfg.asrTimeoutSeconds = std::stoi(val);
         } else if (section == "advanced.runtime.openblas_threads") {

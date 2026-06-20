@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
+#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QVariant>
@@ -18,6 +19,33 @@
 #include <qsettingbackend.h>
 
 namespace echoflow {
+
+namespace {
+
+QStringList pipeWireSourceNames() {
+    QProcess process;
+    process.start(QStringLiteral("pactl"),
+                  QStringList{QStringLiteral("list"), QStringLiteral("sources"), QStringLiteral("short")});
+    if (!process.waitForFinished(1000) || process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
+        return {};
+    }
+
+    QStringList sources;
+    const QString output = QString::fromLocal8Bit(process.readAllStandardOutput());
+    const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QStringList fields = line.split(QLatin1Char('\t'));
+        if (fields.size() >= 2 && !fields.at(1).isEmpty()
+            && !fields.at(1).endsWith(QStringLiteral(".monitor"))
+            && !sources.contains(fields.at(1))) {
+            sources << fields.at(1);
+        }
+    }
+    return sources;
+}
+
+} // namespace
 
 EchoFlowSettings *EchoFlowSettings::instance() {
     static EchoFlowSettings instance;
@@ -54,6 +82,7 @@ bool EchoFlowSettings::init(const QString &configPath) {
             QStringLiteral("basic.recording.rate"),
             QStringLiteral("basic.recording.channels"),
             QStringLiteral("basic.recording.format"),
+            QStringLiteral("basic.recording.source"),
             QStringLiteral("basic.model.mirror"),
             QStringLiteral("advanced.runtime.asr_timeout_seconds"),
             QStringLiteral("advanced.fcitx.fcitx_commit"),
@@ -108,6 +137,16 @@ void EchoFlowSettings::populateComboBoxes() {
     setComboBoxItems(dsettings_, QStringLiteral("basic.recording.format"),
                      QStringList{QStringLiteral("s16"), QStringLiteral("s32"),
                                   QStringLiteral("f32"), QStringLiteral("u8")});
+
+    QStringList sourceKeys{QString()};
+    QStringList sourceValues{QStringLiteral("系统默认")};
+    const QStringList sources = pipeWireSourceNames();
+    for (const QString &source : sources) {
+        sourceKeys << source;
+        sourceValues << source;
+    }
+    setComboBoxItems(dsettings_, QStringLiteral("basic.recording.source"),
+                     sourceKeys, sourceValues);
 }
 
 void EchoFlowSettings::refreshModelNameItems() {
@@ -140,6 +179,13 @@ void EchoFlowSettings::refreshModelNameItems() {
 void EchoFlowSettings::setComboBoxItems(Dtk::Core::DSettings *settings,
                                         const QString &path,
                                         const QStringList &items) {
+    setComboBoxItems(settings, path, items, items);
+}
+
+void EchoFlowSettings::setComboBoxItems(Dtk::Core::DSettings *settings,
+                                        const QString &path,
+                                        const QStringList &keys,
+                                        const QStringList &values) {
     if (!settings) {
         return;
     }
@@ -148,8 +194,8 @@ void EchoFlowSettings::setComboBoxItems(Dtk::Core::DSettings *settings,
         return;
     }
     option->setData(QStringLiteral("items"),
-                    QMap<QString, QVariant>{{QStringLiteral("keys"), items},
-                                            {QStringLiteral("values"), items}});
+                    QMap<QString, QVariant>{{QStringLiteral("keys"), keys},
+                                            {QStringLiteral("values"), values}});
 }
 
 } // namespace echoflow

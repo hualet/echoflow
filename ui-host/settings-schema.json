@@ -85,6 +85,12 @@
               "name": "采样格式",
               "type": "combobox",
               "default": "s16"
+            },
+            {
+              "key": "source",
+              "name": "麦克风输入",
+              "type": "combobox",
+              "default": ""
             }
           ]
         }
