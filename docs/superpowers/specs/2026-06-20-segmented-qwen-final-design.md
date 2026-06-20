@@ -91,11 +91,11 @@ Default parameters:
 | Parameter | Default | Purpose |
 | --- | ---: | --- |
 | frame duration | 20 ms | RMS calculation window |
-| end silence | 800 ms | silence needed before sealing a segment |
-| min segment duration | 600 ms | avoid transcribing clicks or very short noise |
+| end silence | 500 ms | silence needed before sealing a segment |
+| min segment duration | 400 ms | avoid transcribing clicks or very short noise |
 | pre padding | 200 ms | avoid clipping the start of speech |
-| post padding | 300 ms | avoid clipping the end of speech |
-| max segment duration | 12 s | force split if the user speaks without a pause |
+| post padding | 200 ms | avoid clipping the end of speech |
+| max segment duration | 8 s | force split if the user speaks without a pause |
 
 The exact energy threshold should be adaptive:
 

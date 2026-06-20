@@ -41,11 +41,11 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
 
     QCOMPARE(config.sampleRate, 16000);
     QCOMPARE(config.frameMs, 20);
-    QCOMPARE(config.endSilenceMs, 800);
-    QCOMPARE(config.minSegmentMs, 600);
+    QCOMPARE(config.endSilenceMs, 500);
+    QCOMPARE(config.minSegmentMs, 400);
     QCOMPARE(config.prePaddingMs, 200);
-    QCOMPARE(config.postPaddingMs, 300);
-    QCOMPARE(config.maxSegmentMs, 12000);
+    QCOMPARE(config.postPaddingMs, 200);
+    QCOMPARE(config.maxSegmentMs, 8000);
     QCOMPARE(config.speechRatio, 4.0);
     QCOMPARE(config.minSpeechRms, 600.0);
 }
@@ -63,7 +63,7 @@ void TestAudioSegmenter::adaptiveNoiseFloorPreventsLowLevelBackgroundFromStartin
 
     QCOMPARE(segments.size(), size_t(1));
     QCOMPARE(segments[0].sampleRate, 16000);
-    QVERIFY(segments[0].sampleCount() >= size_t(17600));
+    QVERIFY(segments[0].sampleCount() >= size_t(16000));
 }
 
 void TestAudioSegmenter::emitsSegmentAfterTrailingSilence() {
@@ -75,8 +75,8 @@ void TestAudioSegmenter::emitsSegmentAfterTrailingSilence() {
 
     QCOMPARE(segments.size(), size_t(1));
     QCOMPARE(segments[0].sampleRate, 16000);
-    QCOMPARE(segments[0].sampleCount(), size_t(24000));
-    QVERIFY(qAbs(segments[0].durationSeconds() - 1.5) < 0.0001);
+    QCOMPARE(segments[0].sampleCount(), size_t(22400));
+    QVERIFY(qAbs(segments[0].durationSeconds() - 1.4) < 0.0001);
 }
 
 void TestAudioSegmenter::ignoresVeryShortNoise() {
@@ -97,7 +97,7 @@ void TestAudioSegmenter::discardsShortNoiseBeforeLaterSpeech() {
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
-    QCOMPARE(segments[0].sampleCount(), size_t(24000));
+    QCOMPARE(segments[0].sampleCount(), size_t(22400));
     QCOMPARE(segments[0].samples.front(), int16_t(0));
     QCOMPARE(segments[0].samples[3200], int16_t(3000));
 }
@@ -110,7 +110,7 @@ void TestAudioSegmenter::includesPreAndPostPadding() {
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
-    QCOMPARE(segments[0].sampleCount(), size_t(19200));
+    QCOMPARE(segments[0].sampleCount(), size_t(17600));
     QCOMPARE(segments[0].samples.front(), int16_t(0));
     QCOMPARE(segments[0].samples[3200], int16_t(3000));
     QCOMPARE(segments[0].samples.back(), int16_t(0));

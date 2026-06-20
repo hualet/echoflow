@@ -14,11 +14,11 @@ namespace echoflow {
 struct AudioSegmenterConfig {
     int sampleRate = 16000;
     int frameMs = 20;
-    int endSilenceMs = 800;
-    int minSegmentMs = 600;
+    int endSilenceMs = 500;
+    int minSegmentMs = 400;
     int prePaddingMs = 200;
-    int postPaddingMs = 300;
-    int maxSegmentMs = 12000;
+    int postPaddingMs = 200;
+    int maxSegmentMs = 8000;
     double speechRatio = 4.0;
     double minSpeechRms = 600.0;
 };
