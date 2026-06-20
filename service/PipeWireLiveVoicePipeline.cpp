@@ -10,6 +10,9 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <spawn.h>
 #include <stdexcept>
 #include <string>
@@ -25,6 +28,7 @@ namespace echoflow {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+namespace fs = std::filesystem;
 constexpr int kLiveSampleRate = 16000;
 constexpr int kLiveChannels = 1;
 constexpr const char* kLiveFormat = "s16";
@@ -59,6 +63,56 @@ bool waitForChild(pid_t child, int attempts)
         usleep(100000);
     }
     return false;
+}
+
+std::string timestamp()
+{
+    std::time_t now = std::time(nullptr);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y%m%d-%H%M%S", std::localtime(&now));
+    return buffer;
+}
+
+void writeU16(std::ostream& out, uint16_t value)
+{
+    char bytes[] = {
+        static_cast<char>(value & 0xff),
+        static_cast<char>((value >> 8) & 0xff),
+    };
+    out.write(bytes, sizeof(bytes));
+}
+
+void writeU32(std::ostream& out, uint32_t value)
+{
+    char bytes[] = {
+        static_cast<char>(value & 0xff),
+        static_cast<char>((value >> 8) & 0xff),
+        static_cast<char>((value >> 16) & 0xff),
+        static_cast<char>((value >> 24) & 0xff),
+    };
+    out.write(bytes, sizeof(bytes));
+}
+
+void writeWavHeader(std::ostream& out, uint32_t dataSize)
+{
+    constexpr uint16_t channels = kLiveChannels;
+    constexpr uint16_t bitsPerSample = 16;
+    constexpr uint16_t blockAlign = channels * bitsPerSample / 8;
+    constexpr uint32_t byteRate = kLiveSampleRate * blockAlign;
+
+    out.write("RIFF", 4);
+    writeU32(out, 36 + dataSize);
+    out.write("WAVE", 4);
+    out.write("fmt ", 4);
+    writeU32(out, 16);
+    writeU16(out, 1);
+    writeU16(out, channels);
+    writeU32(out, kLiveSampleRate);
+    writeU32(out, byteRate);
+    writeU16(out, blockAlign);
+    writeU16(out, bitsPerSample);
+    out.write("data", 4);
+    writeU32(out, dataSize);
 }
 
 }  // namespace
@@ -172,6 +226,7 @@ void PipeWireLiveVoicePipeline::start()
     segmenter_ = std::move(nextSegmenter);
     segmentWorker_ = std::move(nextWorker);
     cancelled_ = false;
+    openDebugAudioFile();
     clearStableText();
     startedAt_ = Clock::now();
     active_ = true;
@@ -200,6 +255,7 @@ std::string PipeWireLiveVoicePipeline::finish()
     cleanupProcess();
     closeReadFd();
     joinThreads();
+    finalizeDebugAudioFile();
     bool completed = true;
     if (segmentWorker_) {
         completed = segmentWorker_->finishAndWait(asrFinishTimeout());
@@ -224,6 +280,7 @@ void PipeWireLiveVoicePipeline::cancel()
         cleanupProcess();
         closeReadFd();
         joinThreads();
+        finalizeDebugAudioFile();
         if (segmentWorker_) {
             segmentWorker_->cancelAndWait();
         }
@@ -286,6 +343,7 @@ void PipeWireLiveVoicePipeline::readerLoop()
                     }
 
                     if (!samples.empty()) {
+                        appendDebugAudio(samples);
                         enqueueSegments(segmenter_->append(samples.data(), samples.size()));
                     }
                 }
@@ -327,6 +385,8 @@ void PipeWireLiveVoicePipeline::enqueueSegments(std::vector<AudioSegment> segmen
     }
 
     for (auto& segment : segments) {
+        log("live segment queued: duration=" + std::to_string(segment.durationSeconds()) +
+            "s, samples=" + std::to_string(segment.sampleCount()));
         segmentWorker_->enqueue(std::move(segment));
     }
 }
@@ -339,6 +399,8 @@ void PipeWireLiveVoicePipeline::flushSegmenter()
 
     std::optional<AudioSegment> segment = segmenter_->flush();
     if (segment.has_value()) {
+        log("live segment flushed: duration=" + std::to_string(segment->durationSeconds()) +
+            "s, samples=" + std::to_string(segment->sampleCount()));
         segmentWorker_->enqueue(std::move(*segment));
     }
 }
@@ -425,6 +487,58 @@ void PipeWireLiveVoicePipeline::joinThreads()
     if (readerThread_.joinable()) {
         readerThread_.join();
     }
+}
+
+void PipeWireLiveVoicePipeline::openDebugAudioFile()
+{
+    debugAudioBytes_ = 0;
+    debugAudioPath_.clear();
+    debugAudio_.close();
+
+    try {
+        const fs::path dir = cfg_.recordingsDir.empty()
+            ? fs::temp_directory_path()
+            : fs::path(cfg_.recordingsDir);
+        fs::create_directories(dir);
+        debugAudioPath_ = dir / ("live-" + timestamp() + ".wav");
+        debugAudio_.open(debugAudioPath_, std::ios::binary | std::ios::trunc);
+        if (!debugAudio_) {
+            log("failed to open live debug audio: " + debugAudioPath_.string());
+            debugAudioPath_.clear();
+            return;
+        }
+        writeWavHeader(debugAudio_, 0);
+        log("live debug audio recording: " + debugAudioPath_.string());
+    } catch (const std::exception& e) {
+        log(std::string("failed to open live debug audio: ") + e.what());
+        debugAudioPath_.clear();
+        debugAudio_.close();
+    }
+}
+
+void PipeWireLiveVoicePipeline::appendDebugAudio(const std::vector<int16_t>& samples)
+{
+    if (!debugAudio_ || samples.empty()) {
+        return;
+    }
+
+    for (int16_t sample : samples) {
+        writeU16(debugAudio_, static_cast<uint16_t>(sample));
+    }
+    debugAudioBytes_ += static_cast<uint32_t>(samples.size() * sizeof(int16_t));
+}
+
+void PipeWireLiveVoicePipeline::finalizeDebugAudioFile()
+{
+    if (!debugAudio_) {
+        return;
+    }
+
+    debugAudio_.seekp(0, std::ios::beg);
+    writeWavHeader(debugAudio_, debugAudioBytes_);
+    debugAudio_.close();
+    log("live debug audio saved: " + debugAudioPath_.string() +
+        ", bytes=" + std::to_string(debugAudioBytes_));
 }
 
 }  // namespace echoflow

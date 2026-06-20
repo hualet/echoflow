@@ -13,6 +13,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -48,6 +51,9 @@ private:
     void cleanupProcess();
     void closeReadFd();
     void joinThreads();
+    void openDebugAudioFile();
+    void appendDebugAudio(const std::vector<int16_t>& samples);
+    void finalizeDebugAudioFile();
 
     Config cfg_;
     AsrEngine& asr_;
@@ -57,6 +63,9 @@ private:
     int readFd_ = -1;
     std::thread readerThread_;
     std::function<void(const std::string&)> partialTextCallback_;
+    std::ofstream debugAudio_;
+    std::filesystem::path debugAudioPath_;
+    uint32_t debugAudioBytes_ = 0;
     mutable std::mutex textMutex_;
     SegmentTextAccumulator textAccumulator_;
     std::string stableText_;
