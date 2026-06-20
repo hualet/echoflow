@@ -11,6 +11,7 @@ add_library(echoflow_service STATIC
     Recorder.cpp
     SelfTest.cpp
     Server.cpp
+    SegmentTextAccumulator.cpp
     SingleInstance.cpp
     UiNotifier.cpp
     VoiceSession.cpp)
