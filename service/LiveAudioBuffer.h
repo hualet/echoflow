@@ -25,6 +25,7 @@ public:
     void appendS16le(const unsigned char* data, size_t size);
     void appendFloatSamples(const float* samples, int count);
     void markEof();
+    void requestCancel();
 
     int64_t sampleCountForTest() const;
     int eofForTest() const;

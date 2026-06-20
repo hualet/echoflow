@@ -162,6 +162,14 @@ void LiveAudioBuffer::markEof() {
     pthread_cond_signal(&live->cond);
 }
 
+void LiveAudioBuffer::requestCancel() {
+    qwen_live_audio_t* live = liveFrom(live_);
+    PthreadLockGuard lock(&live->mutex);
+    live->cancel = 1;
+    live->eof = 1;
+    pthread_cond_signal(&live->cond);
+}
+
 int64_t LiveAudioBuffer::sampleCountForTest() const {
     const qwen_live_audio_t* live = liveFrom(live_);
     PthreadLockGuard lock(const_cast<pthread_mutex_t*>(&live->mutex));

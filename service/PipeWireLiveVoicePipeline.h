@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -40,6 +41,8 @@ private:
     void cleanupProcess();
     void closeReadFd();
     void joinThreads();
+    double partialCycleSecondsLocked() const;
+    bool waitForGraceOrDone(std::chrono::steady_clock::time_point started);
 
     Config cfg_;
     AsrEngine& asr_;
@@ -52,7 +55,11 @@ private:
     std::string partialText_;
     std::function<void(const std::string&)> partialTextCallback_;
     std::mutex partialTextMutex_;
+    std::condition_variable partialTextCv_;
+    std::chrono::steady_clock::time_point lastPartialAt_{};
+    double partialCycleSeconds_ = 2.0;
     std::chrono::steady_clock::time_point startedAt_{};
+    bool asrDone_ = false;
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};
 };

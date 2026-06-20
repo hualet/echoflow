@@ -10,6 +10,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <algorithm>
 #include <spawn.h>
 #include <stdexcept>
 #include <string>
@@ -164,6 +165,9 @@ void PipeWireLiveVoicePipeline::start()
     {
         std::lock_guard<std::mutex> lock(partialTextMutex_);
         partialText_.clear();
+        lastPartialAt_ = {};
+        partialCycleSeconds_ = 2.0;
+        asrDone_ = false;
     }
     startedAt_ = Clock::now();
     active_ = true;
@@ -194,6 +198,10 @@ std::string PipeWireLiveVoicePipeline::finish()
         live_->markEof();
     }
     closeReadFd();
+    bool completedDuringGrace = waitForGraceOrDone(finishStarted);
+    if (!completedDuringGrace && live_) {
+        live_->requestCancel();
+    }
     joinThreads();
     active_ = false;
     live_.reset();
@@ -209,7 +217,8 @@ std::string PipeWireLiveVoicePipeline::finish()
     log("live pipeline finish returned in " + std::to_string(elapsedSeconds(finishStarted)) +
         "s, total=" + std::to_string(elapsedSeconds(startedAt_)) +
         "s, chars=" + std::to_string(finalText.size()) +
-        ", source=" + (partialText.empty() ? "return" : "partial"));
+        ", source=" + (partialText.empty() ? "return" : "partial") +
+        ", completed=" + (completedDuringGrace ? "yes" : "no"));
     return finalText;
 }
 
@@ -220,7 +229,7 @@ void PipeWireLiveVoicePipeline::cancel()
         stopRecorder();
         cleanupProcess();
         if (live_) {
-            live_->markEof();
+            live_->requestCancel();
         }
         closeReadFd();
         joinThreads();
@@ -230,6 +239,7 @@ void PipeWireLiveVoicePipeline::cancel()
         {
             std::lock_guard<std::mutex> lock(partialTextMutex_);
             partialText_.clear();
+            asrDone_ = false;
         }
     } catch (const std::exception& e) {
         log(std::string("live pipeline cancel failed: ") + e.what());
@@ -243,6 +253,27 @@ void PipeWireLiveVoicePipeline::setPartialTextCallback(
 {
     std::lock_guard<std::mutex> lock(partialTextMutex_);
     partialTextCallback_ = std::move(callback);
+}
+
+double PipeWireLiveVoicePipeline::partialCycleSecondsLocked() const
+{
+    return std::clamp(partialCycleSeconds_, 1.0, 3.0);
+}
+
+bool PipeWireLiveVoicePipeline::waitForGraceOrDone(Clock::time_point started)
+{
+    std::unique_lock<std::mutex> lock(partialTextMutex_);
+    const double cycleSeconds = partialCycleSecondsLocked();
+    auto deadline =
+        Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                           std::chrono::duration<double>(cycleSeconds));
+    log("waiting one live partial cycle after stop: " + std::to_string(cycleSeconds) + "s");
+    bool done = partialTextCv_.wait_until(lock, deadline, [this]() {
+        return asrDone_;
+    });
+    log("live partial-cycle wait ended in " + std::to_string(elapsedSeconds(started)) +
+        "s, asr_done=" + (done ? "yes" : "no"));
+    return done;
 }
 
 void PipeWireLiveVoicePipeline::readerLoop()
@@ -295,10 +326,17 @@ void PipeWireLiveVoicePipeline::asrLoop()
         }
         auto storePartialText = [this, partialTextCallback = std::move(partialTextCallback)](
                                     const std::string& text) mutable {
+            auto now = Clock::now();
             {
                 std::lock_guard<std::mutex> lock(partialTextMutex_);
+                if (lastPartialAt_ != Clock::time_point{}) {
+                    double interval = elapsedSeconds(lastPartialAt_);
+                    partialCycleSeconds_ = 0.7 * partialCycleSeconds_ + 0.3 * interval;
+                }
+                lastPartialAt_ = now;
                 partialText_ = text;
             }
+            partialTextCv_.notify_all();
             if (partialTextCallback) {
                 partialTextCallback(text);
             }
@@ -312,6 +350,11 @@ void PipeWireLiveVoicePipeline::asrLoop()
         log("live ASR failed");
         result_.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(partialTextMutex_);
+        asrDone_ = true;
+    }
+    partialTextCv_.notify_all();
 }
 
 void PipeWireLiveVoicePipeline::stopRecorder()
