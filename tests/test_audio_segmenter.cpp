@@ -16,6 +16,14 @@ std::vector<int16_t> samples(double seconds, int16_t value) {
     return std::vector<int16_t>(static_cast<size_t>(seconds * 16000.0), value);
 }
 
+std::vector<int16_t> tone(double seconds, int16_t amplitude) {
+    std::vector<int16_t> output(static_cast<size_t>(seconds * 16000.0));
+    for (size_t i = 0; i < output.size(); ++i) {
+        output[i] = (i % 2 == 0) ? amplitude : static_cast<int16_t>(-amplitude);
+    }
+    return output;
+}
+
 std::vector<AudioSegment> append(AudioSegmenter& segmenter, const std::vector<int16_t>& input) {
     return segmenter.append(input.data(), input.size());
 }
@@ -27,6 +35,7 @@ class TestAudioSegmenter : public QObject {
 
 private slots:
     void defaultConfigPinsSegmenterParameters();
+    void dcOffsetDoesNotStartSpeech();
     void adaptiveNoiseFloorPreventsLowLevelBackgroundFromStartingSpeech();
     void emitsSegmentAfterTrailingSilence();
     void ignoresVeryShortNoise();
@@ -50,15 +59,22 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
     QCOMPARE(config.minSpeechRms, 600.0);
 }
 
+void TestAudioSegmenter::dcOffsetDoesNotStartSpeech() {
+    AudioSegmenter segmenter(AudioSegmenterConfig{});
+
+    QCOMPARE(append(segmenter, samples(2.0, 2200)).size(), size_t(0));
+    QVERIFY(!segmenter.flush().has_value());
+}
+
 void TestAudioSegmenter::adaptiveNoiseFloorPreventsLowLevelBackgroundFromStartingSpeech() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
-    append(segmenter, samples(1.0, 500));
-    QCOMPARE(append(segmenter, samples(0.8, 1000)).size(), size_t(0));
+    append(segmenter, tone(1.0, 500));
+    QCOMPARE(append(segmenter, tone(0.8, 1000)).size(), size_t(0));
     QCOMPARE(append(segmenter, samples(0.8, 0)).size(), size_t(0));
     QVERIFY(!segmenter.flush().has_value());
 
-    QCOMPARE(append(segmenter, samples(0.8, 5000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(0.8, 5000)).size(), size_t(0));
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
@@ -70,7 +86,7 @@ void TestAudioSegmenter::emitsSegmentAfterTrailingSilence() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
     append(segmenter, samples(0.3, 0));
-    QCOMPARE(append(segmenter, samples(1.0, 3000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(1.0, 3000)).size(), size_t(0));
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
@@ -83,7 +99,7 @@ void TestAudioSegmenter::ignoresVeryShortNoise() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
     append(segmenter, samples(0.3, 0));
-    QCOMPARE(append(segmenter, samples(0.2, 3000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(0.2, 3000)).size(), size_t(0));
     QCOMPARE(append(segmenter, samples(0.8, 0)).size(), size_t(0));
     QVERIFY(!segmenter.flush().has_value());
 }
@@ -91,9 +107,9 @@ void TestAudioSegmenter::ignoresVeryShortNoise() {
 void TestAudioSegmenter::discardsShortNoiseBeforeLaterSpeech() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
-    QCOMPARE(append(segmenter, samples(0.2, 3000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(0.2, 3000)).size(), size_t(0));
     QCOMPARE(append(segmenter, samples(3.0, 0)).size(), size_t(0));
-    QCOMPARE(append(segmenter, samples(1.0, 3000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(1.0, 3000)).size(), size_t(0));
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
@@ -106,7 +122,7 @@ void TestAudioSegmenter::includesPreAndPostPadding() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
     append(segmenter, samples(0.5, 0));
-    append(segmenter, samples(0.7, 3000));
+    append(segmenter, tone(0.7, 3000));
     const std::vector<AudioSegment> segments = append(segmenter, samples(0.8, 0));
 
     QCOMPARE(segments.size(), size_t(1));
@@ -122,7 +138,7 @@ void TestAudioSegmenter::forceSplitsLongSpeech() {
     config.minSegmentMs = 200;
     AudioSegmenter segmenter(config);
 
-    const std::vector<AudioSegment> segments = append(segmenter, samples(1.2, 3000));
+    const std::vector<AudioSegment> segments = append(segmenter, tone(1.2, 3000));
 
     QCOMPARE(segments.size(), size_t(1));
     QCOMPARE(segments[0].sampleCount(), size_t(16000));
@@ -135,7 +151,7 @@ void TestAudioSegmenter::flushReturnsOpenSegment() {
     AudioSegmenter segmenter(AudioSegmenterConfig{});
 
     append(segmenter, samples(0.3, 0));
-    QCOMPARE(append(segmenter, samples(0.8, 3000)).size(), size_t(0));
+    QCOMPARE(append(segmenter, tone(0.8, 3000)).size(), size_t(0));
     const std::optional<AudioSegment> segment = segmenter.flush();
 
     QVERIFY(segment.has_value());

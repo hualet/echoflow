@@ -146,9 +146,15 @@ double AudioSegmenter::rms(const int16_t* samples, size_t count) const {
         return 0.0;
     }
 
+    double sum = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        sum += static_cast<double>(samples[i]);
+    }
+    const double mean = sum / static_cast<double>(count);
+
     double squareSum = 0.0;
     for (size_t i = 0; i < count; ++i) {
-        const double value = static_cast<double>(samples[i]);
+        const double value = static_cast<double>(samples[i]) - mean;
         squareSum += value * value;
     }
 
