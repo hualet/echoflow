@@ -161,6 +161,10 @@ void PipeWireLiveVoicePipeline::start()
     live_ = std::move(nextLive);
     cancelled_ = false;
     result_.clear();
+    {
+        std::lock_guard<std::mutex> lock(partialTextMutex_);
+        partialText_.clear();
+    }
     startedAt_ = Clock::now();
     active_ = true;
 
@@ -193,11 +197,19 @@ std::string PipeWireLiveVoicePipeline::finish()
     joinThreads();
     active_ = false;
     live_.reset();
-    std::string finalText = cancelled_ ? std::string() : result_;
+    std::string partialText;
+    {
+        std::lock_guard<std::mutex> lock(partialTextMutex_);
+        partialText = partialText_;
+        partialText_.clear();
+    }
+    std::string finalText =
+        cancelled_ ? std::string() : (partialText.empty() ? result_ : partialText);
     result_.clear();
     log("live pipeline finish returned in " + std::to_string(elapsedSeconds(finishStarted)) +
         "s, total=" + std::to_string(elapsedSeconds(startedAt_)) +
-        "s, chars=" + std::to_string(finalText.size()));
+        "s, chars=" + std::to_string(finalText.size()) +
+        ", source=" + (partialText.empty() ? "return" : "partial"));
     return finalText;
 }
 
@@ -215,6 +227,10 @@ void PipeWireLiveVoicePipeline::cancel()
         active_ = false;
         live_.reset();
         result_.clear();
+        {
+            std::lock_guard<std::mutex> lock(partialTextMutex_);
+            partialText_.clear();
+        }
     } catch (const std::exception& e) {
         log(std::string("live pipeline cancel failed: ") + e.what());
     } catch (...) {
@@ -277,7 +293,17 @@ void PipeWireLiveVoicePipeline::asrLoop()
             std::lock_guard<std::mutex> lock(partialTextMutex_);
             partialTextCallback = partialTextCallback_;
         }
-        result_ = live_ ? asr_.transcribeLive(live_->get(), std::move(partialTextCallback))
+        auto storePartialText = [this, partialTextCallback = std::move(partialTextCallback)](
+                                    const std::string& text) mutable {
+            {
+                std::lock_guard<std::mutex> lock(partialTextMutex_);
+                partialText_ = text;
+            }
+            if (partialTextCallback) {
+                partialTextCallback(text);
+            }
+        };
+        result_ = live_ ? asr_.transcribeLive(live_->get(), std::move(storePartialText))
                         : std::string();
     } catch (const std::exception& e) {
         log(std::string("live ASR failed: ") + e.what());

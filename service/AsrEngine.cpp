@@ -24,7 +24,9 @@ struct LiveTokenCallbackState {
     std::string text;
     std::function<void(const std::string&)> callback;
     std::chrono::steady_clock::time_point started;
+    std::chrono::steady_clock::time_point lastTokenAt;
     bool loggedFirstToken = false;
+    int tokenCallbackCount = 0;
 };
 
 void liveTokenCallback(const char* piece, void* userdata)
@@ -35,9 +37,11 @@ void liveTokenCallback(const char* piece, void* userdata)
 
     auto* state = static_cast<LiveTokenCallbackState*>(userdata);
     state->text += piece;
+    state->lastTokenAt = std::chrono::steady_clock::now();
+    ++state->tokenCallbackCount;
     if (!state->loggedFirstToken) {
         const auto elapsed =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - state->started)
+            std::chrono::duration<double>(state->lastTokenAt - state->started)
                 .count();
         log("first live ASR token emitted after " + std::to_string(elapsed) + "s");
         state->loggedFirstToken = true;
@@ -176,6 +180,7 @@ std::string AsrEngine::transcribeLive(
             std::make_unique<TokenCallbackScope>(ctx_, liveTokenCallback, &callbackState);
     }
     char* raw = qwen_transcribe_stream_live(ctx_, live);
+    const auto returnedAt = std::chrono::steady_clock::now();
     if (!raw) {
         log("qwen_transcribe_stream_live returned empty result");
         return {};
@@ -183,7 +188,13 @@ std::string AsrEngine::transcribeLive(
 
     std::string text(raw);
     std::free(raw);
-    auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    auto elapsed = std::chrono::duration<double>(returnedAt - started).count();
+    if (callbackState.loggedFirstToken) {
+        const auto tailElapsed =
+            std::chrono::duration<double>(returnedAt - callbackState.lastTokenAt).count();
+        log("last live ASR token preceded return by " + std::to_string(tailElapsed) +
+            "s, callbacks=" + std::to_string(callbackState.tokenCallbackCount));
+    }
     log("live transcription finished in " + std::to_string(elapsed) + "s, chars=" + std::to_string(text.size()));
     return text;
 }

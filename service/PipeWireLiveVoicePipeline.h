@@ -49,6 +49,7 @@ private:
     std::thread readerThread_;
     std::thread asrThread_;
     std::string result_;
+    std::string partialText_;
     std::function<void(const std::string&)> partialTextCallback_;
     std::mutex partialTextMutex_;
     std::chrono::steady_clock::time_point startedAt_{};
