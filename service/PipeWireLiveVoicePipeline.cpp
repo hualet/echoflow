@@ -264,13 +264,31 @@ bool PipeWireLiveVoicePipeline::waitForGraceOrDone(Clock::time_point started)
 {
     std::unique_lock<std::mutex> lock(partialTextMutex_);
     const double cycleSeconds = partialCycleSecondsLocked() * 2.0;
-    auto deadline =
-        Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                           std::chrono::duration<double>(cycleSeconds));
-    log("waiting two live partial cycles after stop: " + std::to_string(cycleSeconds) + "s");
-    bool done = partialTextCv_.wait_until(lock, deadline, [this]() {
-        return asrDone_;
-    });
+    const auto quietWindow =
+        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(cycleSeconds));
+    auto observedPartialAt = lastPartialAt_;
+    auto deadline = Clock::now() + quietWindow;
+    if (observedPartialAt != Clock::time_point{} && observedPartialAt > Clock::now()) {
+        deadline = observedPartialAt + quietWindow;
+    }
+
+    log("waiting until two quiet live partial cycles after stop: " +
+        std::to_string(cycleSeconds) + "s");
+    bool done = false;
+    while (!asrDone_) {
+        if (partialTextCv_.wait_until(lock, deadline) == std::cv_status::timeout) {
+            break;
+        }
+        if (asrDone_) {
+            done = true;
+            break;
+        }
+        if (lastPartialAt_ != observedPartialAt) {
+            observedPartialAt = lastPartialAt_;
+            deadline = observedPartialAt + quietWindow;
+        }
+    }
+    done = done || asrDone_;
     log("live partial-cycle wait ended in " + std::to_string(elapsedSeconds(started)) +
         "s, asr_done=" + (done ? "yes" : "no"));
     return done;
