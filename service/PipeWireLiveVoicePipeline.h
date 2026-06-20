@@ -5,19 +5,21 @@
 #define ECHOFLOW_PIPEWIRE_LIVE_VOICE_PIPELINE_H
 
 #include "AsrEngine.h"
+#include "AudioSegmenter.h"
 #include "Config.h"
 #include "Interfaces.h"
-#include "LiveAudioBuffer.h"
+#include "SegmentAsrWorker.h"
+#include "SegmentTextAccumulator.h"
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <sys/types.h>
 #include <thread>
+#include <vector>
 
 namespace echoflow {
 
@@ -36,30 +38,30 @@ public:
 
 private:
     void readerLoop();
-    void asrLoop();
+    void enqueueSegments(std::vector<AudioSegment> segments);
+    void flushSegmenter();
+    void handleSegmentText(int sequence, const std::string& text);
+    std::string stableText() const;
+    void clearStableText();
+    std::chrono::steady_clock::duration asrFinishTimeout() const;
     void stopRecorder();
     void cleanupProcess();
     void closeReadFd();
     void joinThreads();
-    double partialCycleSecondsLocked() const;
-    bool waitForGraceOrDone(std::chrono::steady_clock::time_point started);
 
     Config cfg_;
     AsrEngine& asr_;
-    std::unique_ptr<LiveAudioBuffer> live_;
+    std::unique_ptr<AudioSegmenter> segmenter_;
+    std::unique_ptr<SegmentAsrWorker> segmentWorker_;
     pid_t child_ = -1;
     int readFd_ = -1;
     std::thread readerThread_;
-    std::thread asrThread_;
-    std::string result_;
-    std::string partialText_;
     std::function<void(const std::string&)> partialTextCallback_;
-    std::mutex partialTextMutex_;
-    std::condition_variable partialTextCv_;
-    std::chrono::steady_clock::time_point lastPartialAt_{};
-    double partialCycleSeconds_ = 2.0;
+    mutable std::mutex textMutex_;
+    SegmentTextAccumulator textAccumulator_;
+    std::string stableText_;
+    mutable std::mutex callbackMutex_;
     std::chrono::steady_clock::time_point startedAt_{};
-    bool asrDone_ = false;
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};
 };

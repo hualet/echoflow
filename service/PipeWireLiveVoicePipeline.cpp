@@ -10,7 +10,6 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
-#include <algorithm>
 #include <spawn.h>
 #include <stdexcept>
 #include <string>
@@ -26,6 +25,9 @@ namespace echoflow {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+constexpr int kLiveSampleRate = 16000;
+constexpr int kLiveChannels = 1;
+constexpr const char* kLiveFormat = "s16";
 
 double elapsedSeconds(Clock::time_point started)
 {
@@ -78,7 +80,15 @@ void PipeWireLiveVoicePipeline::start()
         return;
     }
 
-    auto nextLive = std::make_unique<LiveAudioBuffer>();
+    AudioSegmenterConfig segmenterConfig;
+    segmenterConfig.sampleRate = kLiveSampleRate;
+    auto nextSegmenter = std::make_unique<AudioSegmenter>(segmenterConfig);
+    auto nextWorker = std::make_unique<SegmentAsrWorker>(
+        asr_,
+        runtimeDir() / "echoflow-segments",
+        [this](int sequence, const std::string& text) {
+            handleSegmentText(sequence, text);
+        });
 
     int pipeFds[2] = {-1, -1};
     if (pipe(pipeFds) != 0) {
@@ -132,9 +142,9 @@ void PipeWireLiveVoicePipeline::start()
 
     std::vector<std::string> args = {
         "pw-record",
-        "--rate", "16000",
-        "--channels", "1",
-        "--format", "s16",
+        "--rate", std::to_string(kLiveSampleRate),
+        "--channels", std::to_string(kLiveChannels),
+        "--format", kLiveFormat,
         "--raw",
         "-",
     };
@@ -159,22 +169,16 @@ void PipeWireLiveVoicePipeline::start()
     close(pipeFds[1]);
     child_ = pid;
     readFd_ = readFd;
-    live_ = std::move(nextLive);
+    segmenter_ = std::move(nextSegmenter);
+    segmentWorker_ = std::move(nextWorker);
     cancelled_ = false;
-    result_.clear();
-    {
-        std::lock_guard<std::mutex> lock(partialTextMutex_);
-        partialText_.clear();
-        lastPartialAt_ = {};
-        partialCycleSeconds_ = 2.0;
-        asrDone_ = false;
-    }
+    clearStableText();
     startedAt_ = Clock::now();
     active_ = true;
 
     try {
+        segmentWorker_->start();
         readerThread_ = std::thread(&PipeWireLiveVoicePipeline::readerLoop, this);
-        asrThread_ = std::thread(&PipeWireLiveVoicePipeline::asrLoop, this);
     } catch (...) {
         cancel();
         throw;
@@ -194,31 +198,21 @@ std::string PipeWireLiveVoicePipeline::finish()
         "s");
     stopRecorder();
     cleanupProcess();
-    if (live_) {
-        live_->markEof();
-    }
     closeReadFd();
-    bool completedDuringGrace = waitForGraceOrDone(finishStarted);
-    if (!completedDuringGrace && live_) {
-        live_->requestCancel();
-    }
     joinThreads();
-    active_ = false;
-    live_.reset();
-    std::string partialText;
-    {
-        std::lock_guard<std::mutex> lock(partialTextMutex_);
-        partialText = partialText_;
-        partialText_.clear();
+    bool completed = true;
+    if (segmentWorker_) {
+        completed = segmentWorker_->finishAndWait(asrFinishTimeout());
     }
-    std::string finalText =
-        cancelled_ ? std::string() : (partialText.empty() ? result_ : partialText);
-    result_.clear();
+    active_ = false;
+    segmenter_.reset();
+    segmentWorker_.reset();
+    std::string finalText = cancelled_ ? std::string() : stableText();
+    clearStableText();
     log("live pipeline finish returned in " + std::to_string(elapsedSeconds(finishStarted)) +
         "s, total=" + std::to_string(elapsedSeconds(startedAt_)) +
         "s, chars=" + std::to_string(finalText.size()) +
-        ", source=" + (partialText.empty() ? "return" : "partial") +
-        ", completed=" + (completedDuringGrace ? "yes" : "no"));
+        ", completed=" + (completed ? "yes" : "no"));
     return finalText;
 }
 
@@ -228,19 +222,15 @@ void PipeWireLiveVoicePipeline::cancel()
         cancelled_ = true;
         stopRecorder();
         cleanupProcess();
-        if (live_) {
-            live_->requestCancel();
-        }
         closeReadFd();
         joinThreads();
-        active_ = false;
-        live_.reset();
-        result_.clear();
-        {
-            std::lock_guard<std::mutex> lock(partialTextMutex_);
-            partialText_.clear();
-            asrDone_ = false;
+        if (segmentWorker_) {
+            segmentWorker_->cancelAndWait();
         }
+        active_ = false;
+        segmenter_.reset();
+        segmentWorker_.reset();
+        clearStableText();
     } catch (const std::exception& e) {
         log(std::string("live pipeline cancel failed: ") + e.what());
     } catch (...) {
@@ -251,47 +241,8 @@ void PipeWireLiveVoicePipeline::cancel()
 void PipeWireLiveVoicePipeline::setPartialTextCallback(
     std::function<void(const std::string&)> callback)
 {
-    std::lock_guard<std::mutex> lock(partialTextMutex_);
+    std::lock_guard<std::mutex> lock(callbackMutex_);
     partialTextCallback_ = std::move(callback);
-}
-
-double PipeWireLiveVoicePipeline::partialCycleSecondsLocked() const
-{
-    return std::clamp(partialCycleSeconds_, 1.0, 3.0);
-}
-
-bool PipeWireLiveVoicePipeline::waitForGraceOrDone(Clock::time_point started)
-{
-    std::unique_lock<std::mutex> lock(partialTextMutex_);
-    const double cycleSeconds = partialCycleSecondsLocked() * 2.0;
-    const auto quietWindow =
-        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(cycleSeconds));
-    auto observedPartialAt = lastPartialAt_;
-    auto deadline = Clock::now() + quietWindow;
-    if (observedPartialAt != Clock::time_point{} && observedPartialAt > Clock::now()) {
-        deadline = observedPartialAt + quietWindow;
-    }
-
-    log("waiting until two quiet live partial cycles after stop: " +
-        std::to_string(cycleSeconds) + "s");
-    bool done = false;
-    while (!asrDone_) {
-        if (partialTextCv_.wait_until(lock, deadline) == std::cv_status::timeout) {
-            break;
-        }
-        if (asrDone_) {
-            done = true;
-            break;
-        }
-        if (lastPartialAt_ != observedPartialAt) {
-            observedPartialAt = lastPartialAt_;
-            deadline = observedPartialAt + quietWindow;
-        }
-    }
-    done = done || asrDone_;
-    log("live partial-cycle wait ended in " + std::to_string(elapsedSeconds(started)) +
-        "s, asr_done=" + (done ? "yes" : "no"));
-    return done;
 }
 
 void PipeWireLiveVoicePipeline::readerLoop()
@@ -299,12 +250,44 @@ void PipeWireLiveVoicePipeline::readerLoop()
     try {
         int fd = readFd_;
         std::array<unsigned char, 64000> buffer;
+        bool hasCarryByte = false;
+        unsigned char carryByte = 0;
 
-        while (fd != -1) {
+        while (fd != -1 && !cancelled_) {
             ssize_t n = read(fd, buffer.data(), buffer.size());
             if (n > 0) {
-                if (live_) {
-                    live_->appendS16le(buffer.data(), static_cast<size_t>(n));
+                const size_t byteCount = static_cast<size_t>(n);
+                if (segmenter_) {
+                    std::vector<int16_t> samples;
+                    samples.reserve((byteCount + (hasCarryByte ? 1 : 0)) / sizeof(int16_t));
+
+                    size_t offset = 0;
+                    if (hasCarryByte && byteCount > 0) {
+                        const unsigned int raw =
+                            static_cast<unsigned int>(carryByte)
+                            | (static_cast<unsigned int>(buffer[0]) << 8);
+                        samples.push_back(static_cast<int16_t>(
+                            raw >= 0x8000U ? static_cast<int>(raw) - 0x10000 : static_cast<int>(raw)));
+                        hasCarryByte = false;
+                        offset = 1;
+                    }
+
+                    for (; offset + 1 < byteCount; offset += sizeof(int16_t)) {
+                        const unsigned int raw =
+                            static_cast<unsigned int>(buffer[offset])
+                            | (static_cast<unsigned int>(buffer[offset + 1]) << 8);
+                        samples.push_back(static_cast<int16_t>(
+                            raw >= 0x8000U ? static_cast<int>(raw) - 0x10000 : static_cast<int>(raw)));
+                    }
+
+                    if (offset < byteCount) {
+                        carryByte = buffer[offset];
+                        hasCarryByte = true;
+                    }
+
+                    if (!samples.empty()) {
+                        enqueueSegments(segmenter_->append(samples.data(), samples.size()));
+                    }
                 }
                 continue;
             }
@@ -317,6 +300,9 @@ void PipeWireLiveVoicePipeline::readerLoop()
             log(std::string("live recording read failed: ") + std::strerror(errno));
             break;
         }
+        if (hasCarryByte) {
+            log("live recording dropped incomplete trailing PCM byte");
+        }
     } catch (const std::exception& e) {
         log(std::string("live recording reader failed: ") + e.what());
     } catch (...) {
@@ -324,55 +310,80 @@ void PipeWireLiveVoicePipeline::readerLoop()
     }
 
     try {
-        if (live_) {
-            live_->markEof();
+        if (!cancelled_) {
+            flushSegmenter();
         }
     } catch (const std::exception& e) {
-        log(std::string("live recording EOF failed: ") + e.what());
+        log(std::string("live recording segment flush failed: ") + e.what());
     } catch (...) {
-        log("live recording EOF failed");
+        log("live recording segment flush failed");
     }
 }
 
-void PipeWireLiveVoicePipeline::asrLoop()
+void PipeWireLiveVoicePipeline::enqueueSegments(std::vector<AudioSegment> segments)
 {
-    try {
-        std::function<void(const std::string&)> partialTextCallback;
-        {
-            std::lock_guard<std::mutex> lock(partialTextMutex_);
-            partialTextCallback = partialTextCallback_;
-        }
-        auto storePartialText = [this, partialTextCallback = std::move(partialTextCallback)](
-                                    const std::string& text) mutable {
-            auto now = Clock::now();
-            {
-                std::lock_guard<std::mutex> lock(partialTextMutex_);
-                if (lastPartialAt_ != Clock::time_point{}) {
-                    double interval = elapsedSeconds(lastPartialAt_);
-                    partialCycleSeconds_ = 0.7 * partialCycleSeconds_ + 0.3 * interval;
-                }
-                lastPartialAt_ = now;
-                partialText_ = text;
-            }
-            partialTextCv_.notify_all();
-            if (partialTextCallback) {
-                partialTextCallback(text);
-            }
-        };
-        result_ = live_ ? asr_.transcribeLive(live_->get(), std::move(storePartialText))
-                        : std::string();
-    } catch (const std::exception& e) {
-        log(std::string("live ASR failed: ") + e.what());
-        result_.clear();
-    } catch (...) {
-        log("live ASR failed");
-        result_.clear();
+    if (!segmentWorker_) {
+        return;
     }
+
+    for (auto& segment : segments) {
+        segmentWorker_->enqueue(std::move(segment));
+    }
+}
+
+void PipeWireLiveVoicePipeline::flushSegmenter()
+{
+    if (!segmenter_ || !segmentWorker_) {
+        return;
+    }
+
+    std::optional<AudioSegment> segment = segmenter_->flush();
+    if (segment.has_value()) {
+        segmentWorker_->enqueue(std::move(*segment));
+    }
+}
+
+void PipeWireLiveVoicePipeline::handleSegmentText(int sequence, const std::string& text)
+{
+    if (cancelled_) {
+        return;
+    }
+
+    std::string accumulated;
     {
-        std::lock_guard<std::mutex> lock(partialTextMutex_);
-        asrDone_ = true;
+        std::lock_guard<std::mutex> lock(textMutex_);
+        textAccumulator_.append(sequence, text);
+        stableText_ = textAccumulator_.text();
+        accumulated = stableText_;
     }
-    partialTextCv_.notify_all();
+
+    std::function<void(const std::string&)> callback;
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        callback = partialTextCallback_;
+    }
+    if (callback) {
+        callback(accumulated);
+    }
+}
+
+std::string PipeWireLiveVoicePipeline::stableText() const
+{
+    std::lock_guard<std::mutex> lock(textMutex_);
+    return stableText_;
+}
+
+void PipeWireLiveVoicePipeline::clearStableText()
+{
+    std::lock_guard<std::mutex> lock(textMutex_);
+    textAccumulator_.clear();
+    stableText_.clear();
+}
+
+std::chrono::steady_clock::duration PipeWireLiveVoicePipeline::asrFinishTimeout() const
+{
+    const int timeoutSeconds = cfg_.asrTimeoutSeconds > 0 ? cfg_.asrTimeoutSeconds : 1;
+    return std::chrono::seconds(timeoutSeconds);
 }
 
 void PipeWireLiveVoicePipeline::stopRecorder()
@@ -413,9 +424,6 @@ void PipeWireLiveVoicePipeline::joinThreads()
 {
     if (readerThread_.joinable()) {
         readerThread_.join();
-    }
-    if (asrThread_.joinable()) {
-        asrThread_.join();
     }
 }
 

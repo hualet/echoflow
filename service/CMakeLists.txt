@@ -6,7 +6,6 @@ add_library(echoflow_service STATIC
     AudioSegmenter.cpp
     Committer.cpp
     Config.cpp
-    LiveAudioBuffer.cpp
     PipeWireLiveVoicePipeline.cpp
     Recorder.cpp
     SelfTest.cpp
