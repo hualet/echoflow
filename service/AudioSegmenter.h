@@ -20,7 +20,7 @@ struct AudioSegmenterConfig {
     int postPaddingMs = 200;
     int maxSegmentMs = 8000;
     double speechRatio = 4.0;
-    double minSpeechRms = 600.0;
+    double minSpeechRms = 50.0;
 };
 
 struct AudioSegment {
