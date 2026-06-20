@@ -263,11 +263,11 @@ double PipeWireLiveVoicePipeline::partialCycleSecondsLocked() const
 bool PipeWireLiveVoicePipeline::waitForGraceOrDone(Clock::time_point started)
 {
     std::unique_lock<std::mutex> lock(partialTextMutex_);
-    const double cycleSeconds = partialCycleSecondsLocked();
+    const double cycleSeconds = partialCycleSecondsLocked() * 2.0;
     auto deadline =
         Clock::now() + std::chrono::duration_cast<Clock::duration>(
                            std::chrono::duration<double>(cycleSeconds));
-    log("waiting one live partial cycle after stop: " + std::to_string(cycleSeconds) + "s");
+    log("waiting two live partial cycles after stop: " + std::to_string(cycleSeconds) + "s");
     bool done = partialTextCv_.wait_until(lock, deadline, [this]() {
         return asrDone_;
     });
