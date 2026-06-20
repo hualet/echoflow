@@ -25,7 +25,11 @@ struct LiveTokenCallbackState {
     std::function<void(const std::string&)> callback;
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point lastTokenAt;
+    std::chrono::steady_clock::time_point finalProgressAt;
+    double finalProgressCursorMs = 0.0;
+    double finalProgressTotalMs = 0.0;
     bool loggedFirstToken = false;
+    bool loggedFinalProgress = false;
     int tokenCallbackCount = 0;
 };
 
@@ -55,6 +59,28 @@ void liveTokenCallback(const char* piece, void* userdata)
     }
 }
 
+void liveStreamProgressCallback(double audioCursorMs,
+                                double audioTotalMs,
+                                int isFinal,
+                                int emittedTokens,
+                                void* userdata)
+{
+    if (!userdata) {
+        return;
+    }
+
+    auto* state = static_cast<LiveTokenCallbackState*>(userdata);
+    if (isFinal) {
+        state->finalProgressAt = std::chrono::steady_clock::now();
+        state->finalProgressCursorMs = audioCursorMs;
+        state->finalProgressTotalMs = audioTotalMs;
+        state->loggedFinalProgress = true;
+        log("final live ASR chunk completed at cursor=" + std::to_string(audioCursorMs / 1000.0) +
+            "s, total=" + std::to_string(audioTotalMs / 1000.0) +
+            "s, emitted_tokens=" + std::to_string(emittedTokens));
+    }
+}
+
 class TokenCallbackScope {
 public:
     TokenCallbackScope(qwen_ctx_t* ctx, qwen_token_cb callback, void* userdata)
@@ -70,6 +96,26 @@ public:
 
     TokenCallbackScope(const TokenCallbackScope&) = delete;
     TokenCallbackScope& operator=(const TokenCallbackScope&) = delete;
+
+private:
+    qwen_ctx_t* ctx_ = nullptr;
+};
+
+class StreamProgressCallbackScope {
+public:
+    StreamProgressCallbackScope(qwen_ctx_t* ctx, qwen_stream_progress_cb callback, void* userdata)
+        : ctx_(ctx)
+    {
+        qwen_set_stream_progress_callback(ctx_, callback, userdata);
+    }
+
+    ~StreamProgressCallbackScope()
+    {
+        qwen_set_stream_progress_callback(ctx_, nullptr, nullptr);
+    }
+
+    StreamProgressCallbackScope(const StreamProgressCallbackScope&) = delete;
+    StreamProgressCallbackScope& operator=(const StreamProgressCallbackScope&) = delete;
 
 private:
     qwen_ctx_t* ctx_ = nullptr;
@@ -175,9 +221,12 @@ std::string AsrEngine::transcribeLive(
     callbackState.started = started;
     callbackState.callback = std::move(partialTextCallback);
     std::unique_ptr<TokenCallbackScope> callbackScope;
+    std::unique_ptr<StreamProgressCallbackScope> progressCallbackScope;
     if (callbackState.callback) {
         callbackScope =
             std::make_unique<TokenCallbackScope>(ctx_, liveTokenCallback, &callbackState);
+        progressCallbackScope = std::make_unique<StreamProgressCallbackScope>(
+            ctx_, liveStreamProgressCallback, &callbackState);
     }
     char* raw = qwen_transcribe_stream_live(ctx_, live);
     const auto returnedAt = std::chrono::steady_clock::now();
@@ -194,6 +243,12 @@ std::string AsrEngine::transcribeLive(
             std::chrono::duration<double>(returnedAt - callbackState.lastTokenAt).count();
         log("last live ASR token preceded return by " + std::to_string(tailElapsed) +
             "s, callbacks=" + std::to_string(callbackState.tokenCallbackCount));
+    }
+    if (callbackState.loggedFinalProgress) {
+        const auto progressReturnGap =
+            std::chrono::duration<double>(returnedAt - callbackState.finalProgressAt).count();
+        log("final live ASR progress preceded return by " + std::to_string(progressReturnGap) +
+            "s");
     }
     log("live transcription finished in " + std::to_string(elapsed) + "s, chars=" + std::to_string(text.size()));
     return text;

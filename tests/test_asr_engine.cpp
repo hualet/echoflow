@@ -15,7 +15,14 @@ private slots:
     void preloadReturnsFalseWhenModelCannotLoad();
     void transcribeReturnsEmptyWhenModelCannotLoad();
     void transcribeLiveReturnsEmptyWhenModelCannotLoad();
+    void qwenStreamProgressCallbackApiIsAvailable();
 };
+
+namespace {
+
+void ignoreStreamProgress(double, double, int, int, void*) {}
+
+}  // namespace
 
 void TestAsrEngine::preloadReturnsFalseWhenModelCannotLoad()
 {
@@ -53,6 +60,13 @@ void TestAsrEngine::transcribeLiveReturnsEmptyWhenModelCannotLoad()
     } catch (const std::exception& e) {
         QFAIL(qPrintable(QStringLiteral("transcribeLive threw: %1").arg(e.what())));
     }
+}
+
+void TestAsrEngine::qwenStreamProgressCallbackApiIsAvailable()
+{
+    qwen_stream_progress_cb callback = ignoreStreamProgress;
+    qwen_set_stream_progress_callback(nullptr, callback, nullptr);
+    QVERIFY(callback != nullptr);
 }
 
 QTEST_GUILESS_MAIN(TestAsrEngine)
