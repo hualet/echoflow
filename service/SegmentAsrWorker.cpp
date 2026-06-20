@@ -64,6 +64,7 @@ struct SegmentAsrWorker::State {
     bool canceled = false;
     bool processing = false;
     bool drained = true;
+    bool timedOut = false;
 };
 
 SegmentAsrWorker::SegmentAsrWorker(IAsrEngine& asr, std::filesystem::path tempDir,
@@ -122,6 +123,7 @@ bool SegmentAsrWorker::finishAndWait(std::chrono::steady_clock::duration timeout
     if (!completed) {
         std::lock_guard<std::mutex> lock(state->mutex);
         state->canceled = true;
+        state->timedOut = true;
         state->queue.clear();
         state->cv.notify_all();
     }
@@ -150,7 +152,12 @@ void SegmentAsrWorker::cancelAndWait()
     }
     state->cv.notify_all();
     joinThread();
-    if (!calledFromWorker) {
+    bool timedOut = false;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        timedOut = state->timedOut;
+    }
+    if (!calledFromWorker && !timedOut) {
         std::unique_lock<std::mutex> lock(state->mutex);
         state->cv.wait(lock, [state] {
             return state->callbacksInFlight == 0;

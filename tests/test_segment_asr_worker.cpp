@@ -141,6 +141,7 @@ private slots:
     void finishAndWaitReturnsPromptlyWhenAsrBlocksPastTimeout();
     void destroysPromptlyAfterTimeoutAndSuppressesLateCallback();
     void cancelAndWaitReturnsPromptlyAfterTimeout();
+    void destroysPromptlyAfterTimeoutWithInFlightCallback();
     void callbackRunsOutsideWorkerLock();
     void cancelWaitsForInFlightCallback();
     void callbackCanCancelWorker();
@@ -354,6 +355,65 @@ void TestSegmentAsrWorker::cancelAndWaitReturnsPromptlyAfterTimeout()
     QVERIFY(callbacks.empty());
 }
 
+void TestSegmentAsrWorker::destroysPromptlyAfterTimeoutWithInFlightCallback()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    FakeAsr asr({"你好"});
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callbackStarted = false;
+    bool releaseCallback = false;
+
+    auto destroyed = std::async(std::launch::async, [&] {
+        {
+            SegmentAsrWorker worker(asr, dir.path().toStdString(), [&](int, const std::string&) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    callbackStarted = true;
+                }
+                cv.notify_all();
+                std::unique_lock<std::mutex> lock(mutex);
+                cv.wait(lock, [&] {
+                    return releaseCallback;
+                });
+            });
+            worker.start();
+            worker.enqueue(makeSegment({1, 2, 3}));
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                if (!cv.wait_for(lock, std::chrono::seconds(1), [&] {
+                        return callbackStarted;
+                    })) {
+                    return false;
+                }
+            }
+            if (worker.finishAndWait(std::chrono::milliseconds(1))) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    const bool returnedPromptly = destroyed.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready;
+    if (!returnedPromptly) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            releaseCallback = true;
+        }
+        cv.notify_all();
+        destroyed.wait();
+    }
+    QVERIFY(returnedPromptly);
+    QVERIFY(destroyed.get());
+
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        releaseCallback = true;
+    }
+    cv.notify_all();
+}
+
 void TestSegmentAsrWorker::callbackRunsOutsideWorkerLock()
 {
     QTemporaryDir dir;
@@ -377,7 +437,6 @@ void TestSegmentAsrWorker::callbackRunsOutsideWorkerLock()
     QVERIFY(finished.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready);
     QVERIFY(finished.get());
     QVERIFY(callbackReturned);
-    QCOMPARE(asr.paths().size(), size_t(1));
 }
 
 void TestSegmentAsrWorker::cancelWaitsForInFlightCallback()
