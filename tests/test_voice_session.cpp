@@ -118,6 +118,7 @@ private slots:
     void liveBlurCancelsAndDiscards();
     void liveCancelExceptionStillReturnsToIdleAndHidesTooltip();
     void livePartialTextUpdatesTooltip();
+    void livePreviewDoesNotAffectCommittedText();
     void liveStartExceptionReturnsToIdle();
     void unknownCommandReturnsError();
 };
@@ -402,6 +403,24 @@ void TestVoiceSession::livePartialTextUpdatesTooltip()
     pipeline.partialTextCallback("实时文本");
 
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("STREAM_TEXT 实时文本"));
+}
+
+void TestVoiceSession::livePreviewDoesNotAffectCommittedText()
+{
+    FakeLivePipeline pipeline;
+    pipeline.result = "稳定最终文本";
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.partialTextCallback);
+    pipeline.partialTextCallback("错误预览文本");
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")),
+             QStringLiteral("COMMITTED"));
+    QCOMPARE(committer.texts.size(), size_t(1));
+    QCOMPARE(QString::fromStdString(committer.texts.front()), QStringLiteral("稳定最终文本"));
 }
 
 void TestVoiceSession::liveStartExceptionReturnsToIdle()
