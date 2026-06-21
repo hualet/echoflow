@@ -43,18 +43,6 @@
               "name": "识别语言",
               "type": "combobox",
               "default": "Chinese"
-            },
-            {
-              "key": "strip_trailing_punctuation",
-              "text": "去除识别结果尾部标点",
-              "type": "checkbox",
-              "default": false
-            },
-            {
-              "key": "prompt",
-              "name": "识别提示词（可选，用于术语纠正）",
-              "type": "lineedit",
-              "default": ""
             }
           ]
         },
