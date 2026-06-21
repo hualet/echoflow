@@ -96,6 +96,9 @@ assert_contains "$ROOT/service/main.cpp" "PipeWireRecorder" "service keeps non-s
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "opacityAnimationDuration = 500" "tooltip appears with 500ms opacity animation"
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
+assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
+assert_contains "$ROOT/ui-host/main.cpp" ":/icons/echoflow.svg" "tray icon uses EchoFlow logo resource"
+assert_absent "$ROOT/ui-host/main.cpp" "SP_ComputerIcon" "tray icon no longer uses generic computer icon"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "ModelDownloadCoordinator" "ModelRowWidget talks to the coordinator"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "onCoordinatorStateChanged" "ModelRowWidget handles coordinator state changes"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "snapshot(modelId())" "ModelRowWidget reads the coordinator snapshot"

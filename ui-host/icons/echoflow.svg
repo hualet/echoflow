@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>EchoFlow</title>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#20242A"/>
+  <path d="M16 34C21 24 29 24 34 34C39 44 47 44 52 34" stroke="#35A7FF" stroke-width="6" stroke-linecap="round"/>
+  <path d="M16 24C21 14 29 14 34 24C39 34 47 34 52 24" stroke="#1ED6A3" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+  <rect x="15" y="38" width="34" height="12" rx="6" fill="#F7FAFC"/>
+  <rect x="22" y="42" width="12" height="4" rx="2" fill="#20242A"/>
+  <circle cx="40" cy="44" r="3" fill="#35A7FF"/>
+</svg>

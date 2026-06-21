@@ -22,6 +22,7 @@ add_executable(echoflow-ui
     ModelDownloader.cpp
     ModelDownloadCoordinator.cpp
     ModelRowWidget.cpp
+    icons.qrc
     settings.qrc
     qml.qrc
 )

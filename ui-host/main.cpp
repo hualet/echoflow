@@ -22,6 +22,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMenu>
@@ -32,7 +33,6 @@
 #include <QScreen>
 #include <QSocketNotifier>
 #include <QStandardPaths>
-#include <QStyle>
 #include <QString>
 #include <QSystemTrayIcon>
 #include <QUrl>
@@ -444,9 +444,12 @@ int main(int argc, char **argv) {
     QAction *settingsAction = trayMenu.addAction(QObject::tr("设置"));
     QAction *quitAction = trayMenu.addAction(QObject::tr("退出"));
 
+    const QIcon appIcon(QStringLiteral(":/icons/echoflow.svg"));
+    app.setWindowIcon(appIcon);
+
     QSystemTrayIcon trayIcon;
     trayIcon.setContextMenu(&trayMenu);
-    trayIcon.setIcon(app.style()->standardIcon(QStyle::SP_ComputerIcon));
+    trayIcon.setIcon(appIcon);
     trayIcon.setToolTip(QStringLiteral("EchoFlow"));
     trayIcon.show();
 
