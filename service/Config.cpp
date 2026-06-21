@@ -164,6 +164,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.language = val.empty() ? std::optional<std::string>{} : std::optional<std::string>(val);
         } else if (section == "basic.recognition.prompt") {
             cfg.prompt = val;
+        } else if (section == "basic.recognition.stream_transcription") {
+            cfg.streamTranscription = parseBool(val);
         } else if (section == "basic.recognition.strip_trailing_punctuation") {
             cfg.stripTrailingPunctuation = parseBool(val);
         } else if (section == "basic.recording.min_record_seconds") {

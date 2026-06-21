@@ -5,6 +5,7 @@
 #include "Committer.h"
 #include "Config.h"
 #include "PipeWireLiveVoicePipeline.h"
+#include "Recorder.h"
 #include "SelfTest.h"
 #include "Server.h"
 #include "UiNotifier.h"
@@ -49,6 +50,7 @@ void printDefaultConfig()
                 "  \"channels\": %d,\n"
                 "  \"format\": \"%s\",\n"
                 "  \"source\": \"%s\",\n"
+                "  \"stream_transcription\": %s,\n"
                 "  \"save_live_debug_audio\": %s,\n"
                 "  \"openblas_threads\": %d,\n"
                 "  \"fcitx_commit\": %s\n"
@@ -58,6 +60,7 @@ void printDefaultConfig()
                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
                 cfg.pwRecord.source.c_str(),
+                cfg.streamTranscription ? "true" : "false",
                 cfg.saveLiveDebugAudio ? "true" : "false",
                 cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false");
 }
@@ -121,10 +124,17 @@ int main(int argc, char** argv)
 
     echoflow::AsrEngine asr(cfg);
     asr.preload();
-    echoflow::PipeWireLiveVoicePipeline livePipeline(cfg, asr);
     echoflow::Committer committer(cfg, echoflow::fcitxSocketPath(cfg));
     echoflow::UnixDatagramUiNotifier ui(echoflow::uiSocketPath(cfg));
-    echoflow::VoiceSession session(cfg, livePipeline, committer, ui);
+    if (cfg.streamTranscription) {
+        echoflow::PipeWireLiveVoicePipeline livePipeline(cfg, asr);
+        echoflow::VoiceSession session(cfg, livePipeline, committer, ui);
+        echoflow::Server server(cfg, session);
+        return server.run();
+    }
+
+    echoflow::PipeWireRecorder recorder(cfg);
+    echoflow::VoiceSession session(cfg, recorder, asr, committer, ui);
     echoflow::Server server(cfg, session);
     return server.run();
 }

@@ -37,6 +37,7 @@ Window {
     y: targetY - height
 
     function stopFade() {
+        appearFade.stop()
         fadeStage1.stop()
         fadeStage2.stop()
         hideAfterFade.stop()
@@ -45,6 +46,7 @@ Window {
     Connections {
         target: tooltipController
         function onTooltipChanged(visibility, msg, isBusy, hasPosition, moveX, moveY) {
+            var wasVisible = root.visible
             root.message = msg
             root.busy = isBusy
             if (hasPosition) {
@@ -54,7 +56,14 @@ Window {
             if (visibility) {
                 root.visible = true
                 root.stopFade()
-                capsule.opacity = 1
+                if (!wasVisible) {
+                    capsule.opacityAnimationDuration = 0
+                    capsule.opacity = 0
+                    appearFade.restart()
+                } else {
+                    capsule.opacityAnimationDuration = 200
+                    capsule.opacity = 1
+                }
                 if (!isBusy) {
                     fadeStage1.restart()
                 }
@@ -62,6 +71,15 @@ Window {
                 root.stopFade()
                 root.visible = false
             }
+        }
+    }
+
+    Timer {
+        id: appearFade
+        interval: 0
+        onTriggered: {
+            capsule.opacityAnimationDuration = 500
+            capsule.opacity = 1
         }
     }
 
@@ -105,6 +123,7 @@ Window {
         readonly property int kWaveBarWidth: 4
         readonly property int kWaveSpacing: 4
         readonly property int kWaveWidth: kWaveBars * kWaveBarWidth + (kWaveBars - 1) * kWaveSpacing
+        property int opacityAnimationDuration: 200
 
         height: kHeight
         radius: kRadius
@@ -121,7 +140,7 @@ Window {
                   : idleHint.implicitWidth + kGap + kButtonSize + kHPad + kButtonInset)
 
         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
-        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+        Behavior on opacity { NumberAnimation { duration: capsule.opacityAnimationDuration; easing.type: Easing.InOutQuad } }
 
         // ---- recording: waveform (left) ----
         Item {

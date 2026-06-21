@@ -43,6 +43,12 @@
               "name": "识别语言",
               "type": "combobox",
               "default": "Chinese"
+            },
+            {
+              "key": "stream_transcription",
+              "text": "启用流式输入",
+              "type": "checkbox",
+              "default": true
             }
           ]
         },

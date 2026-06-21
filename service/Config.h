@@ -29,7 +29,7 @@ struct Config {
     bool fcitxCommit = true;
     bool stripTrailingPunctuation = false;
     bool skipSilence = false;
-    bool streamTranscription = false;
+    bool streamTranscription = true;
     bool saveLiveDebugAudio = false;
     int openBlasThreads = 4;
 

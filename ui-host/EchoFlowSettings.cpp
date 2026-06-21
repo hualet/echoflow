@@ -159,6 +159,7 @@ bool EchoFlowSettings::init(const QString &configPath) {
         const QStringList paths = {
             QStringLiteral("basic.model.model_name"),
             QStringLiteral("basic.recognition.language"),
+            QStringLiteral("basic.recognition.stream_transcription"),
             QStringLiteral("basic.recording.min_record_seconds"),
             QStringLiteral("basic.recording.rate"),
             QStringLiteral("basic.recording.channels"),

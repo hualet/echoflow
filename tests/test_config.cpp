@@ -18,6 +18,7 @@ private slots:
     void loadDtkConfNormalizesLegacyModelName();
     void loadDtkConfIgnoresModelDirKey();
     void loadDtkConfReadsLiveDebugAudioFlag();
+    void loadDtkConfReadsStreamTranscriptionFlag();
     void loadDtkConfIgnoresUnknownSections();
 };
 
@@ -32,7 +33,7 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(QString::fromStdString(*c.language), QStringLiteral("Chinese"));
     QVERIFY(c.modelDir.empty());
     QVERIFY(!c.skipSilence);
-    QVERIFY(!c.streamTranscription);
+    QVERIFY(c.streamTranscription);
     QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 4);
 }
@@ -95,6 +96,16 @@ void TestConfig::loadDtkConfReadsLiveDebugAudioFlag() {
 
     Config c = loadDtkConf(f.fileName().toStdString());
     QCOMPARE(c.saveLiveDebugAudio, true);
+}
+
+void TestConfig::loadDtkConfReadsStreamTranscriptionFlag() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[basic.recognition.stream_transcription]\nvalue=false\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QCOMPARE(c.streamTranscription, false);
 }
 
 void TestConfig::loadDtkConfNormalizesLegacyModelName() {
