@@ -27,6 +27,7 @@ namespace {
 struct AudioSourceItem {
     QString name;
     QString description;
+    bool available = true;
 };
 
 QString sourceDisplayName(const AudioSourceItem &source, const QMap<QString, int> &descriptionCounts) {
@@ -92,7 +93,8 @@ QList<AudioSourceItem> pipeWireSources() {
     const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
         if (line.startsWith(QStringLiteral("Source #"))) {
-            if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))) {
+            if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))
+                && current.available) {
                 if (current.description.isEmpty()) {
                     current.description = current.name;
                 }
@@ -107,9 +109,13 @@ QList<AudioSourceItem> pipeWireSources() {
             current.name = trimmed.mid(QStringLiteral("Name: ").size());
         } else if (trimmed.startsWith(QStringLiteral("Description: "))) {
             current.description = trimmed.mid(QStringLiteral("Description: ").size());
+        } else if (trimmed.startsWith(QStringLiteral("[In] "))
+                   && trimmed.contains(QStringLiteral("not available"))) {
+            current.available = false;
         }
     }
-    if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))) {
+    if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))
+        && current.available) {
         if (current.description.isEmpty()) {
             current.description = current.name;
         }
