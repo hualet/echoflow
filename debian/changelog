@@ -1,3 +1,20 @@
+echoflow (0.2.0) unstable; urgency=medium
+
+  * Add live and segmented Qwen transcription so recognition can progress
+    during recording and long dictation returns stable text sooner.
+  * Add microphone source selection with friendly device names and a fallback
+    source query so users can choose the intended PipeWire input reliably.
+  * Add a stream mode switch and live text preview in the voice capsule while
+    keeping final committed text based on completed recognition.
+  * Apply settings changes by restarting the service and hide unavailable
+    microphones to prevent silent recordings from disconnected inputs.
+  * Improve speech detection for quiet or DC-offset microphone audio and make
+    live recording shutdown bounded when workers or PipeWire cleanup stall.
+  * Add an EchoFlow tray logo and remove unused recognition settings from the
+    settings dialog.
+
+ -- Hualet Wang <hualet@deepin.org>  Sun, 21 Jun 2026 19:29:29 +0800
+
 echoflow (0.1.0) unstable; urgency=medium
 
   * Initial release of EchoFlow, an offline voice input method for
