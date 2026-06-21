@@ -8,10 +8,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QList>
 #include <QMap>
 #include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QVariant>
 
 #include <DSettings>
@@ -22,26 +24,64 @@ namespace echoflow {
 
 namespace {
 
-QStringList pipeWireSourceNames() {
+struct AudioSourceItem {
+    QString name;
+    QString description;
+};
+
+QString sourceDisplayName(const AudioSourceItem &source, const QMap<QString, int> &descriptionCounts) {
+    QString description = source.description;
+    const QString controllerPrefix =
+        QStringLiteral("Family 17h/19h HD Audio Controller ");
+    if (description.startsWith(controllerPrefix)) {
+        description = description.mid(controllerPrefix.size());
+    }
+
+    if (descriptionCounts.value(source.description) <= 1) {
+        return description;
+    }
+    return description + QStringLiteral(" (") + source.name + QStringLiteral(")");
+}
+
+QList<AudioSourceItem> pipeWireSources() {
     QProcess process;
     process.start(QStringLiteral("pactl"),
-                  QStringList{QStringLiteral("list"), QStringLiteral("sources"), QStringLiteral("short")});
+                  QStringList{QStringLiteral("list"), QStringLiteral("sources")});
     if (!process.waitForFinished(1000) || process.exitStatus() != QProcess::NormalExit
         || process.exitCode() != 0) {
         return {};
     }
 
-    QStringList sources;
+    QList<AudioSourceItem> sources;
+    AudioSourceItem current;
     const QString output = QString::fromLocal8Bit(process.readAllStandardOutput());
     const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
-        const QStringList fields = line.split(QLatin1Char('\t'));
-        if (fields.size() >= 2 && !fields.at(1).isEmpty()
-            && !fields.at(1).endsWith(QStringLiteral(".monitor"))
-            && !sources.contains(fields.at(1))) {
-            sources << fields.at(1);
+        if (line.startsWith(QStringLiteral("Source #"))) {
+            if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))) {
+                if (current.description.isEmpty()) {
+                    current.description = current.name;
+                }
+                sources << current;
+            }
+            current = {};
+            continue;
+        }
+
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QStringLiteral("Name: "))) {
+            current.name = trimmed.mid(QStringLiteral("Name: ").size());
+        } else if (trimmed.startsWith(QStringLiteral("Description: "))) {
+            current.description = trimmed.mid(QStringLiteral("Description: ").size());
         }
     }
+    if (!current.name.isEmpty() && !current.name.endsWith(QStringLiteral(".monitor"))) {
+        if (current.description.isEmpty()) {
+            current.description = current.name;
+        }
+        sources << current;
+    }
+
     return sources;
 }
 
@@ -140,10 +180,14 @@ void EchoFlowSettings::populateComboBoxes() {
 
     QStringList sourceKeys{QString()};
     QStringList sourceValues{QStringLiteral("系统默认")};
-    const QStringList sources = pipeWireSourceNames();
-    for (const QString &source : sources) {
-        sourceKeys << source;
-        sourceValues << source;
+    const QList<AudioSourceItem> sources = pipeWireSources();
+    QMap<QString, int> descriptionCounts;
+    for (const AudioSourceItem &source : sources) {
+        descriptionCounts[source.description] += 1;
+    }
+    for (const AudioSourceItem &source : sources) {
+        sourceKeys << source.name;
+        sourceValues << sourceDisplayName(source, descriptionCounts);
     }
     setComboBoxItems(dsettings_, QStringLiteral("basic.recording.source"),
                      sourceKeys, sourceValues);

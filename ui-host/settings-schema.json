@@ -63,6 +63,12 @@
           "name": "录音",
           "options": [
             {
+              "key": "source",
+              "name": "麦克风输入",
+              "type": "combobox",
+              "default": ""
+            },
+            {
               "key": "min_record_seconds",
               "name": "最短录音时间（秒）",
               "type": "lineedit",
@@ -85,12 +91,6 @@
               "name": "采样格式",
               "type": "combobox",
               "default": "s16"
-            },
-            {
-              "key": "source",
-              "name": "麦克风输入",
-              "type": "combobox",
-              "default": ""
             }
           ]
         }
