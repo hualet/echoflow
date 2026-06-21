@@ -28,6 +28,7 @@
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QProcess>
 #include <QScreen>
 #include <QSocketNotifier>
 #include <QStandardPaths>
@@ -163,6 +164,15 @@ bool sendControlCommand(const QString &controlPath, std::string_view command) {
     close(fd);
     unlink(clientPath.c_str());
     return ok;
+}
+
+void restartServiceAfterSettingsChange() {
+    const bool started = QProcess::startDetached(
+        QStringLiteral("systemctl"),
+        QStringList{QStringLiteral("--user"), QStringLiteral("restart"), QStringLiteral("echoflow.service")});
+    if (!started) {
+        qWarning("failed to restart echoflow.service after settings change");
+    }
 }
 
 struct TooltipPos {
@@ -448,6 +458,7 @@ int main(int argc, char **argv) {
             settingsDialog->setAttribute(Qt::WA_DeleteOnClose);
             QObject::connect(settingsDialog, &QObject::destroyed, [&]() {
                 echoflow::EchoFlowSettings::instance()->sync();
+                restartServiceAfterSettingsChange();
                 settingsDialog = nullptr;
             });
         }
