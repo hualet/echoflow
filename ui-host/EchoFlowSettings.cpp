@@ -43,13 +43,47 @@ QString sourceDisplayName(const AudioSourceItem &source, const QMap<QString, int
     return description + QStringLiteral(" (") + source.name + QStringLiteral(")");
 }
 
+QString fallbackSourceDescription(const QString &name) {
+    if (name.contains(QStringLiteral("__Mic1__source"))) {
+        return QStringLiteral("Digital Microphone");
+    }
+    if (name.contains(QStringLiteral("__Mic2__source"))) {
+        return QStringLiteral("Stereo Microphone");
+    }
+    return name;
+}
+
+QList<AudioSourceItem> pipeWireSourcesFromShortList() {
+    QProcess process;
+    process.start(QStringLiteral("pactl"),
+                  QStringList{QStringLiteral("list"), QStringLiteral("sources"), QStringLiteral("short")});
+    if (!process.waitForFinished(3000) || process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
+        return {};
+    }
+
+    QList<AudioSourceItem> sources;
+    const QString output = QString::fromLocal8Bit(process.readAllStandardOutput());
+    const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QStringList fields = line.split(QLatin1Char('\t'));
+        if (fields.size() < 2 || fields.at(1).isEmpty()
+            || fields.at(1).endsWith(QStringLiteral(".monitor"))) {
+            continue;
+        }
+        const QString name = fields.at(1);
+        sources << AudioSourceItem{name, fallbackSourceDescription(name)};
+    }
+    return sources;
+}
+
 QList<AudioSourceItem> pipeWireSources() {
     QProcess process;
     process.start(QStringLiteral("pactl"),
                   QStringList{QStringLiteral("list"), QStringLiteral("sources")});
-    if (!process.waitForFinished(1000) || process.exitStatus() != QProcess::NormalExit
+    if (!process.waitForFinished(3000) || process.exitStatus() != QProcess::NormalExit
         || process.exitCode() != 0) {
-        return {};
+        return pipeWireSourcesFromShortList();
     }
 
     QList<AudioSourceItem> sources;
@@ -82,6 +116,9 @@ QList<AudioSourceItem> pipeWireSources() {
         sources << current;
     }
 
+    if (sources.empty()) {
+        return pipeWireSourcesFromShortList();
+    }
     return sources;
 }
 
