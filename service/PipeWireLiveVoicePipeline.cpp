@@ -490,6 +490,10 @@ void PipeWireLiveVoicePipeline::openDebugAudioFile()
     debugAudioPath_.clear();
     debugAudio_.close();
 
+    if (!cfg_.saveLiveDebugAudio) {
+        return;
+    }
+
     try {
         const fs::path dir = cfg_.recordingsDir.empty()
             ? fs::temp_directory_path()

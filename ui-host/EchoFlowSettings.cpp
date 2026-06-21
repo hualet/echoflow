@@ -168,6 +168,7 @@ bool EchoFlowSettings::init(const QString &configPath) {
             QStringLiteral("advanced.runtime.asr_timeout_seconds"),
             QStringLiteral("advanced.fcitx.fcitx_commit"),
             QStringLiteral("advanced.storage.recordings_dir"),
+            QStringLiteral("advanced.storage.save_live_debug_audio"),
         };
         QSettings defaultSettings(configPath_, QSettings::IniFormat);
         for (const QString &path : paths) {

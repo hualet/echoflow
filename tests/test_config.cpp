@@ -17,6 +17,7 @@ private slots:
     void loadDtkConfDerivesModelDirFromName();
     void loadDtkConfNormalizesLegacyModelName();
     void loadDtkConfIgnoresModelDirKey();
+    void loadDtkConfReadsLiveDebugAudioFlag();
     void loadDtkConfIgnoresUnknownSections();
 };
 
@@ -32,6 +33,7 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QVERIFY(c.modelDir.empty());
     QVERIFY(!c.skipSilence);
     QVERIFY(!c.streamTranscription);
+    QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 4);
 }
 
@@ -77,11 +79,22 @@ void TestConfig::loadDtkConfDerivesModelDirFromName() {
              QStringLiteral("alsa_input.pci-test.Mic__source"));
     QCOMPARE(c.minRecordSeconds, 0.5);
     QCOMPARE(c.stripTrailingPunctuation, true);
+    QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 2);
     QCOMPARE(c.fcitxCommit, false);
     QCOMPARE(QString::fromStdString(c.modelDir),
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
                                      / "qwen3-asr-1.7b").string()));
+}
+
+void TestConfig::loadDtkConfReadsLiveDebugAudioFlag() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[advanced.storage.save_live_debug_audio]\nvalue=true\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QCOMPARE(c.saveLiveDebugAudio, true);
 }
 
 void TestConfig::loadDtkConfNormalizesLegacyModelName() {

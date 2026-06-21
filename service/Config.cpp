@@ -184,6 +184,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.fcitxCommit = parseBool(val);
         } else if (section == "advanced.storage.recordings_dir") {
             cfg.recordingsDir = val;
+        } else if (section == "advanced.storage.save_live_debug_audio") {
+            cfg.saveLiveDebugAudio = parseBool(val);
         }
     }
 

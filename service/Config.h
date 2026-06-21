@@ -30,6 +30,7 @@ struct Config {
     bool stripTrailingPunctuation = false;
     bool skipSilence = false;
     bool streamTranscription = false;
+    bool saveLiveDebugAudio = false;
     int openBlasThreads = 4;
 
     static Config defaultConfig();

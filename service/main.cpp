@@ -49,6 +49,7 @@ void printDefaultConfig()
                 "  \"channels\": %d,\n"
                 "  \"format\": \"%s\",\n"
                 "  \"source\": \"%s\",\n"
+                "  \"save_live_debug_audio\": %s,\n"
                 "  \"openblas_threads\": %d,\n"
                 "  \"fcitx_commit\": %s\n"
                 "}\n",
@@ -57,6 +58,7 @@ void printDefaultConfig()
                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
                 cfg.pwRecord.source.c_str(),
+                cfg.saveLiveDebugAudio ? "true" : "false",
                 cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false");
 }
 

@@ -124,6 +124,12 @@
               "name": "录音保存目录",
               "type": "lineedit",
               "default": "$HOME/.local/share/echoflow/recordings"
+            },
+            {
+              "key": "save_live_debug_audio",
+              "text": "保存流式录音调试文件",
+              "type": "checkbox",
+              "default": false
             }
           ]
         }

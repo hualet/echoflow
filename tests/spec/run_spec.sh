@@ -86,6 +86,7 @@ assert_absent "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-GGUF" "settings sc
 assert_absent "$ROOT/ui-host/settings-schema.json" '"prompt"' "settings schema hides prompt option"
 assert_absent "$ROOT/ui-host/settings-schema.json" "strip_trailing_punctuation" "settings schema hides strip punctuation option"
 assert_contains "$ROOT/ui-host/settings-schema.json" "qwen3-asr-0.6b" "settings schema points at safetensors dir"
+assert_contains "$ROOT/ui-host/settings-schema.json" "save_live_debug_audio" "settings schema has live debug audio switch"
 assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "asr_runner" "EchoFlowSettings writes no asr_runner default"
 assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.prompt" "EchoFlowSettings writes no prompt default"
 assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.strip_trailing_punctuation" "EchoFlowSettings writes no strip punctuation default"
