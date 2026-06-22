@@ -3,6 +3,7 @@
 
 #include "AsrEngine.h"
 
+#include "ModelCatalog.h"
 #include "SelfTest.h"
 #include "log.h"
 
@@ -12,9 +13,19 @@ extern "C" {
 #include "qwen_asr_audio.h"
 }
 
+#include <array>
+#include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
 #include <memory>
+#include <poll.h>
+#include <stdexcept>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
 
 namespace echoflow {
 
@@ -121,6 +132,186 @@ private:
     qwen_ctx_t* ctx_ = nullptr;
 };
 
+std::filesystem::path senseVoiceModelPath(const Config& cfg)
+{
+    return resolveModelDir(cfg) / "sensevoice-small-q8.gguf";
+}
+
+std::filesystem::path senseVoiceVadPath(const Config& cfg)
+{
+    return resolveModelDir(cfg) / "fsmn-vad.gguf";
+}
+
+std::string trimText(const std::string& value)
+{
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return {};
+    }
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+std::string executableDir()
+{
+    std::vector<char> buffer(4096);
+    ssize_t n = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (n <= 0) {
+        return {};
+    }
+    buffer[static_cast<size_t>(n)] = '\0';
+    std::filesystem::path p(buffer.data());
+    return p.parent_path().string();
+}
+
+std::string senseVoiceBinary()
+{
+    if (const char* override = std::getenv("ECHOFLOW_SENSEVOICE_BIN")) {
+        if (*override) {
+            return override;
+        }
+    }
+
+    const std::string dir = executableDir();
+    if (!dir.empty()) {
+        const std::filesystem::path colocated =
+            std::filesystem::path(dir) / "llama-funasr-sensevoice";
+        if (access(colocated.c_str(), X_OK) == 0) {
+            return colocated.string();
+        }
+    }
+    return "llama-funasr-sensevoice";
+}
+
+void appendPipeData(int fd, std::string& out)
+{
+    std::array<char, 4096> buffer{};
+    while (true) {
+        ssize_t n = read(fd, buffer.data(), buffer.size());
+        if (n > 0) {
+            out.append(buffer.data(), static_cast<size_t>(n));
+            continue;
+        }
+        if (n == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        break;
+    }
+}
+
+void setNonBlocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+}
+
+std::pair<std::string, std::string> readProcessPipes(int stdoutFd, int stderrFd)
+{
+    std::string stdoutText;
+    std::string stderrText;
+    bool stdoutOpen = true;
+    bool stderrOpen = true;
+
+    while (stdoutOpen || stderrOpen) {
+        std::array<pollfd, 2> fds{{
+            {stdoutOpen ? stdoutFd : -1, POLLIN | POLLHUP, 0},
+            {stderrOpen ? stderrFd : -1, POLLIN | POLLHUP, 0},
+        }};
+        int ready = poll(fds.data(), fds.size(), -1);
+        if (ready < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+
+        if (stdoutOpen && (fds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
+            appendPipeData(stdoutFd, stdoutText);
+            if (fds[0].revents & (POLLHUP | POLLERR)) {
+                stdoutOpen = false;
+            }
+        }
+        if (stderrOpen && (fds[1].revents & (POLLIN | POLLHUP | POLLERR))) {
+            appendPipeData(stderrFd, stderrText);
+            if (fds[1].revents & (POLLHUP | POLLERR)) {
+                stderrOpen = false;
+            }
+        }
+    }
+
+    return {stdoutText, stderrText};
+}
+
+std::pair<int, std::string> runSenseVoiceProcess(const std::vector<std::string>& args)
+{
+    int stdoutPipe[2] = {-1, -1};
+    int stderrPipe[2] = {-1, -1};
+    if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
+        throw std::runtime_error(std::string("pipe failed: ") + std::strerror(errno));
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(stdoutPipe[0]);
+        close(stdoutPipe[1]);
+        close(stderrPipe[0]);
+        close(stderrPipe[1]);
+        throw std::runtime_error(std::string("fork failed: ") + std::strerror(errno));
+    }
+
+    if (pid == 0) {
+        dup2(stdoutPipe[1], STDOUT_FILENO);
+        dup2(stderrPipe[1], STDERR_FILENO);
+        close(stdoutPipe[0]);
+        close(stdoutPipe[1]);
+        close(stderrPipe[0]);
+        close(stderrPipe[1]);
+
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
+        for (const auto& arg : args) {
+            argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        argv.push_back(nullptr);
+        execvp(argv[0], argv.data());
+        _exit(127);
+    }
+
+    close(stdoutPipe[1]);
+    close(stderrPipe[1]);
+    setNonBlocking(stdoutPipe[0]);
+    setNonBlocking(stderrPipe[0]);
+    auto [stdoutText, stderrText] = readProcessPipes(stdoutPipe[0], stderrPipe[0]);
+    close(stdoutPipe[0]);
+    close(stderrPipe[0]);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) {
+            break;
+        }
+    }
+
+    if (!stderrText.empty()) {
+        log("sensevoice stderr: " + trimText(stderrText));
+    }
+    if (WIFEXITED(status)) {
+        return {WEXITSTATUS(status), stdoutText};
+    }
+    if (WIFSIGNALED(status)) {
+        return {128 + WTERMSIG(status), stdoutText};
+    }
+    return {1, stdoutText};
+}
+
 }  // namespace
 
 AsrEngine::AsrEngine(Config cfg)
@@ -138,6 +329,16 @@ AsrEngine::~AsrEngine()
 
 bool AsrEngine::ensureLoadedLocked()
 {
+    if (isSenseVoiceModel(cfg_.modelName)) {
+        const auto model = senseVoiceModelPath(cfg_);
+        const auto vad = senseVoiceVadPath(cfg_);
+        if (!std::filesystem::exists(model) || !std::filesystem::exists(vad)) {
+            log("sensevoice model files missing under: " + resolveModelDir(cfg_).string());
+            return false;
+        }
+        return true;
+    }
+
     if (ctx_) {
         return true;
     }
@@ -185,6 +386,30 @@ std::string AsrEngine::transcribe(const std::filesystem::path& audio)
     }
 
     auto started = std::chrono::steady_clock::now();
+    if (isSenseVoiceModel(cfg_.modelName)) {
+        const std::vector<std::string> args = {
+            senseVoiceBinary(),
+            "-m",
+            senseVoiceModelPath(cfg_).string(),
+            "--vad",
+            senseVoiceVadPath(cfg_).string(),
+            "-a",
+            audio.string(),
+        };
+        log("transcribing audio with SenseVoice: " + audio.string());
+        auto [exitCode, text] = runSenseVoiceProcess(args);
+        if (exitCode != 0) {
+            log("sensevoice runtime failed: exit=" + std::to_string(exitCode));
+            return {};
+        }
+        text = trimText(text);
+        auto elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        log("sensevoice transcription finished in " + std::to_string(elapsed) +
+            "s, chars=" + std::to_string(text.size()));
+        return text;
+    }
+
     log("transcribing audio: " + audio.string());
     char* raw = nullptr;
     if (cfg_.streamTranscription) {

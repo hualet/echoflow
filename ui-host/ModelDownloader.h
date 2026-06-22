@@ -44,7 +44,7 @@ signals:
 private:
     void beginSizing();
     void fetchNext();
-    QString urlFor(const std::string& file) const;
+    QString urlFor(const ModelEntry::File& file) const;
 
     ModelEntry entry_;
     QString targetDir_;
@@ -52,7 +52,7 @@ private:
     QNetworkAccessManager* nam_ = nullptr;
     QNetworkReply* reply_ = nullptr;
 
-    std::vector<std::string> pending_;
+    std::vector<ModelEntry::File> pending_;
     size_t currentIndex_ = 0;
     QString currentFile_;
     qint64 completedBytes_ = 0;    // sum of fully-downloaded files

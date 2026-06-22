@@ -50,6 +50,10 @@ Config Config::defaultConfig()
 
 std::string normalizeModelName(const std::string& value)
 {
+    if (value == "sensevoice" || value == "sensevoice-small" ||
+        value == "sensevoice-small-q8") {
+        return "sensevoice-small-q8";
+    }
     if (value == "qwen-asr-0.6b" || value == "0.6b" || value == "0.6B") {
         return "qwen3-asr-0.6b";
     }

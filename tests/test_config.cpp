@@ -15,6 +15,7 @@ private slots:
     void expandPathResolvesHome();
     void normalizeModelNameMapsVariants();
     void loadDtkConfDerivesModelDirFromName();
+    void loadDtkConfDerivesSenseVoiceModelDir();
     void loadDtkConfNormalizesLegacyModelName();
     void loadDtkConfIgnoresModelDirKey();
     void loadDtkConfReadsLiveDebugAudioFlag();
@@ -24,7 +25,7 @@ private slots:
 
 void TestConfig::defaultConfigHasExpectedFields() {
     Config c = Config::defaultConfig();
-    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("sensevoice-small-q8"));
     QCOMPARE(c.pwRecord.rate, 16000);
     QCOMPARE(QString::fromStdString(c.pwRecord.format), QStringLiteral("s16"));
     QVERIFY(c.pwRecord.source.empty());
@@ -48,6 +49,9 @@ void TestConfig::expandPathResolvesHome() {
 }
 
 void TestConfig::normalizeModelNameMapsVariants() {
+    QCOMPARE(QString::fromStdString(normalizeModelName("sensevoice")), QStringLiteral("sensevoice-small-q8"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("sensevoice-small")), QStringLiteral("sensevoice-small-q8"));
+    QCOMPARE(QString::fromStdString(normalizeModelName("sensevoice-small-q8")), QStringLiteral("sensevoice-small-q8"));
     QCOMPARE(QString::fromStdString(normalizeModelName("qwen-asr-0.6b")), QStringLiteral("qwen3-asr-0.6b"));
     QCOMPARE(QString::fromStdString(normalizeModelName("0.6b")), QStringLiteral("qwen3-asr-0.6b"));
     QCOMPARE(QString::fromStdString(normalizeModelName("0.6B")), QStringLiteral("qwen3-asr-0.6b"));
@@ -118,6 +122,19 @@ void TestConfig::loadDtkConfNormalizesLegacyModelName() {
     QCOMPARE(QString::fromStdString(c.modelDir),
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
                                      / "qwen3-asr-0.6b").string()));
+}
+
+void TestConfig::loadDtkConfDerivesSenseVoiceModelDir() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[basic.model.model_name]\nvalue=sensevoice\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("sensevoice-small-q8"));
+    QCOMPARE(QString::fromStdString(c.modelDir),
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "sensevoice-small-q8").string()));
 }
 
 void TestConfig::loadDtkConfIgnoresModelDirKey() {

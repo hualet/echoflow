@@ -23,6 +23,9 @@ const ModelEntry* entryForOption(Dtk::Core::DSettingsOption* opt) {
     // DTK6 hands the factory a QObject*; map by option key (reliable across
     // DTK versions — schema JSON -> option data wiring is not guaranteed).
     const QString key = opt->key();
+    if (key.endsWith(QStringLiteral("download_sensevoice"))) {
+        return findModel("sensevoice-small-q8");
+    }
     if (key.endsWith(QStringLiteral("download_0.6b"))) {
         return findModel("qwen3-asr-0.6b");
     }

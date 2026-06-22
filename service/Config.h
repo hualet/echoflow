@@ -20,7 +20,7 @@ struct PipeWireRecordConfig {
 struct Config {
     std::string recordingsDir;
     std::string modelDir;
-    std::string modelName = "qwen3-asr-0.6b";
+    std::string modelName = "sensevoice-small-q8";
     std::optional<std::string> language = "Chinese";
     std::string prompt;
     int asrTimeoutSeconds = 120;

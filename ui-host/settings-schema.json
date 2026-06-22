@@ -12,7 +12,13 @@
               "key": "model_name",
               "name": "模型名称",
               "type": "combobox",
-              "default": "qwen3-asr-0.6b"
+              "default": "sensevoice-small-q8"
+            },
+            {
+              "key": "download_sensevoice",
+              "name": "SenseVoiceSmall Q8",
+              "type": "modeldownload",
+              "default": ""
             },
             {
               "key": "download_0.6b",

@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -25,6 +26,21 @@ std::string joinMissing(const std::vector<std::string>& missing)
         out << missing[i];
     }
     return out.str();
+}
+
+bool senseVoiceRuntimeAvailable()
+{
+    if (const char* override = std::getenv("ECHOFLOW_SENSEVOICE_BIN")) {
+        return *override && access(override, X_OK) == 0;
+    }
+    if (std::system("command -v llama-funasr-sensevoice >/dev/null 2>&1") == 0) {
+        return true;
+    }
+    if (const char* home = std::getenv("HOME")) {
+        const fs::path localBin = fs::path(home) / ".local/bin/llama-funasr-sensevoice";
+        return access(localBin.c_str(), X_OK) == 0;
+    }
+    return false;
 }
 }  // namespace
 
@@ -65,7 +81,7 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
                               : modelDir.string() + " missing: " + joinMissing(missing);
     }
 
-    return {
+    std::vector<RuntimeCheck> checks = {
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
         {"model available", modelOk, modelDetail},
@@ -76,6 +92,11 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         {"ui socket path parent", fs::exists(uiSocketPath(cfg).parent_path()),
          uiSocketPath(cfg).string()},
     };
+    if (isSenseVoiceModel(cfg.modelName)) {
+        checks.push_back({"sensevoice runtime available", senseVoiceRuntimeAvailable(),
+                          "llama-funasr-sensevoice"});
+    }
+    return checks;
 }
 
 int runSelfTest(const Config& cfg)

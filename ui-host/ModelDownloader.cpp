@@ -36,18 +36,19 @@ ModelDownloader::~ModelDownloader() {
     }
 }
 
-QString ModelDownloader::urlFor(const std::string& file) const {
+QString ModelDownloader::urlFor(const ModelEntry::File& file) const {
     // {base}/{repo}/resolve/main/{file}
+    const std::string repo = file.repo.empty() ? entry_.repo : file.repo;
     return baseUrl_ + QStringLiteral("/") +
-           QString::fromStdString(entry_.repo) +
+           QString::fromStdString(repo) +
            QStringLiteral("/resolve/main/") +
-           QString::fromStdString(file);
+           QString::fromStdString(file.path);
 }
 
 void ModelDownloader::start() {
     QDir().mkpath(targetDir_);
     for (const auto& file : entry_.files) {
-        const QString finalPath = targetDir_ + QStringLiteral("/") + QString::fromStdString(file);
+        const QString finalPath = targetDir_ + QStringLiteral("/") + QString::fromStdString(file.path);
         if (!QFile::exists(finalPath)) {
             pending_.push_back(file);
         }
@@ -154,7 +155,7 @@ void ModelDownloader::fetchNext() {
         emit finished(true, QString());
         return;
     }
-    currentFile_ = QString::fromStdString(pending_[currentIndex_]);
+    currentFile_ = QString::fromStdString(pending_[currentIndex_].path);
     currentReceived_ = 0;
     fileError_.clear();
 

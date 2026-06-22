@@ -35,7 +35,7 @@ assert_absent() {
 
 assert_absent "$ROOT/install-user.sh" "uv venv" "install-user.sh has no uv venv"
 assert_absent "$ROOT/install-user.sh" "uv pip" "install-user.sh has no uv pip"
-assert_absent "$ROOT/install-user.sh" "llama" "install-user.sh has no llama"
+assert_contains "$ROOT/install-user.sh" "setup-sensevoice-runtime.sh" "install-user.sh prepares SenseVoice runtime"
 assert_absent "$ROOT/install-user.sh" "asr_runner" "install-user.sh has no asr_runner key"
 assert_absent "$ROOT/install-user.sh" "asr_project_dir" "install-user.sh has no asr_project_dir key"
 assert_contains "$ROOT/install-user.sh" 'cmake -S "$ROOT_DIR"' "install-user.sh configures root CMake"
@@ -51,7 +51,8 @@ assert_contains "$ROOT/CMakeLists.txt" 'DESTINATION "lib/systemd/user"' "top-lev
 assert_contains "$ROOT/systemd/user/echoflow.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-service" "service unit uses configured service path"
 assert_contains "$ROOT/systemd/user/echoflow-ui.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui" "UI service unit uses configured UI path"
 
-assert_contains "$ROOT/service/AsrEngine.h" 'qwen_asr.h' "AsrEngine is qwen-asr boundary"
+assert_contains "$ROOT/service/AsrEngine.h" 'qwen_asr.h' "AsrEngine keeps qwen-asr fallback boundary"
+assert_contains "$ROOT/service/AsrEngine.cpp" 'llama-funasr-sensevoice' "AsrEngine can invoke SenseVoice C++ runtime"
 assert_absent "$ROOT/service/Server.cpp" 'qwen_asr.h' "Server does not touch qwen-asr"
 assert_absent "$ROOT/service/VoiceSession.cpp" 'qwen_asr.h' "VoiceSession does not touch qwen-asr"
 for verb in FOCUS BLUR CTRL_DOWN TYPED; do
@@ -70,8 +71,10 @@ assert_script_absent() {
 assert_script_absent
 
 assert_contains "$ROOT/ui-host/settings-schema.json" "modeldownload" "settings schema has modeldownload widget type"
+assert_contains "$ROOT/ui-host/settings-schema.json" "download_sensevoice" "settings schema has SenseVoice download row key"
 assert_contains "$ROOT/ui-host/settings-schema.json" "download_0.6b" "settings schema has 0.6B download row key"
 assert_contains "$ROOT/ui-host/settings-schema.json" "download_1.7b" "settings schema has 1.7B download row key"
+assert_contains "$ROOT/ui-host/settings-schema.json" "SenseVoiceSmall Q8" "settings schema lists SenseVoice model row"
 assert_contains "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-0.6B" "settings schema lists 0.6B model row"
 assert_contains "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-1.7B" "settings schema lists 1.7B model row"
 assert_contains "$ROOT/ui-host/settings-schema.json" "hf-mirror" "settings schema has hf-mirror download source"
@@ -85,7 +88,8 @@ assert_absent "$ROOT/ui-host/settings-schema.json" "asr_project_dir" "settings s
 assert_absent "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-GGUF" "settings schema has no GGUF default"
 assert_absent "$ROOT/ui-host/settings-schema.json" '"prompt"' "settings schema hides prompt option"
 assert_absent "$ROOT/ui-host/settings-schema.json" "strip_trailing_punctuation" "settings schema hides strip punctuation option"
-assert_contains "$ROOT/ui-host/settings-schema.json" "qwen3-asr-0.6b" "settings schema points at safetensors dir"
+assert_contains "$ROOT/ui-host/settings-schema.json" "sensevoice-small-q8" "settings schema defaults to SenseVoice dir"
+assert_contains "$ROOT/service/ModelCatalog.h" "qwen3-asr-0.6b" "ModelCatalog keeps qwen safetensors fallback"
 assert_contains "$ROOT/ui-host/settings-schema.json" "stream_transcription" "settings schema has stream transcription switch"
 assert_contains "$ROOT/ui-host/settings-schema.json" "save_live_debug_audio" "settings schema has live debug audio switch"
 assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "asr_runner" "EchoFlowSettings writes no asr_runner default"

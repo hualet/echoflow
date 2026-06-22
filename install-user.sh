@@ -47,11 +47,13 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"
 cmake --build "$BUILD_DIR"
 cmake --install "$BUILD_DIR"
+PREFIX="$PREFIX" CMAKE_BUILD_TYPE="$BUILD_TYPE" \
+  "$ROOT_DIR/scripts/setup-sensevoice-runtime.sh"
 
 if [[ ! -e "$CONFIG_DIR/echoflow.conf" ]]; then
   cat > "$CONFIG_DIR/echoflow.conf" <<EOF
 [basic.model.model_name]
-value=qwen3-asr-0.6b
+value=sensevoice-small-q8
 [basic.model.mirror]
 value=hf-mirror
 [basic.recognition.language]
@@ -77,6 +79,21 @@ value=true
 [advanced.storage.recordings_dir]
 value=\$HOME/.local/share/echoflow/recordings
 EOF
+elif grep -qE '^\[basic\.model\.model_name\]$' "$CONFIG_DIR/echoflow.conf" \
+  && grep -A1 '^\[basic\.model\.model_name\]$' "$CONFIG_DIR/echoflow.conf" \
+    | grep -qE '^value=qwen3-asr-(0\.6b|1\.7b)$'; then
+  tmp="$(mktemp)"
+  awk '
+    /^\[basic\.model\.model_name\]$/ { in_model=1; print; next }
+    /^\[/ { in_model=0 }
+    in_model && /^value=qwen3-asr-(0\.6b|1\.7b)$/ {
+      print "value=sensevoice-small-q8";
+      next
+    }
+    { print }
+  ' "$CONFIG_DIR/echoflow.conf" > "$tmp"
+  cat "$tmp" > "$CONFIG_DIR/echoflow.conf"
+  rm -f "$tmp"
 fi
 
 ADDON_LIB="$PREFIX/lib/fcitx5/libechoflow.so"
