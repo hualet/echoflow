@@ -43,17 +43,17 @@ assert_contains "$ROOT/install-user.sh" 'cmake --install "$BUILD_DIR"' "install-
 assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow.service' "install-user.sh installs configured service unit"
 assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow-ui.service' "install-user.sh installs configured UI service unit"
 
-assert_contains "$ROOT/CMakeLists.txt" "qwen-asr-runtime" "top-level builds qwen-asr-runtime"
+assert_absent "$ROOT/CMakeLists.txt" "qwen-asr-runtime" "top-level no longer builds qwen-asr-runtime"
+assert_absent "$ROOT/service/CMakeLists.txt" "qwen_asr" "service no longer links qwen_asr"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(fcitx-addon)" "top-level builds fcitx-addon"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(ui-host)" "top-level builds ui-host"
-assert_contains "$ROOT/qwen-asr-runtime/CMakeLists.txt" "USE_OPENBLAS" "qwen-asr runtime enables OpenBLAS"
 assert_contains "$ROOT/CMakeLists.txt" 'DESTINATION "lib/systemd/user"' "top-level installs systemd user units in systemd search path"
 assert_contains "$ROOT/systemd/user/echoflow.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-service" "service unit uses configured service path"
 assert_contains "$ROOT/systemd/user/echoflow-ui.service.in" "@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui" "UI service unit uses configured UI path"
 
-assert_contains "$ROOT/service/AsrEngine.h" 'qwen_asr.h' "AsrEngine is qwen-asr boundary"
-assert_absent "$ROOT/service/Server.cpp" 'qwen_asr.h' "Server does not touch qwen-asr"
-assert_absent "$ROOT/service/VoiceSession.cpp" 'qwen_asr.h' "VoiceSession does not touch qwen-asr"
+assert_contains "$ROOT/service/CrispAsrEngine.h" 'IAsrEngine' "CrispAsrEngine implements IAsrEngine"
+assert_absent "$ROOT/service/Server.cpp" 'qwen_asr' "Server does not touch qwen-asr"
+assert_absent "$ROOT/service/VoiceSession.cpp" 'qwen_asr' "VoiceSession does not touch qwen-asr"
 for verb in FOCUS BLUR CTRL_DOWN TYPED; do
   assert_contains "$ROOT/service/VoiceSession.cpp" "$verb" "verb $verb handled"
 done

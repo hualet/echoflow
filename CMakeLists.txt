@@ -14,7 +14,6 @@ endif()
 
 option(ECHOFLOW_BUILD_TESTS "Build QTest unit tests + spec tests" ON)
 
-add_subdirectory(qwen-asr-runtime)
 add_subdirectory(service)
 add_subdirectory(fcitx-addon)
 add_subdirectory(ui-host)

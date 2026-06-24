@@ -4,7 +4,6 @@
 #include <QtTest/QtTest>
 
 #include "SelfTest.h"
-#include "ModelCatalog.h"
 
 #include <algorithm>
 #include <fstream>
@@ -17,10 +16,10 @@ class TestSelfTest : public QObject {
 private slots:
     void resolveModelDirIsTrivial();
     void canCreateDirectoryOnTmp();
-    void runtimeChecksReportsMissingModelFiles();
-    void runtimeChecksActionableWhenModelDirEmpty();
-    void runtimeChecksActionableWhenModelIdUnknown();
-    void runtimeChecksPassesWhenModelComplete();
+    void runtimeChecksReportsMissingCrispModel();
+    void runtimeChecksActionableWhenCrispModelPathEmpty();
+    void runtimeChecksPassesWhenCrispModelExists();
+    void runtimeChecksReportsCrispBinary();
 };
 
 void TestSelfTest::resolveModelDirIsTrivial() {
@@ -34,66 +33,48 @@ void TestSelfTest::canCreateDirectoryOnTmp() {
     QVERIFY(canCreateDirectory(std::filesystem::path(dir.path().toStdString()) / "sub/deep"));
 }
 
-void TestSelfTest::runtimeChecksReportsMissingModelFiles() {
-    QTemporaryDir dir;
-    auto modelDir = std::filesystem::path(dir.path().toStdString());
-    std::ofstream(modelDir / "config.json").put('x');
-
+void TestSelfTest::runtimeChecksReportsMissingCrispModel() {
     Config c;
-    c.modelName = "qwen3-asr-0.6b";
-    c.modelDir = modelDir.string();
-
+    c.crispModelPath = "/tmp/echoflow-no-such-crisp-model.gguf";
     auto checks = runtimeChecks(c);
     auto it = std::find_if(checks.begin(), checks.end(),
-                           [](const RuntimeCheck& r) { return r.name == "model available"; });
+                           [](const RuntimeCheck& r) { return r.name == "crisp model available"; });
     QVERIFY(it != checks.end());
     QVERIFY(!it->passed);
-    QVERIFY(it->detail.find("model.safetensors") != std::string::npos);
-    QVERIFY(it->detail.find("vocab.json") != std::string::npos);
+    QVERIFY(it->detail.find("missing:") != std::string::npos);
 }
 
-void TestSelfTest::runtimeChecksActionableWhenModelDirEmpty() {
+void TestSelfTest::runtimeChecksActionableWhenCrispModelPathEmpty() {
     Config c;
-    c.modelName = "qwen3-asr-0.6b";
-    c.modelDir.clear();
-
+    c.crispModelPath.clear();
     auto checks = runtimeChecks(c);
     auto it = std::find_if(checks.begin(), checks.end(),
-                           [](const RuntimeCheck& r) { return r.name == "model available"; });
+                           [](const RuntimeCheck& r) { return r.name == "crisp model available"; });
     QVERIFY(it != checks.end());
     QVERIFY(!it->passed);
-    QVERIFY(it->detail.find("未下载") != std::string::npos);
-    QVERIFY(it->detail.find("Qwen3-ASR-0.6B") != std::string::npos);
+    QVERIFY(it->detail.find("not set") != std::string::npos);
 }
 
-void TestSelfTest::runtimeChecksActionableWhenModelIdUnknown() {
+void TestSelfTest::runtimeChecksPassesWhenCrispModelExists() {
     QTemporaryDir dir;
+    auto modelPath = std::filesystem::path(dir.path().toStdString()) / "model.gguf";
+    std::ofstream(modelPath).put('x');
     Config c;
-    c.modelName = "unknown-model";
-    c.modelDir = dir.path().toStdString();  // exists, but id is unknown
+    c.crispModelPath = modelPath.string();
     auto checks = runtimeChecks(c);
     auto it = std::find_if(checks.begin(), checks.end(),
-                           [](const RuntimeCheck& r) { return r.name == "model available"; });
-    QVERIFY(it != checks.end());
-    QVERIFY(!it->passed);
-    QVERIFY(it->detail.find("未下载") != std::string::npos);
-}
-
-void TestSelfTest::runtimeChecksPassesWhenModelComplete() {
-    QTemporaryDir dir;
-    auto modelDir = std::filesystem::path(dir.path().toStdString());
-    const ModelEntry* e = findModel("qwen3-asr-0.6b");
-    for (const auto& f : e->files) {
-        std::ofstream(modelDir / f).put('x');
-    }
-    Config c;
-    c.modelName = "qwen3-asr-0.6b";
-    c.modelDir = modelDir.string();
-    auto checks = runtimeChecks(c);
-    auto it = std::find_if(checks.begin(), checks.end(),
-                           [](const RuntimeCheck& r) { return r.name == "model available"; });
+                           [](const RuntimeCheck& r) { return r.name == "crisp model available"; });
     QVERIFY(it != checks.end());
     QVERIFY(it->passed);
+}
+
+void TestSelfTest::runtimeChecksReportsCrispBinary() {
+    Config c;
+    c.crispBinary = "crispasr";
+    auto checks = runtimeChecks(c);
+    auto it = std::find_if(checks.begin(), checks.end(),
+                           [](const RuntimeCheck& r) { return r.name == "crispasr available"; });
+    QVERIFY(it != checks.end());
 }
 
 QTEST_GUILESS_MAIN(TestSelfTest)

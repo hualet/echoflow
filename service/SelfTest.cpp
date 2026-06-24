@@ -3,30 +3,13 @@
 
 #include "SelfTest.h"
 
-#include "ModelCatalog.h"
-
 #include <cstdio>
 #include <cstdlib>
-#include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
 
 namespace echoflow {
 namespace fs = std::filesystem;
-
-namespace {
-std::string joinMissing(const std::vector<std::string>& missing)
-{
-    std::ostringstream out;
-    for (size_t i = 0; i < missing.size(); ++i) {
-        if (i > 0) {
-            out << ", ";
-        }
-        out << missing[i];
-    }
-    return out.str();
-}
-}  // namespace
 
 fs::path resolveModelDir(const Config& cfg)
 {
@@ -48,27 +31,20 @@ bool canCreateDirectory(const fs::path& path)
 
 std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
 {
-    const fs::path modelDir = resolveModelDir(cfg);
-    const ModelEntry* entry = findModel(cfg.modelName);
+    const std::string modelPath = cfg.crispModelPath;
+    bool modelOk = !modelPath.empty() && fs::exists(modelPath);
+    std::string modelDetail = modelOk
+        ? modelPath
+        : (modelPath.empty() ? std::string("crisp model path not set")
+                             : "missing: " + modelPath);
 
-    std::string modelDetail;
-    bool modelOk = false;
-    if (modelDir.empty() || entry == nullptr) {
-        const std::string display = modelCatalog().front().displayName;
-        modelDetail = "未下载 — 打开 EchoFlow 设置 → 模型 下载 " + display;
-    } else if (!fs::exists(modelDir)) {
-        modelDetail = "目录不存在: " + modelDir.string();
-    } else {
-        auto missing = missingModelFiles(modelDir, *entry);
-        modelOk = missing.empty();
-        modelDetail = modelOk ? modelDir.string()
-                              : modelDir.string() + " missing: " + joinMissing(missing);
-    }
+    const std::string crispBinCmd = "command -v " + cfg.crispBinary + " >/dev/null 2>&1";
 
     return {
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
-        {"model available", modelOk, modelDetail},
+        {"crispasr available", std::system(crispBinCmd.c_str()) == 0, cfg.crispBinary},
+        {"crisp model available", modelOk, modelDetail},
         {"control socket path parent", fs::exists(controlSocketPath(cfg).parent_path()),
          controlSocketPath(cfg).string()},
         {"fcitx socket path parent", fs::exists(fcitxSocketPath(cfg).parent_path()),

@@ -5,17 +5,13 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 qt_standard_project_setup()
 
 set(ECHOFLOW_TESTS
-    test_asr_engine
     test_config
+    test_crispasr_engine
+    test_crisp_stream_accumulator
     test_voice_session
     test_committer
     test_selftest
     test_model_catalog
-    test_audio_segmenter
-    test_segment_asr_worker
-    test_segment_text_accumulator
-    test_crisp_stream_accumulator
-    test_crispasr_engine
     test_recorder_command
     test_single_instance)
 

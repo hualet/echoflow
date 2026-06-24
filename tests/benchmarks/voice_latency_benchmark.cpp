@@ -1,14 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Hualet Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "AsrEngine.h"
+#include "CrispAsrEngine.h"
 #include "Config.h"
 #include "Interfaces.h"
 #include "VoiceSession.h"
-
-extern "C" {
-#include "qwen_asr_kernels.h"
-}
 
 #include <algorithm>
 #include <chrono>
@@ -173,27 +169,12 @@ int runSynthetic(int iterations)
 }
 
 int runTranscribeFile(const fs::path& audio, const std::optional<fs::path>& configPath,
-                      const std::optional<fs::path>& modelDir, bool preload,
-                      int threads, int openBlasThreads, bool skipSilence,
-                      bool stream, int iterations)
+                      const std::optional<fs::path>& modelDir, bool /*preload*/,
+                      int /*threads*/, int /*openBlasThreads*/, bool /*skipSilence*/,
+                      bool /*stream*/, int iterations)
 {
-    if (threads > 0) {
-        qwen_set_threads(threads);
-    }
-
     echoflow::Config cfg = loadConfig(configPath, modelDir);
-    cfg.openBlasThreads = openBlasThreads;
-    cfg.skipSilence = skipSilence;
-    cfg.streamTranscription = stream;
-    echoflow::AsrEngine asr(cfg);
-
-    bool preloaded = false;
-    double preloadMs = 0.0;
-    if (preload) {
-        auto preloadStarted = Clock::now();
-        preloaded = asr.preload();
-        preloadMs = elapsedMs(preloadStarted);
-    }
+    echoflow::CrispAsrEngine asr(cfg);
 
     for (int i = 0; i < iterations; ++i) {
         auto started = Clock::now();
@@ -204,21 +185,13 @@ int runTranscribeFile(const fs::path& audio, const std::optional<fs::path>& conf
         }
 
         std::printf("{\"mode\":\"transcribe-file\",\"iteration\":%d,"
-                    "\"threads\":%d,"
-                    "\"openblas_threads\":%d,"
-                    "\"skip_silence\":%s,"
-                    "\"stream\":%s,"
-                    "\"preload_ms\":%.3f,\"preload_requested\":%s,\"preloaded\":%s,"
                     "\"transcribe_ms\":%.3f,\"chars\":%zu,"
-                    "\"audio\":\"%s\",\"model_dir\":\"%s\"}\n",
-                    i + 1, threads, openBlasThreads,
-                    skipSilence ? "true" : "false", stream ? "true" : "false",
-                    preloadMs, preload ? "true" : "false",
-                    preloaded ? "true" : "false",
+                    "\"audio\":\"%s\",\"model\":\"%s\"}\n",
+                    i + 1,
                     transcribeMs, text.size(), jsonEscape(audio.string()).c_str(),
-                    jsonEscape(cfg.modelDir).c_str());
+                    jsonEscape(cfg.crispModelPath).c_str());
     }
-    return (!preload || preloaded) ? 0 : 1;
+    return 0;
 }
 
 }  // namespace
