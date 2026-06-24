@@ -50,19 +50,28 @@ void printDefaultConfig()
                 "  \"channels\": %d,\n"
                 "  \"format\": \"%s\",\n"
                 "  \"source\": \"%s\",\n"
-                "  \"stream_transcription\": %s,\n"
-                "  \"save_live_debug_audio\": %s,\n"
-                "  \"openblas_threads\": %d,\n"
-                "  \"fcitx_commit\": %s\n"
-                "}\n",
-                cfg.modelName.c_str(),
-                cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
-                cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
-                cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
-                cfg.pwRecord.source.c_str(),
-                cfg.streamTranscription ? "true" : "false",
-                cfg.saveLiveDebugAudio ? "true" : "false",
-                cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false");
+                 "  \"stream_transcription\": %s,\n"
+                 "  \"save_live_debug_audio\": %s,\n"
+                 "  \"openblas_threads\": %d,\n"
+                 "  \"fcitx_commit\": %s,\n"
+                 "  \"crisp_binary\": \"%s\",\n"
+                 "  \"crisp_model_path\": \"%s\",\n"
+                 "  \"crisp_backend\": \"%s\",\n"
+                 "  \"crisp_threads\": %d,\n"
+                 "  \"crisp_vad\": %s,\n"
+                 "  \"crisp_final_on_silence_ms\": %d\n"
+                 "}\n",
+                 cfg.modelName.c_str(),
+                 cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
+                 cfg.recordingsDir.c_str(), cfg.minRecordSeconds,
+                 cfg.pwRecord.rate, cfg.pwRecord.channels, cfg.pwRecord.format.c_str(),
+                 cfg.pwRecord.source.c_str(),
+                 cfg.streamTranscription ? "true" : "false",
+                 cfg.saveLiveDebugAudio ? "true" : "false",
+                 cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false",
+                 cfg.crispBinary.c_str(), cfg.crispModelPath.c_str(),
+                 cfg.crispBackend.c_str(), cfg.crispThreads,
+                 cfg.crispVad ? "true" : "false", cfg.crispFinalOnSilenceMs);
 }
 
 }  // namespace

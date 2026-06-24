@@ -33,6 +33,14 @@ struct Config {
     bool saveLiveDebugAudio = false;
     int openBlasThreads = 4;
 
+    std::string crispBinary = "crispasr";
+    std::string crispModelPath;
+    std::string crispBackend = "qwen3";
+    int crispThreads = 4;
+    bool crispVad = true;
+    int crispFinalOnSilenceMs = 1500;
+    std::string crispExtraArgs;
+
     static Config defaultConfig();
 };
 

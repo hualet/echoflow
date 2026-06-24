@@ -188,6 +188,20 @@ Config loadDtkConf(const fs::path& path)
             cfg.recordingsDir = val;
         } else if (section == "advanced.storage.save_live_debug_audio") {
             cfg.saveLiveDebugAudio = parseBool(val);
+        } else if (section == "advanced.crisp.binary") {
+            cfg.crispBinary = val;
+        } else if (section == "advanced.crisp.model") {
+            cfg.crispModelPath = val;
+        } else if (section == "advanced.crisp.backend") {
+            cfg.crispBackend = val;
+        } else if (section == "advanced.crisp.threads") {
+            cfg.crispThreads = std::max(1, std::stoi(val));
+        } else if (section == "advanced.crisp.vad") {
+            cfg.crispVad = parseBool(val);
+        } else if (section == "advanced.crisp.final_on_silence_ms") {
+            cfg.crispFinalOnSilenceMs = std::stoi(val);
+        } else if (section == "advanced.crisp.extra_args") {
+            cfg.crispExtraArgs = val;
         }
     }
 
@@ -195,6 +209,11 @@ Config loadDtkConf(const fs::path& path)
     cfg.recordingsDir = expandPath(cfg.recordingsDir, base);
     cfg.modelName = normalizeModelName(cfg.modelName);
     cfg.modelDir = (base / cfg.modelName).string();
+    if (cfg.crispModelPath.empty()) {
+        cfg.crispModelPath = (base / "crisp" / "qwen3-asr-0.6b-q4_k.gguf").string();
+    } else {
+        cfg.crispModelPath = expandPath(cfg.crispModelPath, base);
+    }
     return cfg;
 }
 
