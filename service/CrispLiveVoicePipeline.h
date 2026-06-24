@@ -9,7 +9,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -37,7 +36,7 @@ public:
 
 private:
     void readerLoop();
-    void triggerTranscribeIfReady();
+    void emitChunkedText();
     void stopRecorder();
     void reapChild(pid_t& child);
     void emitText(const std::string& text);
@@ -51,11 +50,9 @@ private:
     mutable std::mutex callbackMutex_;
 
     mutable std::mutex pcmMutex_;
-    std::vector<float> pcmBuffer_;
-    int pcmBufferSamplesSinceTranscribe_ = 0;
-    int lastTranscribeAtSamples_ = 0;
-    std::string lastFullText_;
-    int transcribeStepMs_ = 3000;
+    std::vector<float> pcmBuffer_;       // full buffer (fallback)
+    std::vector<float> pcmChunk_;        // current accumulating chunk
+    std::vector<std::string> results_;   // completed chunk transcripts
 
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};

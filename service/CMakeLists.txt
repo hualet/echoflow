@@ -26,4 +26,12 @@ target_link_libraries(echoflow_service PUBLIC crispasr)
 
 add_executable(echoflow-service main.cpp)
 target_link_libraries(echoflow-service PRIVATE echoflow_service)
+set_target_properties(echoflow-service PROPERTIES
+    BUILD_RPATH "$ORIGIN/../lib:$ENV{HOME}/projects/CrispASR/build/src"
+    INSTALL_RPATH "$ORIGIN/../lib"
+)
 install(TARGETS echoflow-service RUNTIME DESTINATION bin)
+install(DIRECTORY DESTINATION lib)
+# Install libcrispasr alongside
+install(DIRECTORY "$ENV{HOME}/projects/CrispASR/build/src/" DESTINATION lib
+    FILES_MATCHING PATTERN "libcrispasr.so*")

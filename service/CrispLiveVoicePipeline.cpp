@@ -15,8 +15,11 @@
 #include <cstring>
 #include <spawn.h>
 #include <stdexcept>
+#include <string>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
+#include <vector>
 
 extern char** environ;
 
@@ -25,6 +28,9 @@ namespace echoflow {
 using Clock = std::chrono::steady_clock;
 
 namespace {
+
+constexpr int kSampleRate = 16000;
+constexpr int kChunkMs = 5000;
 
 double elapsedSeconds(Clock::time_point started)
 {
@@ -119,10 +125,12 @@ void CrispLiveVoicePipeline::start()
     recorderChild_ = pid;
     readFd_ = readFd;
     cancelled_ = false;
-    pcmBuffer_.clear();
-    pcmBufferSamplesSinceTranscribe_ = 0;
-    lastTranscribeAtSamples_ = 0;
-    lastFullText_.clear();
+    {
+        std::lock_guard<std::mutex> lock(pcmMutex_);
+        pcmBuffer_.clear();
+        pcmChunk_.clear();
+        results_.clear();
+    }
     startedAt_ = Clock::now();
     active_ = true;
 
@@ -133,7 +141,6 @@ void CrispLiveVoicePipeline::start()
 
 void CrispLiveVoicePipeline::readerLoop()
 {
-    constexpr int kSampleRate = 16000;
     try {
         std::array<unsigned char, 64000> buf{};
         bool hasCarry = false;
@@ -142,9 +149,9 @@ void CrispLiveVoicePipeline::readerLoop()
             ssize_t n = read(readFd_, buf.data(), buf.size());
             if (n > 0) {
                 size_t byteCount = static_cast<size_t>(n);
+                std::vector<float> chunk;
                 {
                     std::lock_guard<std::mutex> lock(pcmMutex_);
-                    // s16le → float32 conversion
                     size_t offset = 0;
                     if (hasCarry && byteCount > 0) {
                         unsigned int raw = static_cast<unsigned int>(carry)
@@ -152,6 +159,7 @@ void CrispLiveVoicePipeline::readerLoop()
                         int16_t s16 = raw >= 0x8000U ? static_cast<int>(raw) - 0x10000
                                                      : static_cast<int>(raw);
                         pcmBuffer_.push_back(static_cast<float>(s16) / 32768.0f);
+                        pcmChunk_.push_back(static_cast<float>(s16) / 32768.0f);
                         hasCarry = false;
                         offset = 1;
                     }
@@ -160,16 +168,34 @@ void CrispLiveVoicePipeline::readerLoop()
                             | (static_cast<unsigned int>(buf[offset + 1]) << 8);
                         int16_t s16 = raw >= 0x8000U ? static_cast<int>(raw) - 0x10000
                                                      : static_cast<int>(raw);
-                        pcmBuffer_.push_back(static_cast<float>(s16) / 32768.0f);
+                        float f = static_cast<float>(s16) / 32768.0f;
+                        pcmBuffer_.push_back(f);
+                        pcmChunk_.push_back(f);
                     }
                     if (offset < byteCount) {
                         carry = buf[offset];
                         hasCarry = true;
                     }
-                    pcmBufferSamplesSinceTranscribe_ += static_cast<int>(
-                        (byteCount - (hasCarry ? 1 : 0)) / 2);
                 }
-                triggerTranscribeIfReady();
+
+                // Trigger chunk transcription if accumulated enough
+                {
+                    std::lock_guard<std::mutex> lock(pcmMutex_);
+                    int chunkSamples = kChunkMs * kSampleRate / 1000;
+                    if (static_cast<int>(pcmChunk_.size()) >= chunkSamples) {
+                        chunk = std::move(pcmChunk_);
+                        pcmChunk_.clear();
+                    }
+                }
+                if (!chunk.empty() && session_) {
+                    std::string text = session_->transcribe(
+                        chunk.data(), static_cast<int>(chunk.size()));
+                    {
+                        std::lock_guard<std::mutex> lock(pcmMutex_);
+                        results_.push_back(text);
+                    }
+                    emitChunkedText();
+                }
                 continue;
             }
             if (n == 0) break;
@@ -184,25 +210,33 @@ void CrispLiveVoicePipeline::readerLoop()
     }
 }
 
-void CrispLiveVoicePipeline::triggerTranscribeIfReady()
+void CrispLiveVoicePipeline::emitChunkedText()
 {
-    int stepSamples = transcribeStepMs_ * 16000 / 1000;
-    if (pcmBufferSamplesSinceTranscribe_ < stepSamples) return;
-
-    std::vector<float> pcmCopy;
+    std::string stable;
     {
         std::lock_guard<std::mutex> lock(pcmMutex_);
-        pcmCopy = pcmBuffer_;
-        pcmBufferSamplesSinceTranscribe_ = 0;
+        for (const auto& r : results_) {
+            if (!r.empty()) {
+                if (!stable.empty() && stable.back() != ' ' && !r.empty() && r.front() != ' ') {
+                    stable += " ";
+                }
+                stable += r;
+            }
+        }
+        // Last chunk in-progress is not transcribed yet — show evolving partial
+        if (!pcmChunk_.empty() && session_) {
+            auto partial = pcmChunk_;
+            std::string partText = session_->transcribe(
+                partial.data(), static_cast<int>(partial.size()));
+            if (!partText.empty()) {
+                if (!stable.empty() && stable.back() != ' ' && partText.front() != ' ') {
+                    stable += " ";
+                }
+                stable += partText;
+            }
+        }
     }
-
-    if (!session_ || pcmCopy.empty()) return;
-    std::string text = session_->transcribe(pcmCopy.data(),
-                                             static_cast<int>(pcmCopy.size()));
-    if (text != lastFullText_) {
-        lastFullText_ = text;
-        emitText(text);
-    }
+    emitText(stable);
 }
 
 std::string CrispLiveVoicePipeline::finish()
@@ -218,10 +252,33 @@ std::string CrispLiveVoicePipeline::finish()
 
     std::string finalText;
     if (!cancelled_ && session_) {
-        std::lock_guard<std::mutex> lock(pcmMutex_);
-        if (!pcmBuffer_.empty()) {
-            finalText = session_->transcribe(pcmBuffer_.data(),
-                                              static_cast<int>(pcmBuffer_.size()));
+        // Transcribe only the last open chunk (small), then join all results
+        std::string lastPart;
+        {
+            std::lock_guard<std::mutex> lock(pcmMutex_);
+            if (!pcmChunk_.empty()) {
+                auto pcm = pcmChunk_;
+                lastPart = session_->transcribe(pcm.data(), static_cast<int>(pcm.size()));
+                if (!lastPart.empty()) {
+                    results_.push_back(lastPart);
+                }
+            }
+            // Join all results
+            for (const auto& r : results_) {
+                if (!r.empty()) {
+                    if (!finalText.empty() && finalText.back() != ' ' &&
+                        r.front() != ' ') {
+                        finalText += " ";
+                    }
+                    finalText += r;
+                }
+            }
+        }
+        // Fallback: if no chunks were transcribed (very short recording), do a single pass
+        if (finalText.empty() && !pcmBuffer_.empty()) {
+            std::lock_guard<std::mutex> lock(pcmMutex_);
+            auto full = pcmBuffer_;
+            finalText = session_->transcribe(full.data(), static_cast<int>(full.size()));
         }
     }
     active_ = false;
