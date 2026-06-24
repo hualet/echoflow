@@ -7,6 +7,7 @@ add_library(echoflow_service STATIC
     Committer.cpp
     Config.cpp
     CrispAsrEngine.cpp
+    CrispLiveVoicePipeline.cpp
     CrispStreamAccumulator.cpp
     PipeWireLiveVoicePipeline.cpp
     Recorder.cpp
