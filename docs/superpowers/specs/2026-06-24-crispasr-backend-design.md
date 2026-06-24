@@ -1,257 +1,165 @@
-# CrispASR Backend Design
+# CrispASR Backend Evaluation & Replacement Design
 
-Date: 2026-06-24
+Date: 2026-06-24 (revised: test-first, replace-if-better, no switchable backend)
 
 ## Summary
 
-EchoFlow's ASR engine is currently hard-wired to antirez's pure-C `qwen-asr`
-runtime (`third_party/qwen-asr`) loading Qwen3-ASR safetensors. This spec adds
-[CrispASR](https://github.com/CrispStrobe/CrispASR) (a whisper.cpp fork with a
-native `qwen3` per-token streaming backend) plus the
+Evaluate [CrispASR](https://github.com/CrispStrobe/CrispASR) (whisper.cpp fork
+with a native `qwen3` per-token streaming backend) + the
 [`cstr/qwen3-asr-0.6b-GGUF`](https://huggingface.co/cstr/qwen3-asr-0.6b-GGUF)
-model as a **second, switchable backend**, so we can A/B whether it delivers
-better latency, accuracy, or footprint than the current path.
+model against EchoFlow's current ASR path (antirez pure-C `qwen-asr` +
+safetensors). **If it is better, it replaces the current path outright** — there
+is no switchable-backend config and no coexistence. This branch (`test/crispasr-
+qwen3-gguf`) is the test vehicle: keep if it wins, discard if it loses.
 
-The integration is a **subprocess + pipe** approach: `crispasr` is treated as an
-external runtime dependency (like `pw-record`), spawned by a new
-`CrispLiveVoicePipeline` for live mode and a new `CrispAsrEngine` for
-press-to-talk. The existing qwen path stays the default and is untouched, so the
-change is zero-risk to current behaviour. A new `cfg.asrEngine` flag selects the
-backend.
+Two phases:
+
+1. **Phase 1 — Standalone A/B comparison.** Build `crispasr`, download the GGUF,
+   run both backends on the same audio, measure latency/RTF and eyeball accuracy.
+   No service integration. This answers "is it better?" fast.
+2. **Phase 2 — In-service replacement (only if Phase 1 wins).** Wire CrispASR in
+   as the sole ASR backend, replacing `qwen-asr-c`.
 
 ## Problem
 
-We want to evaluate an alternative ASR runtime without committing to a deep
-build integration before we know it is better. CrispASR is attractive because:
-
-- Its `qwen3` backend is a **native per-token streaming** backend (tokens are
-  emitted as they are generated), with a purpose-built `--stream-json` event
-  protocol (`partial` / `final` / `silence`) and built-in FireRed VAD.
-- The GGUF model is compact (Q4_K ≈ 676 MB) and the mel filterbank is baked in,
-  so the C++ runtime computes log-mel natively with no torch/onnxruntime.
-- It is a single self-contained binary, easy to drop in as an external dep.
-
-The challenge: a naive "shell out to `crispasr` per audio segment" design would
-reload the GGUF on every ~1 s segment of the live pipeline, giving unusable
-latency. The subprocess must therefore be **long-lived for the whole live
-session** and fed PCM continuously.
-
-## Goals
-
-- Add CrispASR as a fully selectable backend covering **both** the default live
-  mode and press-to-talk.
-- Live mode exercises CrispASR's **native streaming** (its strength), not
-  EchoFlow's existing energy-VAD segmenter.
-- Keep the qwen backend as default; existing behaviour and tests unchanged.
-- No git submodule, no new linked library, no build entanglement — `crispasr` is
-  an external binary discovered on `PATH`.
-- All CrispASR knowledge stays isolated inside new `Crisp*` files (mirrors the
-  rule that keeps `qwen_asr.h` inside `service/AsrEngine.*`).
-- Tests must not require the real `crispasr` binary, model weights, or PipeWire
-  (per AGENTS.md).
+The current path works, but CrispASR is attractive: native per-token streaming
+for `qwen3`, purpose-built `--stream-json` event protocol (`partial`/`final`/
+`silence`) with built-in FireRed VAD, compact GGUF (Q4_K ≈ 676 MB) with the mel
+filterbank baked in (no torch/onnxruntime), and a single self-contained binary.
+We want a fast, fair verdict before investing in integration.
 
 ## Non-Goals
 
-- Do not replace the qwen backend as the default.
-- Do not vendor CrispASR as a submodule or link its C-ABI (follow-up if it wins).
-- Do not run a second always-on daemon / HTTP server.
-- Do not support Qwen3-ASR-1.7B GGUF in this iteration (structurally extensible;
-  0.6B only for the test).
-- Do not change the Fcitx commit, UI notification, or control-socket protocol.
-- Do not redesign the recorder; reuse the existing `pw-record` raw-PCM capture.
+- No switchable backend / no `asrEngine` config flag.
+- No git submodule or linked C-ABI library for CrispASR (subprocess + pipe only).
+- No second always-on daemon.
+- No Qwen3-ASR-1.7B GGUF this iteration (0.6B only; structurally extensible).
+- No changes to Fcitx commit, UI, or control-socket protocol.
 
-## Background: current live path
+## Phase 1 — Standalone comparison
 
-`PipeWireLiveVoicePipeline : ILiveVoicePipeline`
-(`service/PipeWireLiveVoicePipeline.{h,cpp}`) is the default live path. It does
-**not** use token streaming:
+### Prerequisites
 
-1. `start()` spawns `pw-record` writing raw s16le 16 kHz mono PCM to stdout
-   (`buildPipeWireLiveRecordArgs`, `service/Recorder.cpp`).
-2. `readerLoop()` reassembles `int16_t` samples and feeds `AudioSegmenter`
-   (energy/RMS VAD), which emits `AudioSegment` blobs.
-3. `SegmentAsrWorker` writes each segment to a temp WAV and calls
-   `IAsrEngine::transcribe(wavPath)` on a background thread.
-4. `SegmentTextAccumulator` joins stable segment text; the stable result is
-   pushed via `partialTextCallback_`.
-5. `finish()` stops the recorder, joins threads, returns the stable text.
+- Clone + build CrispASR: `~/projects/CrispASR`, `cmake -B build
+  -DCMAKE_BUILD_TYPE=Release && cmake --build build -j16 --target crispasr`.
+- Download `qwen3-asr-0.6b-q4_k.gguf` to `~/.config/echoflow/crisp/`.
 
-Key facts used below:
+### Method
 
-- `PipeWireLiveVoicePipeline` holds a **concrete `AsrEngine&`**
-  (`PipeWireLiveVoicePipeline.h`); `SegmentAsrWorker` already speaks `IAsrEngine&`.
-- `VoiceSession` has two constructors: `(IRecorder&, IAsrEngine&, …)` for
-  press-to-talk and `(ILiveVoicePipeline&, …)` for live; `main.cpp` selects on
-  `cfg.streamTranscription`.
-- Audio is 16 kHz / mono / s16le everywhere ASR sees it.
+Run both backends on the same clips and compare. Audio set:
 
-## Architecture
+- Repo samples: `third_party/qwen-asr/samples/{jfk.wav,test_speech.wav}`.
+- A short Chinese clip (the primary EchoFlow use case) — record one with the
+  existing `pw-record` path or grab a sample.
+- Optionally a longer clip from `samples/night_of_the_living_dead_1968/`.
 
-Three new source files, all behind the existing interfaces:
+CrispASR invocation (batch, file mode):
 
 ```
-IAsrEngine               ILiveVoicePipeline
-    ^                          ^
-    |                          |
-CrispAsrEngine           CrispLiveVoicePipeline
- (press-to-talk)          (live, native streaming)
-                              |
-                       CrispStreamAccumulator   (pure logic: JSON events -> text)
+crispasr -m <gguf> --backend qwen3 -f <wav> -t 8
 ```
 
-`main.cpp` gains a tiny factory keyed on `cfg.asrEngine`:
+Current path: the existing benchmark harness
+(`tests/benchmarks/voice_latency_benchmark.cpp`) and the numbers in
+`docs/performance/voice-latency-optimization-report.md` give the qwen-asr-c
+baseline; `./build/service/echoflow-service --transcribe-file <wav>` gives an
+end-to-end number.
 
-| `asrEngine` | `streamTranscription` | Live path                          | Press-to-talk path                    |
-|-------------|-----------------------|------------------------------------|---------------------------------------|
-| `qwen`      | true (default)        | `PipeWireLiveVoicePipeline`        | —                                     |
-| `qwen`      | false                 | —                                  | `PipeWireRecorder` + `AsrEngine`      |
-| `crisp`     | true                  | `CrispLiveVoicePipeline`           | —                                     |
-| `crisp`     | false                 | —                                  | `PipeWireRecorder` + `CrispAsrEngine` |
+### Metrics
 
-### CrispAsrEngine (press-to-talk)
+- **Cold/warm total latency** and **RTF** (realtime factor) per clip.
+- **First-token latency** for streaming (CrispASR `--stream` partial time vs the
+  segmented pipeline's first stable segment).
+- **Accuracy**: side-by-side transcript text; flag substitutions/drops.
+- **Memory / model size** (676 MB GGUF vs safetensors).
 
-Implements `IAsrEngine::transcribe(path)`:
+### Verdict gate
 
-- `posix_spawnp` `crispasr -m <gguf> --backend <backend> -f <wav> -t <threads>
-  [<extra_args>]`.
-- Capture stdout, return the trimmed transcript text.
-- One model load per recording is acceptable for press-to-talk.
+Proceed to Phase 2 only if CrispASR is at least comparable on accuracy and better
+(or clearly competitive) on live first-token latency. Otherwise discard the
+branch.
 
-### CrispLiveVoicePipeline (live, native streaming)
+## Phase 2 — In-service replacement (conditional)
 
-Implements `ILiveVoicePipeline`. `start()` spawns **two** children:
+If Phase 1 wins, replace `qwen-asr-c` with CrispASR as the sole backend via a
+**subprocess + pipe** integration. `crispasr` stays an external PATH binary
+(like `pw-record`); all CrispASR knowledge isolated in new `Crisp*` files.
 
-1. `pw-record` (raw s16le 16 kHz mono to stdout), reusing
-   `buildPipeWireLiveRecordArgs`.
-2. `crispasr --stream --stream-json -m <gguf> --backend qwen3 --vad
-   --stream-final-on-silence-ms <N> -t <T> [<extra_args>]`.
+### Live mode — `CrispLiveVoicePipeline : ILiveVoicePipeline` (replaces `PipeWireLiveVoicePipeline`)
 
-Two worker threads:
+`start()` spawns two children: `pw-record` (raw s16le 16 kHz mono to stdout,
+reusing `buildPipeWireLiveRecordArgs`) and a single long-lived
+`crispasr --stream --stream-json -m <gguf> --backend qwen3 --vad
+--stream-final-on-silence-ms <N> -t <T>`. A forwarder thread pipes pw-record's
+raw bytes verbatim into crispasr's stdin (no resampling). A parser thread reads
+JSON lines into a pure-logic `CrispStreamAccumulator`:
 
-- **Forwarder**: reads raw bytes from pw-record's stdout and writes them verbatim
-  into crispasr's stdin. No resampling — crispasr consumes s16le 16 kHz mono
-  directly.
-- **Parser**: reads JSON lines from crispasr's stdout and feeds them to a
-  `CrispStreamAccumulator`, which maps events onto `partialTextCallback_`.
+- `partial` → callback gets `finalized_ + partial.text`.
+- `final` → append to `finalized_`; callback gets `finalized_`.
+- `silence` → heartbeat.
 
-### CrispStreamAccumulator (pure logic)
+`finish()` SIGINTs pw-record, closes crispasr stdin, drains trailing finals
+(bounded by `cfg.asrTimeoutSeconds`), reaps both, returns accumulated text.
+`cancel()` SIGTERMs both without blocking.
 
-No I/O, fully unit-testable. Maintains `finalized_` (concatenated `final.text`
-across utterances) and maps:
+A persistent process is mandatory — a naive per-segment subprocess would reload
+the GGUF each ~1 s segment (unusable latency).
 
-- `partial { utterance_id, text }` → emit `finalized_ + text` via the callback.
-- `final { utterance_id, text }` → append `text` to `finalized_` (utterance
-  separators handled); emit `finalized_` via the callback.
-- `silence { t }` → heartbeat, no callback change.
+### Press-to-talk — `CrispAsrEngine : IAsrEngine` (replaces `AsrEngine`)
 
-`finalText()` returns `finalized_` (+ any trailing partial text if desired at
-finish). Mirrors the stable-prefix / unstable-tail split of
-`SegmentTextAccumulator`: final events are the stable prefix, the latest partial
-is the unstable tail.
+`transcribe(path)` = one-shot `crispasr -m <gguf> --backend qwen3 -f <wav>`.
+Also serves `--transcribe-file`.
 
-## Config additions
+### Config (Phase 2)
 
-New fields on the flat `Config` struct (`service/Config.h`), parsed by
-`loadDtkConf` (`service/Config.cpp`):
+Add to `Config` + `loadDtkConf` (no engine switch):
 
-| INI key                         | Field                  | Default                                                       |
-|---------------------------------|------------------------|---------------------------------------------------------------|
-| `[basic.model] engine`          | `asrEngine`            | `"qwen"` (`"qwen"` \| `"crisp"`)                              |
-| `[advanced.crisp] binary`       | `crispBinary`          | `"crispasr"` (PATH-resolved)                                  |
-| `[advanced.crisp] model`        | `crispModelPath`       | `<configDir>/qwen3-asr-0.6b-q4_k.gguf`                        |
-| `[advanced.crisp] backend`      | `crispBackend`         | `"qwen3"`                                                     |
-| `[advanced.crisp] threads`      | `crispThreads`         | `4`                                                           |
-| `[advanced.crisp] vad`          | `crispVad`             | `true`                                                        |
-| `[advanced.crisp] final_on_silence_ms` | `crispFinalOnSilenceMs` | `800`                                                  |
-| `[advanced.crisp] extra_args`   | `crispExtraArgs`       | `""`                                                          |
+| INI key                                 | Field                    | Default                                       |
+|-----------------------------------------|--------------------------|-----------------------------------------------|
+| `[advanced.crisp] binary`               | `crispBinary`            | `"crispasr"`                                  |
+| `[advanced.crisp] model`                | `crispModelPath`         | `<configDir>/crisp/qwen3-asr-0.6b-q4_k.gguf`  |
+| `[advanced.crisp] backend`              | `crispBackend`           | `"qwen3"`                                     |
+| `[advanced.crisp] threads`              | `crispThreads`           | `4`                                           |
+| `[advanced.crisp] vad`                  | `crispVad`               | `true`                                        |
+| `[advanced.crisp] final_on_silence_ms`  | `crispFinalOnSilenceMs`  | `800`                                         |
+| `[advanced.crisp] extra_args`           | `crispExtraArgs`         | `""`                                          |
 
-`--print-default-config` (`service/main.cpp`) emits the new keys.
-`--self-test` (`service/SelfTest.cpp`): when `asrEngine == "crisp"`, add checks
-that `crispasr` is on `PATH` (via `command -v`, like the `pw-record` check) and
-that `crispModelPath` exists.
+`main.cpp` constructs `CrispLiveVoicePipeline` (live) or `PipeWireRecorder` +
+`CrispAsrEngine` (press-to-talk) directly. The old `AsrEngine` /
+`PipeWireLiveVoicePipeline` / `qwen-asr-runtime` / `third_party/qwen-asr` are
+removed once the replacement is verified.
 
-## Live data flow & lifecycle
+### Error handling
 
-`start()`:
+Missing binary/model at start → log + report via `IUiNotifier`, return empty
+(mirrors `AsrEngine::preload` failure). Child crash mid-session → return text
+accumulated so far + log. Malformed JSON line → log + skip, never abort.
+`finish()` timeout → stop draining, return accumulated text, log.
 
-1. Validate binary + model exist; if not, log and return failure (reported via
-   `IUiNotifier`, mirroring `AsrEngine::preload` failure).
-2. `posix_spawnp` pw-record and crispasr with the argv above.
-3. Start forwarder + parser threads.
+### JSON parsing
 
-During speech: parser drives `partialTextCallback_` from `partial`/`final`
-events.
+The service lib has no JSON dep. A minimal self-contained parser for the fixed
+`--stream-json` schema (`type`, `utterance_id`, `text`, `t0`, `t1`) lives inside
+`CrispStreamAccumulator.cpp`. No new third-party JSON library.
 
-`finish()`:
+### Testing (Phase 2)
 
-1. SIGINT pw-record (like `Recorder::stop`), wait briefly.
-2. Close crispasr stdin (signals EOF → crispasr flushes trailing finals).
-3. Drain crispasr stdout until EOF, bounded by `cfg.asrTimeoutSeconds`.
-4. Reap both processes.
-5. Return `accumulator.finalText()`.
+- `tests/test_config.cpp`: parse new keys + defaults.
+- `tests/test_crispasr_engine.cpp`: nonexistent binary/model → `transcribe()`
+  returns empty gracefully (mirrors `test_asr_engine.cpp`; no real binary).
+- `tests/test_crisp_stream_accumulator.cpp`: canned JSON lines → assert callback
+  text + final text (no binary needed).
+- Existing `FakeAsr`/`FakeLivePipeline` tests unchanged (interfaces untouched).
 
-`cancel()`:
+### Build (Phase 2)
 
-1. SIGTERM both processes immediately.
-2. Drain non-blocking, do not wait on the timeout.
-
-## Error handling
-
-- **Missing binary / model at `start()`**: log, surface failure through
-  `IUiNotifier`; pipeline returns empty text. No crash, no throw.
-- **Child crash mid-session**: detected via stdout EOF / non-zero exit; `finish()`
-  returns text accumulated so far and logs the failure.
-- **Malformed JSON line**: log + skip the line (parser is tolerant); never abort
-  the session on one bad line.
-- **`finish()` timeout**: stop draining, return whatever has accumulated, log.
-
-## JSON parsing
-
-The service library has no JSON dependency today. The CrispASR `--stream-json`
-event schema is fixed and tiny (`type`, `utterance_id`, `text`, `t0`, `t1`). A
-minimal self-contained parser lives inside `CrispStreamAccumulator.cpp` (scoped
-to this schema). No new third-party JSON library is introduced, keeping all
-CrispASR knowledge inside the `Crisp*` files.
-
-## Testing
-
-- `tests/test_config.cpp`: parse the new keys and verify defaults.
-- `tests/test_crispasr_engine.cpp`: mirror `test_asr_engine.cpp` — construct
-  `CrispAsrEngine` with a nonexistent binary and/or model and assert
-  `transcribe()` returns empty gracefully (no throw, no crash). Requires no real
-  binary or weights.
-- `tests/test_crisp_stream_accumulator.cpp`: feed canned `partial`/`final`/
-  `silence` JSON lines (single utterance, multi-utterance, redecode vs prefix
-  fallback) and assert both the callback text sequence and `finalText()`. This is
-  the core streaming-logic test and needs no binary.
-- Existing `FakeAsr`/`FakeLivePipeline` tests are unchanged (interfaces are
-  untouched).
-
-## Build / runtime
-
-- Add `CrispAsrEngine.cpp`, `CrispLiveVoicePipeline.cpp`,
-  `CrispStreamAccumulator.cpp` to `service/CMakeLists.txt` source list.
-- No new link dependency, no submodule. Optional `find_program(CRISPASR crispasr)`
-  at configure time emits a status note only (not required to build).
-- `crispasr` is an external runtime the user builds/installs separately and
-  downloads the `.gguf` for (documented in the README). `echoflow_service` still
-  links `qwen_asr` PUBLIC, so both backends coexist in one binary; `main.cpp`
-  selects at runtime via `cfg.asrEngine`.
-
-## Open notes
-
-1. **Model scope**: Qwen3-ASR-0.6B GGUF only this iteration. `crispBackend` and
-   `crispModelPath` make supporting 1.7B later a one-config-line change.
-2. **VAD model**: default to `--vad` without an explicit `--vad-model`, relying on
-   CrispASR's auto-download of the default VAD, so we bundle no extra files. If
-   auto-download is undesirable offline, `crispExtraArgs` can pin a path.
+Add `CrispAsrEngine.cpp`, `CrispLiveVoicePipeline.cpp`,
+`CrispStreamAccumulator.cpp` to `service/CMakeLists.txt`. No new link dep;
+optional `find_program(CRISPASR)` at configure time for a status note.
 
 ## Verification
 
-- `cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build`
-- `ctest --test-dir build --output-on-failure`
-- `bash -n install-user.sh uninstall-user.sh tests/spec/*.sh && sh -n run.sh`
-- `./build/service/echoflow-service --print-default-config` (new keys visible)
-- `./build/service/echoflow-service --self-test` (crisp checks when engine=crisp)
-- Manual: set `engine = crisp` + a real `crispasr` + `.gguf`, run `./run.sh`,
-  speak, observe partial/final streaming and final commit via Fcitx.
+- Phase 1: the comparison table (latency/RTF/accuracy) — the verdict gate.
+- Phase 2: `cmake --build build && ctest --test-dir build --output-on-failure`;
+  `./build/service/echoflow-service --print-default-config`;
+  `./build/service/echoflow-service --self-test`; manual live run via `./run.sh`.
