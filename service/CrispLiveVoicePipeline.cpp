@@ -3,6 +3,8 @@
 
 #include "CrispLiveVoicePipeline.h"
 
+#include "CrispAsrEngine.h"
+#include "CrispSession.h"
 #include "Recorder.h"
 #include "log.h"
 
@@ -13,10 +15,8 @@
 #include <cstring>
 #include <spawn.h>
 #include <stdexcept>
-#include <string>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <vector>
 
 extern char** environ;
 
@@ -36,55 +36,14 @@ bool waitForChild(pid_t child, int attempts)
     int status = 0;
     for (int i = 0; i < attempts; ++i) {
         pid_t r = waitpid(child, &status, WNOHANG);
-        if (r == child) {
-            return true;
-        }
-        if (r < 0 && errno != EINTR) {
-            return true;
-        }
+        if (r == child) return true;
+        if (r < 0 && errno != EINTR) return true;
         usleep(100000);
     }
     return false;
 }
 
-std::string languageCode(const std::string& value)
-{
-    if (value == "Chinese" || value == "chinese" || value == "zh") {
-        return "zh";
-    }
-    if (value == "English" || value == "english" || value == "en") {
-        return "en";
-    }
-    return value;
-}
-
 }  // namespace
-
-std::vector<std::string> CrispLiveVoicePipeline::buildCrispArgs(const Config& cfg)
-{
-    std::vector<std::string> args = {
-        cfg.crispBinary,
-        "--stream",
-        "--stream-json",
-        "-m", cfg.crispModelPath,
-        "--backend", cfg.crispBackend,
-        "--stream-final-mode", "redecode",
-        "--stream-final-on-silence-ms", std::to_string(cfg.crispFinalOnSilenceMs),
-        "-t", std::to_string(cfg.crispThreads),
-    };
-    if (cfg.crispVad) {
-        args.push_back("--vad");
-    }
-    auto lang = languageCode(cfg.language.value_or(""));
-    if (!lang.empty()) {
-        args.push_back("-l");
-        args.push_back(lang);
-    }
-    if (!cfg.crispExtraArgs.empty()) {
-        args.push_back(cfg.crispExtraArgs);
-    }
-    return args;
-}
 
 CrispLiveVoicePipeline::CrispLiveVoicePipeline(Config cfg)
     : cfg_(std::move(cfg))
@@ -105,185 +64,169 @@ void CrispLiveVoicePipeline::setPartialTextCallback(
 
 void CrispLiveVoicePipeline::start()
 {
-    if (active_) {
-        return;
+    if (active_) return;
+
+    session_ = std::make_unique<CrispSession>(cfg_.crispModelPath, cfg_.crispBackend,
+                                              cfg_.crispThreads);
+    if (!session_->isLoaded()) {
+        session_.reset();
+        throw std::runtime_error("failed to load crisp model: " + cfg_.crispModelPath);
+    }
+    auto lang = CrispAsrEngine::languageCode(cfg_.language.value_or(""));
+    if (!lang.empty()) {
+        session_->setLanguage(lang);
     }
 
-    int pwPipe[2] = {-1, -1};   // pw-record stdout -> crispasr stdin
-    int outPipe[2] = {-1, -1};  // crispasr stdout -> parent parser
-    if (pipe(pwPipe) != 0 || pipe(outPipe) != 0) {
+    int pipeFds[2] = {-1, -1};
+    if (pipe(pipeFds) != 0) {
         throw std::runtime_error(std::string("pipe failed: ") + std::strerror(errno));
     }
+    int readFd = pipeFds[0];
+    if (readFd == STDOUT_FILENO) {
+        readFd = dup(pipeFds[0]);
+        close(pipeFds[0]);
+        pipeFds[0] = readFd;
+        if (readFd < 0) {
+            close(pipeFds[1]);
+            throw std::runtime_error(std::string("dup pipe failed: ") + std::strerror(errno));
+        }
+    }
 
-    auto closeBoth = [](int p[2]) {
-        if (p[0] != -1) close(p[0]);
-        if (p[1] != -1) close(p[1]);
-    };
-
-    // --- spawn pw-record (stdout -> pwPipe[1]) ---
-    posix_spawn_file_actions_t ra;
-    if (posix_spawn_file_actions_init(&ra) != 0) {
-        closeBoth(pwPipe);
-        closeBoth(outPipe);
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        close(readFd); close(pipeFds[1]);
         throw std::runtime_error("pw-record spawn actions init failed");
     }
-    posix_spawn_file_actions_adddup2(&ra, pwPipe[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addclose(&ra, pwPipe[0]);
-    posix_spawn_file_actions_addclose(&ra, outPipe[0]);
-    posix_spawn_file_actions_addclose(&ra, outPipe[1]);
+    posix_spawn_file_actions_adddup2(&actions, pipeFds[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, readFd);
+    posix_spawn_file_actions_addclose(&actions, pipeFds[1]);
 
     auto recArgs = buildPipeWireLiveRecordArgs(cfg_);
     std::vector<char*> recArgv;
     recArgv.reserve(recArgs.size() + 1);
-    for (auto& a : recArgs) {
-        recArgv.push_back(a.data());
-    }
+    for (auto& a : recArgs) recArgv.push_back(a.data());
     recArgv.push_back(nullptr);
 
-    pid_t recPid = -1;
-    int rc = posix_spawnp(&recPid, "pw-record", &ra, nullptr, recArgv.data(), environ);
-    posix_spawn_file_actions_destroy(&ra);
+    pid_t pid = -1;
+    int rc = posix_spawnp(&pid, "pw-record", &actions, nullptr, recArgv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
     if (rc != 0) {
-        closeBoth(pwPipe);
-        closeBoth(outPipe);
+        close(readFd); close(pipeFds[1]);
         throw std::runtime_error(std::string("posix_spawnp pw-record failed: ") + std::strerror(rc));
     }
-    close(pwPipe[1]);  // parent does not write to crispasr stdin
+    close(pipeFds[1]);
 
-    // --- spawn crispasr (stdin <- pwPipe[0], stdout -> outPipe[1]) ---
-    posix_spawn_file_actions_t ca;
-    if (posix_spawn_file_actions_init(&ca) != 0) {
-        kill(recPid, SIGTERM);
-        waitForChild(recPid, 20);
-        close(pwPipe[0]);
-        closeBoth(outPipe);
-        throw std::runtime_error("crispasr spawn actions init failed");
-    }
-    posix_spawn_file_actions_adddup2(&ca, pwPipe[0], STDIN_FILENO);
-    posix_spawn_file_actions_adddup2(&ca, outPipe[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addclose(&ca, outPipe[0]);
-
-    auto crispArgs = buildCrispArgs(cfg_);
-    std::vector<char*> crispArgv;
-    crispArgv.reserve(crispArgs.size() + 1);
-    for (auto& a : crispArgs) {
-        crispArgv.push_back(a.data());
-    }
-    crispArgv.push_back(nullptr);
-
-    pid_t crispPid = -1;
-    rc = posix_spawnp(&crispPid, cfg_.crispBinary.c_str(), &ca, nullptr,
-                      crispArgv.data(), environ);
-    posix_spawn_file_actions_destroy(&ca);
-    close(pwPipe[0]);
-    close(outPipe[1]);
-    if (rc != 0) {
-        kill(recPid, SIGTERM);
-        waitForChild(recPid, 20);
-        close(outPipe[0]);
-        throw std::runtime_error(std::string("posix_spawnp crispasr failed: ") + std::strerror(rc));
-    }
-
-    recorderChild_ = recPid;
-    crispChild_ = crispPid;
-    crispOutFd_ = outPipe[0];
-    accumulator_.clear();
+    recorderChild_ = pid;
+    readFd_ = readFd;
     cancelled_ = false;
+    pcmBuffer_.clear();
+    pcmBufferSamplesSinceTranscribe_ = 0;
+    lastTranscribeAtSamples_ = 0;
+    lastFullText_.clear();
     startedAt_ = Clock::now();
     active_ = true;
 
-    parserThread_ = std::thread(&CrispLiveVoicePipeline::parserLoop, this);
+    readerThread_ = std::thread(&CrispLiveVoicePipeline::readerLoop, this);
     log("crisp live pipeline started: source=" +
         (cfg_.pwRecord.source.empty() ? std::string("default") : cfg_.pwRecord.source));
 }
 
-void CrispLiveVoicePipeline::parserLoop()
+void CrispLiveVoicePipeline::readerLoop()
 {
+    constexpr int kSampleRate = 16000;
     try {
-        std::array<char, 8192> buf{};
-        std::string pending;
-        int fd = crispOutFd_;
-        while (fd != -1 && !cancelled_) {
-            ssize_t n = read(fd, buf.data(), buf.size());
+        std::array<unsigned char, 64000> buf{};
+        bool hasCarry = false;
+        unsigned char carry = 0;
+        while (readFd_ != -1 && !cancelled_) {
+            ssize_t n = read(readFd_, buf.data(), buf.size());
             if (n > 0) {
-                pending.append(buf.data(), static_cast<size_t>(n));
-                size_t pos = 0;
-                while (true) {
-                    auto nl = pending.find('\n', pos);
-                    if (nl == std::string::npos) {
-                        break;
+                size_t byteCount = static_cast<size_t>(n);
+                {
+                    std::lock_guard<std::mutex> lock(pcmMutex_);
+                    // s16le → float32 conversion
+                    size_t offset = 0;
+                    if (hasCarry && byteCount > 0) {
+                        unsigned int raw = static_cast<unsigned int>(carry)
+                            | (static_cast<unsigned int>(buf[0]) << 8);
+                        int16_t s16 = raw >= 0x8000U ? static_cast<int>(raw) - 0x10000
+                                                     : static_cast<int>(raw);
+                        pcmBuffer_.push_back(static_cast<float>(s16) / 32768.0f);
+                        hasCarry = false;
+                        offset = 1;
                     }
-                    std::string line = pending.substr(pos, nl - pos);
-                    pos = nl + 1;
-                    std::optional<std::string> emitted;
-                    {
-                        std::lock_guard<std::mutex> lock(accumulatorMutex_);
-                        emitted = accumulator_.processEvent(line);
+                    for (; offset + 1 < byteCount; offset += 2) {
+                        unsigned int raw = static_cast<unsigned int>(buf[offset])
+                            | (static_cast<unsigned int>(buf[offset + 1]) << 8);
+                        int16_t s16 = raw >= 0x8000U ? static_cast<int>(raw) - 0x10000
+                                                     : static_cast<int>(raw);
+                        pcmBuffer_.push_back(static_cast<float>(s16) / 32768.0f);
                     }
-                    if (emitted) {
-                        emitText(*emitted);
+                    if (offset < byteCount) {
+                        carry = buf[offset];
+                        hasCarry = true;
                     }
+                    pcmBufferSamplesSinceTranscribe_ += static_cast<int>(
+                        (byteCount - (hasCarry ? 1 : 0)) / 2);
                 }
-                pending.erase(0, pos);
+                triggerTranscribeIfReady();
                 continue;
             }
-            if (n == 0) {
-                break;  // EOF: crispasr exited
-            }
-            if (errno == EINTR) {
-                continue;
-            }
-            log(std::string("crispasr stdout read failed: ") + std::strerror(errno));
+            if (n == 0) break;
+            if (errno == EINTR) continue;
+            log(std::string("live recording read failed: ") + std::strerror(errno));
             break;
         }
     } catch (const std::exception& e) {
-        log(std::string("crisp parser thread failed: ") + e.what());
+        log(std::string("crisp live reader failed: ") + e.what());
     } catch (...) {
-        log("crisp parser thread failed");
+        log("crisp live reader failed");
     }
 }
 
-void CrispLiveVoicePipeline::emitText(const std::string& text)
+void CrispLiveVoicePipeline::triggerTranscribeIfReady()
 {
-    std::function<void(const std::string&)> cb;
+    int stepSamples = transcribeStepMs_ * 16000 / 1000;
+    if (pcmBufferSamplesSinceTranscribe_ < stepSamples) return;
+
+    std::vector<float> pcmCopy;
     {
-        std::lock_guard<std::mutex> lock(callbackMutex_);
-        cb = partialTextCallback_;
+        std::lock_guard<std::mutex> lock(pcmMutex_);
+        pcmCopy = pcmBuffer_;
+        pcmBufferSamplesSinceTranscribe_ = 0;
     }
-    if (cb) {
-        cb(text);
+
+    if (!session_ || pcmCopy.empty()) return;
+    std::string text = session_->transcribe(pcmCopy.data(),
+                                             static_cast<int>(pcmCopy.size()));
+    if (text != lastFullText_) {
+        lastFullText_ = text;
+        emitText(text);
     }
 }
 
 std::string CrispLiveVoicePipeline::finish()
 {
-    if (!active_) {
-        return {};
-    }
+    if (!active_) return {};
     auto finishStarted = Clock::now();
-    log("crisp live pipeline stop requested after " + std::to_string(elapsedSeconds(startedAt_)) +
-        "s");
+    log("crisp live pipeline stop after " + std::to_string(elapsedSeconds(startedAt_)) + "s");
 
-    // SIGINT pw-record -> its stdout closes -> crispasr sees stdin EOF ->
-    // flushes trailing finals and exits -> parser hits stdout EOF.
     stopRecorder();
     reapChild(recorderChild_);
-    if (parserThread_.joinable()) {
-        parserThread_.join();
-    }
-    reapChild(crispChild_);
-    if (crispOutFd_ != -1) {
-        close(crispOutFd_);
-        crispOutFd_ = -1;
-    }
+    close(readFd_); readFd_ = -1;
+    if (readerThread_.joinable()) readerThread_.join();
 
-    active_ = false;
     std::string finalText;
-    if (!cancelled_) {
-        std::lock_guard<std::mutex> lock(accumulatorMutex_);
-        finalText = accumulator_.finalText();
+    if (!cancelled_ && session_) {
+        std::lock_guard<std::mutex> lock(pcmMutex_);
+        if (!pcmBuffer_.empty()) {
+            finalText = session_->transcribe(pcmBuffer_.data(),
+                                              static_cast<int>(pcmBuffer_.size()));
+        }
     }
-    log("crisp live pipeline finish returned in " + std::to_string(elapsedSeconds(finishStarted)) +
+    active_ = false;
+    session_.reset();
+    log("crisp live finish in " + std::to_string(elapsedSeconds(finishStarted)) +
         "s, chars=" + std::to_string(finalText.size()));
     return finalText;
 }
@@ -294,50 +237,44 @@ void CrispLiveVoicePipeline::cancel()
         cancelled_ = true;
         stopRecorder();
         reapChild(recorderChild_);
-        if (crispChild_ != -1) {
-            kill(crispChild_, SIGTERM);
-        }
-        if (parserThread_.joinable()) {
-            parserThread_.join();
-        }
-        reapChild(crispChild_);
-        if (crispOutFd_ != -1) {
-            close(crispOutFd_);
-            crispOutFd_ = -1;
-        }
+        if (readFd_ != -1) { close(readFd_); readFd_ = -1; }
+        if (readerThread_.joinable()) readerThread_.join();
         active_ = false;
-        std::lock_guard<std::mutex> lock(accumulatorMutex_);
-        accumulator_.clear();
+        session_.reset();
     } catch (const std::exception& e) {
-        log(std::string("crisp live pipeline cancel failed: ") + e.what());
+        log(std::string("crisp pipeline cancel failed: ") + e.what());
     } catch (...) {
-        log("crisp live pipeline cancel failed");
+        log("crisp pipeline cancel failed");
     }
 }
 
 void CrispLiveVoicePipeline::stopRecorder()
 {
-    if (recorderChild_ != -1) {
-        kill(recorderChild_, SIGINT);
-    }
+    if (recorderChild_ != -1) kill(recorderChild_, SIGINT);
 }
 
 void CrispLiveVoicePipeline::reapChild(pid_t& child)
 {
-    if (child == -1) {
-        return;
-    }
+    if (child == -1) return;
     pid_t c = child;
-    bool exited = waitForChild(c, 50);
-    if (!exited) {
+    if (!waitForChild(c, 50)) {
         kill(c, SIGTERM);
-        exited = waitForChild(c, 20);
-    }
-    if (!exited) {
-        kill(c, SIGKILL);
-        waitForChild(c, 20);
+        if (!waitForChild(c, 20)) {
+            kill(c, SIGKILL);
+            waitForChild(c, 20);
+        }
     }
     child = -1;
+}
+
+void CrispLiveVoicePipeline::emitText(const std::string& text)
+{
+    std::function<void(const std::string&)> cb;
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        cb = partialTextCallback_;
+    }
+    if (cb) cb(text);
 }
 
 }  // namespace echoflow

@@ -20,14 +20,12 @@ struct ModelEntry {
 // Ordered: 0.6B first, then 1.7B.
 inline const std::vector<ModelEntry>& modelCatalog() {
     static const std::vector<ModelEntry> kCatalog = {
-        {"qwen3-asr-0.6b", "Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-0.6B",
-         {"config.json", "generation_config.json", "model.safetensors",
-          "vocab.json", "merges.txt"}},
-        // Sharded: index + 2 shards; deliberately no single model.safetensors.
-        {"qwen3-asr-1.7b", "Qwen3-ASR-1.7B", "Qwen/Qwen3-ASR-1.7B",
-         {"config.json", "generation_config.json", "model.safetensors.index.json",
-          "model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors",
-          "vocab.json", "merges.txt"}},
+        {"qwen3-asr-0.6b", "Qwen3-ASR-0.6B (Q4_K GGUF)",
+         "cstr/qwen3-asr-0.6b-GGUF",
+         {"qwen3-asr-0.6b-q4_k.gguf"}},
+        {"qwen3-asr-1.7b", "Qwen3-ASR-1.7B (Q4_K GGUF)",
+         "cstr/qwen3-asr-1.7b-GGUF",
+         {"qwen3-asr-1.7b-q4_k.gguf"}},
     };
     return kCatalog;
 }

@@ -19,7 +19,6 @@ private slots:
     void runtimeChecksReportsMissingCrispModel();
     void runtimeChecksActionableWhenCrispModelPathEmpty();
     void runtimeChecksPassesWhenCrispModelExists();
-    void runtimeChecksReportsCrispBinary();
 };
 
 void TestSelfTest::resolveModelDirIsTrivial() {
@@ -66,15 +65,6 @@ void TestSelfTest::runtimeChecksPassesWhenCrispModelExists() {
                            [](const RuntimeCheck& r) { return r.name == "crisp model available"; });
     QVERIFY(it != checks.end());
     QVERIFY(it->passed);
-}
-
-void TestSelfTest::runtimeChecksReportsCrispBinary() {
-    Config c;
-    c.crispBinary = "crispasr";
-    auto checks = runtimeChecks(c);
-    auto it = std::find_if(checks.begin(), checks.end(),
-                           [](const RuntimeCheck& r) { return r.name == "crispasr available"; });
-    QVERIFY(it != checks.end());
 }
 
 QTEST_GUILESS_MAIN(TestSelfTest)

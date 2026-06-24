@@ -78,7 +78,7 @@ assert_contains "$ROOT/ui-host/settings-schema.json" "hf-mirror" "settings schem
 assert_absent "$ROOT/ui-host/settings-schema.json" "model_dir" "settings schema has no model_dir option"
 assert_absent "$ROOT/install-user.sh" "model_dir" "install-user.sh writes no model_dir"
 assert_contains "$ROOT/ui-host/SettingsDialog.cpp" "modeldownload" "SettingsDialog registers modeldownload factory"
-assert_contains "$ROOT/service/ModelCatalog.h" "Qwen/Qwen3-ASR-1.7B" "ModelCatalog knows the 1.7B repo"
+assert_contains "$ROOT/service/ModelCatalog.h" "cstr/qwen3-asr-1.7b-GGUF" "ModelCatalog knows the 1.7B GGUF repo"
 
 assert_absent "$ROOT/ui-host/settings-schema.json" "asr_runner" "settings schema drops asr_runner"
 assert_absent "$ROOT/ui-host/settings-schema.json" "asr_project_dir" "settings schema drops asr_project_dir"

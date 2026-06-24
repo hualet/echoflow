@@ -7,7 +7,6 @@ qt_standard_project_setup()
 set(ECHOFLOW_TESTS
     test_config
     test_crispasr_engine
-    test_crisp_stream_accumulator
     test_voice_session
     test_committer
     test_selftest

@@ -4,23 +4,24 @@
 #ifndef ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 #define ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 
-#include "CrispStreamAccumulator.h"
 #include "Config.h"
 #include "Interfaces.h"
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <sys/types.h>
 #include <thread>
+#include <vector>
 
 namespace echoflow {
 
-// Live voice pipeline on top of CrispASR's native --stream --stream-json mode.
-// pw-record's raw PCM is piped straight into a long-lived crispasr child's
-// stdin (OS pipe, no in-process forwarding); a parser thread reads JSON events
-// from crispasr's stdout and drives the partial-text callback.
+class CrispSession;
+
 class CrispLiveVoicePipeline : public ILiveVoicePipeline {
 public:
     explicit CrispLiveVoicePipeline(Config cfg);
@@ -34,23 +35,28 @@ public:
     void cancel() override;
     void setPartialTextCallback(std::function<void(const std::string&)> callback) override;
 
-    static std::vector<std::string> buildCrispArgs(const Config& cfg);
-
 private:
-    void parserLoop();
+    void readerLoop();
+    void triggerTranscribeIfReady();
     void stopRecorder();
     void reapChild(pid_t& child);
     void emitText(const std::string& text);
 
     Config cfg_;
+    std::unique_ptr<CrispSession> session_;
     pid_t recorderChild_ = -1;
-    pid_t crispChild_ = -1;
-    int crispOutFd_ = -1;
-    std::thread parserThread_;
+    int readFd_ = -1;
+    std::thread readerThread_;
     std::function<void(const std::string&)> partialTextCallback_;
     mutable std::mutex callbackMutex_;
-    CrispStreamAccumulator accumulator_;
-    mutable std::mutex accumulatorMutex_;
+
+    mutable std::mutex pcmMutex_;
+    std::vector<float> pcmBuffer_;
+    int pcmBufferSamplesSinceTranscribe_ = 0;
+    int lastTranscribeAtSamples_ = 0;
+    std::string lastFullText_;
+    int transcribeStepMs_ = 3000;
+
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};
     std::chrono::steady_clock::time_point startedAt_{};

@@ -8,23 +8,24 @@
 #include "Interfaces.h"
 
 #include <filesystem>
+#include <memory>
 #include <string>
-#include <vector>
 
 namespace echoflow {
 
-// One-shot file transcription via the external `crispasr` binary.
-// Used by the press-to-talk path and --transcribe-file.
+class CrispSession;
+
 class CrispAsrEngine : public IAsrEngine {
 public:
     explicit CrispAsrEngine(Config cfg);
+    ~CrispAsrEngine() override;
     std::string transcribe(const std::filesystem::path& audio) override;
 
-    static std::vector<std::string> buildArgs(const Config& cfg,
-                                              const std::filesystem::path& audio);
+    static std::string languageCode(const std::string& value);
 
 private:
     Config cfg_;
+    std::unique_ptr<CrispSession> session_;
 };
 
 }  // namespace echoflow

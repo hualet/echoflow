@@ -11,14 +11,12 @@ class TestCrispAsrEngine : public QObject {
     Q_OBJECT
 
 private slots:
-    void transcribeReturnsEmptyWhenBinaryMissing();
     void transcribeReturnsEmptyWhenModelMissing();
 };
 
-void TestCrispAsrEngine::transcribeReturnsEmptyWhenBinaryMissing()
+void TestCrispAsrEngine::transcribeReturnsEmptyWhenModelMissing()
 {
     Config cfg = Config::defaultConfig();
-    cfg.crispBinary = "/tmp/echoflow-no-such-crispasr-binary";
     cfg.crispModelPath = "/tmp/echoflow-no-such-model.gguf";
     CrispAsrEngine engine(cfg);
     try {
@@ -27,15 +25,6 @@ void TestCrispAsrEngine::transcribeReturnsEmptyWhenBinaryMissing()
     } catch (const std::exception& e) {
         QFAIL(qPrintable(QStringLiteral("transcribe threw: %1").arg(e.what())));
     }
-}
-
-void TestCrispAsrEngine::transcribeReturnsEmptyWhenModelMissing()
-{
-    Config cfg = Config::defaultConfig();
-    cfg.crispBinary = "crispasr";
-    cfg.crispModelPath = "/tmp/echoflow-no-such-model.gguf";
-    CrispAsrEngine engine(cfg);
-    QVERIFY(engine.transcribe("/tmp/echoflow-no-such-audio.wav").empty());
 }
 
 QTEST_GUILESS_MAIN(TestCrispAsrEngine)

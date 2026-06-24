@@ -54,12 +54,9 @@ void printDefaultConfig()
                  "  \"save_live_debug_audio\": %s,\n"
                  "  \"openblas_threads\": %d,\n"
                  "  \"fcitx_commit\": %s,\n"
-                 "  \"crisp_binary\": \"%s\",\n"
                  "  \"crisp_model_path\": \"%s\",\n"
                  "  \"crisp_backend\": \"%s\",\n"
-                 "  \"crisp_threads\": %d,\n"
-                 "  \"crisp_vad\": %s,\n"
-                 "  \"crisp_final_on_silence_ms\": %d\n"
+                 "  \"crisp_threads\": %d\n"
                  "}\n",
                  cfg.modelName.c_str(),
                  cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
@@ -69,9 +66,8 @@ void printDefaultConfig()
                  cfg.streamTranscription ? "true" : "false",
                  cfg.saveLiveDebugAudio ? "true" : "false",
                  cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false",
-                 cfg.crispBinary.c_str(), cfg.crispModelPath.c_str(),
-                 cfg.crispBackend.c_str(), cfg.crispThreads,
-                 cfg.crispVad ? "true" : "false", cfg.crispFinalOnSilenceMs);
+                 cfg.crispModelPath.c_str(), cfg.crispBackend.c_str(),
+                 cfg.crispThreads);
 }
 
 }  // namespace

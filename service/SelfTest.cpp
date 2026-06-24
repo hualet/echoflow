@@ -38,12 +38,9 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         : (modelPath.empty() ? std::string("crisp model path not set")
                              : "missing: " + modelPath);
 
-    const std::string crispBinCmd = "command -v " + cfg.crispBinary + " >/dev/null 2>&1";
-
     return {
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
-        {"crispasr available", std::system(crispBinCmd.c_str()) == 0, cfg.crispBinary},
         {"crisp model available", modelOk, modelDetail},
         {"control socket path parent", fs::exists(controlSocketPath(cfg).parent_path()),
          controlSocketPath(cfg).string()},

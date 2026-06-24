@@ -18,8 +18,7 @@ private slots:
     void findModelReturnsNullForUnknown();
     void missingFilesListsAbsent();
     void presentWhenAllFilesExist();
-    void largeModelCompleteWhenAllShardsPresent();
-    void largeModelMissingWhenShardRemoved();
+    void largeModelMissingWhenGgufRemoved();
 };
 
 void TestModelCatalog::catalogHasTwoModels() {
@@ -39,14 +38,14 @@ void TestModelCatalog::findModelReturnsNullForUnknown() {
 void TestModelCatalog::missingFilesListsAbsent() {
     QTemporaryDir dir;
     auto modelDir = std::filesystem::path(dir.path().toStdString());
-    std::ofstream(modelDir / "config.json").put('x');
+    std::ofstream(modelDir / "something_else.txt").put('x');
 
     const ModelEntry* e = findModel("qwen3-asr-0.6b");
     QVERIFY(e != nullptr);
     auto missing = missingModelFiles(modelDir, *e);
-    QCOMPARE(missing.size(), size_t(4));
-    QVERIFY(std::find(missing.begin(), missing.end(), std::string("model.safetensors")) != missing.end());
-    QVERIFY(std::find(missing.begin(), missing.end(), std::string("vocab.json")) != missing.end());
+    QCOMPARE(missing.size(), size_t(1));
+    QVERIFY(std::find(missing.begin(), missing.end(),
+                      std::string("qwen3-asr-0.6b-q4_k.gguf")) != missing.end());
 }
 
 void TestModelCatalog::presentWhenAllFilesExist() {
@@ -60,28 +59,18 @@ void TestModelCatalog::presentWhenAllFilesExist() {
     QVERIFY(missingModelFiles(modelDir, *e).empty());
 }
 
-void TestModelCatalog::largeModelCompleteWhenAllShardsPresent() {
+void TestModelCatalog::largeModelMissingWhenGgufRemoved() {
     QTemporaryDir dir;
     auto modelDir = std::filesystem::path(dir.path().toStdString());
     const ModelEntry* e = findModel("qwen3-asr-1.7b");
     for (const auto& f : e->files) {
         std::ofstream(modelDir / f).put('x');
     }
-    QVERIFY(isModelPresent(modelDir, *e));
-}
-
-void TestModelCatalog::largeModelMissingWhenShardRemoved() {
-    QTemporaryDir dir;
-    auto modelDir = std::filesystem::path(dir.path().toStdString());
-    const ModelEntry* e = findModel("qwen3-asr-1.7b");
-    for (const auto& f : e->files) {
-        std::ofstream(modelDir / f).put('x');
-    }
-    std::filesystem::remove(modelDir / "model-00002-of-00002.safetensors");
+    std::filesystem::remove(modelDir / "qwen3-asr-1.7b-q4_k.gguf");
     QVERIFY(!isModelPresent(modelDir, *e));
     auto missing = missingModelFiles(modelDir, *e);
     QVERIFY(std::find(missing.begin(), missing.end(),
-                      std::string("model-00002-of-00002.safetensors")) != missing.end());
+                      std::string("qwen3-asr-1.7b-q4_k.gguf")) != missing.end());
 }
 
 QTEST_GUILESS_MAIN(TestModelCatalog)
