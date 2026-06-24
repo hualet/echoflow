@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Hualet Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "AsrEngine.h"
 #include "Committer.h"
 #include "Config.h"
-#include "PipeWireLiveVoicePipeline.h"
+#include "CrispAsrEngine.h"
+#include "CrispLiveVoicePipeline.h"
 #include "Recorder.h"
 #include "SelfTest.h"
 #include "Server.h"
@@ -122,7 +122,7 @@ int main(int argc, char** argv)
     }
 
     if (transcribeFile.has_value()) {
-        echoflow::AsrEngine asr(cfg);
+        echoflow::CrispAsrEngine asr(cfg);
         std::string text = asr.transcribe(*transcribeFile);
         if (cfg.stripTrailingPunctuation) {
             text = echoflow::stripPunctuation(text);
@@ -131,18 +131,17 @@ int main(int argc, char** argv)
         return text.empty() ? 1 : 0;
     }
 
-    echoflow::AsrEngine asr(cfg);
-    asr.preload();
     echoflow::Committer committer(cfg, echoflow::fcitxSocketPath(cfg));
     echoflow::UnixDatagramUiNotifier ui(echoflow::uiSocketPath(cfg));
     if (cfg.streamTranscription) {
-        echoflow::PipeWireLiveVoicePipeline livePipeline(cfg, asr);
+        echoflow::CrispLiveVoicePipeline livePipeline(cfg);
         echoflow::VoiceSession session(cfg, livePipeline, committer, ui);
         echoflow::Server server(cfg, session);
         return server.run();
     }
 
     echoflow::PipeWireRecorder recorder(cfg);
+    echoflow::CrispAsrEngine asr(cfg);
     echoflow::VoiceSession session(cfg, recorder, asr, committer, ui);
     echoflow::Server server(cfg, session);
     return server.run();
