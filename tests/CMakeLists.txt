@@ -15,6 +15,7 @@ set(ECHOFLOW_TESTS
     test_segment_asr_worker
     test_segment_text_accumulator
     test_crisp_stream_accumulator
+    test_crispasr_engine
     test_recorder_command
     test_single_instance)
 
