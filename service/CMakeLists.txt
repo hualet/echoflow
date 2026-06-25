@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(echoflow_service STATIC
+    AudioSegmenter.cpp
     Committer.cpp
     Config.cpp
     CrispAsrEngine.cpp

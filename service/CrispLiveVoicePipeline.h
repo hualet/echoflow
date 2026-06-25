@@ -4,6 +4,7 @@
 #ifndef ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 #define ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 
+#include "AudioSegmenter.h"
 #include "Config.h"
 #include "Interfaces.h"
 
@@ -36,7 +37,6 @@ public:
 
 private:
     void readerLoop();
-    void emitChunkedText();
     void stopRecorder();
     void reapChild(pid_t& child);
     void emitText(const std::string& text);
@@ -49,10 +49,9 @@ private:
     std::function<void(const std::string&)> partialTextCallback_;
     mutable std::mutex callbackMutex_;
 
-    mutable std::mutex pcmMutex_;
-    std::vector<float> pcmBuffer_;       // full buffer (fallback)
-    std::vector<float> pcmChunk_;        // current accumulating chunk
-    std::vector<std::string> results_;   // completed chunk transcripts
+    mutable std::mutex segmentMutex_;
+    std::unique_ptr<AudioSegmenter> segmenter_;
+    std::vector<std::string> results_;
 
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};

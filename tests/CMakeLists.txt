@@ -5,6 +5,7 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 qt_standard_project_setup()
 
 set(ECHOFLOW_TESTS
+    test_audio_segmenter
     test_config
     test_crispasr_engine
     test_voice_session
