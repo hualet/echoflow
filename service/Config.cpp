@@ -194,6 +194,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.crispBackend = val;
         } else if (section == "advanced.crisp.threads") {
             cfg.crispThreads = std::max(1, std::stoi(val));
+        } else if (section == "advanced.crisp.max_new_tokens") {
+            cfg.crispMaxNewTokens = std::max(0, std::stoi(val));
         }
     }
 

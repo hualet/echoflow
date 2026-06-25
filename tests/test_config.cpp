@@ -36,6 +36,8 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QVERIFY(c.streamTranscription);
     QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 4);
+    QCOMPARE(c.crispThreads, 6);
+    QCOMPARE(c.crispMaxNewTokens, 0);
 }
 
 void TestConfig::expandPathResolvesHome() {
@@ -68,6 +70,7 @@ void TestConfig::loadDtkConfDerivesModelDirFromName() {
             "[basic.recording.min_record_seconds]\nvalue=0.5\n"
             "[basic.recognition.strip_trailing_punctuation]\nvalue=true\n"
             "[advanced.runtime.openblas_threads]\nvalue=2\n"
+            "[advanced.crisp.max_new_tokens]\nvalue=128\n"
             "[advanced.fcitx.fcitx_commit]\nvalue=false\n");
     f.close();
 
@@ -82,6 +85,7 @@ void TestConfig::loadDtkConfDerivesModelDirFromName() {
     QCOMPARE(c.stripTrailingPunctuation, true);
     QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 2);
+    QCOMPARE(c.crispMaxNewTokens, 128);
     QCOMPARE(c.fcitxCommit, false);
     QCOMPARE(QString::fromStdString(c.modelDir),
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()

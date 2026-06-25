@@ -56,7 +56,8 @@ void printDefaultConfig()
                  "  \"fcitx_commit\": %s,\n"
                  "  \"crisp_model_path\": \"%s\",\n"
                  "  \"crisp_backend\": \"%s\",\n"
-                 "  \"crisp_threads\": %d\n"
+                 "  \"crisp_threads\": %d,\n"
+                 "  \"crisp_max_new_tokens\": %d\n"
                  "}\n",
                  cfg.modelName.c_str(),
                  cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
@@ -67,7 +68,7 @@ void printDefaultConfig()
                  cfg.saveLiveDebugAudio ? "true" : "false",
                  cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false",
                  cfg.crispModelPath.c_str(), cfg.crispBackend.c_str(),
-                 cfg.crispThreads);
+                 cfg.crispThreads, cfg.crispMaxNewTokens);
 }
 
 }  // namespace

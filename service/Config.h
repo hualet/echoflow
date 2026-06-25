@@ -35,7 +35,8 @@ struct Config {
 
     std::string crispModelPath;
     std::string crispBackend = "qwen3";
-    int crispThreads = 4;
+    int crispThreads = 6;
+    int crispMaxNewTokens = 0;
 
     static Config defaultConfig();
 };

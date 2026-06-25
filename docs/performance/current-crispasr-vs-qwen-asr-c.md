@@ -45,8 +45,10 @@ Previous qwen-asr-c implementation:
 - Numbers below are median wall-clock transcription time after the model was
   preloaded by the benchmark process. The min-max range is from three
   iterations.
+- The initial comparison used the old `crispThreads=4` default. Optimization
+  testing below changed the product default to `crispThreads=6`.
 
-## Response Speed
+## Response Speed Before Optimization
 
 | Clip | Duration | Current CrispASR | qwen final | qwen stream | Current vs qwen final |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -70,6 +72,71 @@ The result is different from the earlier CrispASR CLI cold-load exploration:
 under the current in-process integration and same-sample warm benchmark,
 qwen-asr-c is still faster on most real EchoFlow recordings. CrispASR is close on
 JFK and `paraformer_zh`, but the current integration is not a clear latency win.
+
+## Optimization Results
+
+### `crispThreads`
+
+The first tested optimization was the CrispASR thread count. The previous
+default was 4 threads. A fixed-model scan over the same five samples produced:
+
+| Threads | JFK | Paraformer zh | live-003152 | live-004142 | live-082316 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 12.450 s | 17.315 s | 18.474 s | 21.281 s | 10.825 s |
+| 2 | 10.618 s | 10.924 s | 12.610 s | 15.106 s | 7.117 s |
+| 4 | 6.534 s | 9.225 s | 8.789 s | 11.079 s | 4.525 s |
+| 6 | 5.186 s | 6.669 s | 7.177 s | 8.066 s | 3.762 s |
+| 8 | 4.615 s | 5.879 s | 6.928 s | 9.274 s | 4.292 s |
+
+The best single thread count is not identical for every file, but 6 threads is
+the best stable product default:
+
+- It improves all five samples compared with the old 4-thread default.
+- It beats or matches qwen final on four of the five samples in the scan.
+- 8 threads is faster on three samples, but regresses the longest real recording
+  and the 9.5 s recording, so it is a worse default for interactive use.
+
+After changing the product default to `crispThreads=6`, a fresh three-iteration
+run using the normal user config produced:
+
+| Clip | Duration | Optimized CrispASR | qwen final | qwen stream | Optimized vs qwen final |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `jfk.wav` | 11.000 s | 5.002 s, RTF 0.455 | 5.236 s, RTF 0.476 | 4.997 s, RTF 0.454 | 1.05x faster |
+| `paraformer_zh.wav` | 13.052 s | 6.913 s, RTF 0.530 | 6.977 s, RTF 0.535 | 6.550 s, RTF 0.502 | 1.01x faster |
+| `live-20260621-003152.wav` | 17.321 s | 7.538 s, RTF 0.435 | 6.297 s, RTF 0.364 | 6.514 s, RTF 0.376 | 1.20x slower |
+| `live-20260621-004142.wav` | 20.777 s | 10.278 s, RTF 0.495 | 8.192 s, RTF 0.394 | 9.321 s, RTF 0.449 | 1.25x slower |
+| `live-20260621-082316.wav` | 9.534 s | 4.057 s, RTF 0.426 | 3.836 s, RTF 0.402 | 5.522 s, RTF 0.579 | 1.06x slower |
+
+The default-config retest had more variance than the controlled scan. A later
+6-thread no-token-limit run in the max-token sweep measured 4.612 s, 5.935 s,
+7.415 s, 7.109 s, and 3.222 s on the same five clips, beating qwen final on
+four of five clips. The practical conclusion is that 6 threads materially
+improves CrispASR and makes it competitive with qwen-asr-c, but the current
+implementation is still not proven to be unconditionally faster on every real
+recording.
+
+### `max_new_tokens`
+
+The qwen3 backend defaults to a 256-token decode cap when no explicit maximum is
+set. EchoFlow now exposes `advanced.crisp.max_new_tokens` so this can be tested
+without source changes.
+
+With `crispThreads=6`, the scan below compared 64, 96, 128, 160, and unlimited
+(`0`, which maps to CrispASR's default cap). Character counts were unchanged on
+all five samples, so none of the tested caps truncated this sample set.
+
+| Max tokens | JFK | Paraformer zh | live-003152 | live-004142 | live-082316 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 4.724 s | 8.121 s | 8.170 s | 8.848 s | 4.020 s |
+| 96 | 4.787 s | 6.122 s | 7.199 s | 15.579 s | 9.377 s |
+| 128 | 5.588 s | 6.984 s | 14.415 s | 8.455 s | 3.506 s |
+| 160 | 4.201 s | 4.964 s | 6.235 s | 7.744 s | 3.943 s |
+| 0 | 4.612 s | 5.935 s | 7.415 s | 7.109 s | 3.222 s |
+
+No max-token value is a safe default optimization. `160` is very strong on four
+samples, but loses to the unlimited default on the short `live-082316` recording;
+`96` and `128` show severe outliers. Keep the setting as a benchmark and
+advanced-tuning knob, but leave the default at `0`.
 
 ## Streaming Behavior
 
@@ -151,13 +218,16 @@ Current CrispASR advantages:
 - One 515 MiB GGUF model file instead of the larger qwen safetensors model set.
 - CMake-native in-process integration after the qwen3-only static embedding
   fixes.
+- After tuning the default thread count from 4 to 6, final decoding is
+  competitive with qwen-asr-c and often faster on the fixed benchmark set.
 - Clear path to native streaming and neural VAD if those CrispASR APIs are
   exposed through the embedded C API.
 
 Current CrispASR drawbacks:
 
-- In the current warm benchmark, final decoding is slower than qwen-asr-c on the
-  real EchoFlow recordings tested here.
+- Even after thread tuning, final decoding is still not proven to be faster than
+  qwen-asr-c on every real EchoFlow recording; `live-20260621-003152` remains the
+  clearest slower sample.
 - The product path does not yet use the native CrispASR streaming/VAD design
   that motivated the replacement.
 - Static linking currently depends on section garbage collection for test and
@@ -166,7 +236,8 @@ Current CrispASR drawbacks:
 
 qwen-asr-c advantages:
 
-- Faster final decoding on most of the sampled real EchoFlow recordings.
+- Still wins individual real-recording samples and has lower variance on some
+  runs.
 - Existing stream/chunk path is already integrated with token callbacks.
 - Smaller integration surface inside EchoFlow because it was purpose-built for
   Qwen ASR only.
@@ -195,11 +266,11 @@ qwen-asr-c drawbacks:
    metric should be missed utterances, false speech segments, endpoint delay,
    and final committed text impact, not just segment count.
 
-3. Tune CrispSession decoding parameters before changing product defaults.
-   Measure thread counts (`crispThreads` 2/4/8), max tokens, language forcing,
-   and batch/chunk behavior on the same five samples plus at least ten real
-   dictation recordings. The current default `crispThreads=4` is not proven
-   optimal.
+3. Continue CrispSession decoding parameter work, but only promote settings that
+   win across real recordings. `crispThreads=6` is now the default because it
+   improved all sampled clips over 4 threads. `crispMaxNewTokens` is exposed for
+   experiments, but remains default-off because no tested value beat the
+   unlimited/default cap consistently.
 
 4. Add a reproducible ASR comparison benchmark.
    The existing `voice_latency_benchmark` now works for current CrispASR after

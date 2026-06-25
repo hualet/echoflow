@@ -82,6 +82,7 @@ void CrispLiveVoicePipeline::start()
     }
     auto lang = CrispAsrEngine::languageCode(cfg_.language.value_or(""));
     if (!lang.empty()) session_->setLanguage(lang);
+    if (cfg_.crispMaxNewTokens > 0) session_->setMaxNewTokens(cfg_.crispMaxNewTokens);
 
     AudioSegmenterConfig segCfg;
     segCfg.sampleRate = 16000;

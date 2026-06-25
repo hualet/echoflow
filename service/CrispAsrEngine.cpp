@@ -29,6 +29,9 @@ CrispAsrEngine::CrispAsrEngine(Config cfg)
         if (!lang.empty()) {
             session_->setLanguage(lang);
         }
+        if (cfg_.crispMaxNewTokens > 0) {
+            session_->setMaxNewTokens(cfg_.crispMaxNewTokens);
+        }
     }
 }
 
