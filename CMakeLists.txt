@@ -25,7 +25,7 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 #   2. strip all backend if(TARGET ...)/endif() blocks except qwen3_asr
 #      (handles multi-line target_link_libraries with whole-archive etc.)
 execute_process(
-    COMMAND grep -q "CMAKE_CURRENT_SOURCE_DIR/../examples/talk-llama"
+    COMMAND grep -Fq "\${CMAKE_CURRENT_SOURCE_DIR}/../examples/talk-llama"
             "${CMAKE_CURRENT_SOURCE_DIR}/third_party/crispasr/src/CMakeLists.txt"
     RESULT_VARIABLE _already_patched)
 if(_already_patched)
@@ -35,7 +35,7 @@ if(_already_patched)
          sed -i 's|\${CMAKE_SOURCE_DIR}/examples/talk-llama|\${CMAKE_CURRENT_SOURCE_DIR}/../examples/talk-llama|g' CMakeLists.txt && \
          awk '
            /^# Adding a new backend/ { in_section=1 }
-           in_section && /^if \(TARGET / {
+           in_section && /^if [(]TARGET / {
              if (/qwen3_asr/) { print; next }
              depth=1; while (depth>0 && (getline line)>0) {
                if (line ~ /^if /) depth++
@@ -47,6 +47,10 @@ if(_already_patched)
 endif()
 
 add_subdirectory(third_party/crispasr EXCLUDE_FROM_ALL)
+target_compile_definitions(crispasr-lib PRIVATE CRISPASR_QWEN3_ONLY)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(crispasr-lib PRIVATE -ffunction-sections -fdata-sections)
+endif()
 
 add_subdirectory(service)
 add_subdirectory(fcitx-addon)

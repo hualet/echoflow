@@ -20,4 +20,7 @@ target_link_libraries(echoflow_service PUBLIC crispasr-lib)
 
 add_executable(echoflow-service main.cpp)
 target_link_libraries(echoflow-service PRIVATE echoflow_service)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(echoflow-service PRIVATE "LINKER:--gc-sections")
+endif()
 install(TARGETS echoflow-service RUNTIME DESTINATION bin)
