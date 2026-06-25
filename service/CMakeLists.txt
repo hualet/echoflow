@@ -15,23 +15,8 @@ add_library(echoflow_service STATIC
     VoiceSession.cpp)
 
 target_include_directories(echoflow_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_library(crispasr SHARED IMPORTED)
-set_target_properties(crispasr PROPERTIES
-    IMPORTED_LOCATION "$ENV{HOME}/projects/CrispASR/build/src/libcrispasr.so"
-    IMPORTED_SONAME "libcrispasr.so.1"
-    INTERFACE_INCLUDE_DIRECTORIES "$ENV{HOME}/projects/CrispASR/include"
-)
-target_link_libraries(echoflow_service PUBLIC crispasr)
+target_link_libraries(echoflow_service PUBLIC crispasr-lib)
 
 add_executable(echoflow-service main.cpp)
 target_link_libraries(echoflow-service PRIVATE echoflow_service)
-set_target_properties(echoflow-service PROPERTIES
-    BUILD_RPATH "$ORIGIN/../lib:$ENV{HOME}/projects/CrispASR/build/src"
-    INSTALL_RPATH "$ORIGIN/../lib"
-)
 install(TARGETS echoflow-service RUNTIME DESTINATION bin)
-install(DIRECTORY DESTINATION lib)
-# Install libcrispasr alongside
-install(DIRECTORY "$ENV{HOME}/projects/CrispASR/build/src/" DESTINATION lib
-    FILES_MATCHING PATTERN "libcrispasr.so*")

@@ -10,6 +10,7 @@ CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/echoflow}"
 SYSTEMD_USER_DIR="${SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/install-user}"
 BUILD_TYPE="${CMAKE_BUILD_TYPE:-RelWithDebInfo}"
+JOBS="${JOBS:-$(nproc)}"
 START_SERVICES=1
 
 usage() {
@@ -45,7 +46,7 @@ mkdir -p "$STATE_DIR" "$CONFIG_DIR" "$SYSTEMD_USER_DIR"
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"
-cmake --build "$BUILD_DIR"
+cmake --build "$BUILD_DIR" -j "$JOBS"
 cmake --install "$BUILD_DIR"
 
 if [[ ! -e "$CONFIG_DIR/echoflow.conf" ]]; then

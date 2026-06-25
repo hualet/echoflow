@@ -8,6 +8,7 @@ After=graphical-session.target
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/echoflow
+Environment=PATH=@CMAKE_INSTALL_FULL_BINDIR@:/usr/bin:/bin
 ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/echoflow-service
 Restart=on-failure
 
