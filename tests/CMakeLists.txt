@@ -4,6 +4,12 @@
 find_package(Qt6 REQUIRED COMPONENTS Test)
 qt_standard_project_setup()
 
+function(echoflow_enable_dead_strip target)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_link_options(${target} PRIVATE "LINKER:--gc-sections")
+    endif()
+endfunction()
+
 set(ECHOFLOW_TESTS
     test_audio_segmenter
     test_config
@@ -18,6 +24,7 @@ set(ECHOFLOW_TESTS
 foreach(test_target ${ECHOFLOW_TESTS})
     add_executable(${test_target} ${test_target}.cpp)
     target_link_libraries(${test_target} PRIVATE echoflow_service Qt6::Test pthread)
+    echoflow_enable_dead_strip(${test_target})
     add_test(NAME ${test_target} COMMAND ${test_target})
 endforeach()
 
@@ -27,3 +34,4 @@ add_test(NAME spec_tests
 
 add_executable(voice_latency_benchmark benchmarks/voice_latency_benchmark.cpp)
 target_link_libraries(voice_latency_benchmark PRIVATE echoflow_service pthread)
+echoflow_enable_dead_strip(voice_latency_benchmark)
