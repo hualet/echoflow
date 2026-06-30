@@ -19,6 +19,10 @@ option(ECHOFLOW_BUILD_TESTS "Build QTest unit tests + spec tests" ON)
 set(CRISPASR_WASM OFF CACHE BOOL "" FORCE)
 set(CRISPASR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# EchoFlow feeds live PCM (PipeWire) to the ASR engine — it never decodes
+# .opus/.ogg files. Disabling opus skips FetchContent for libopus/libogg/
+# opusfile and the miniaudio opus backend (~145 .o).
+set(CRISPASR_OPUS OFF CACHE BOOL "" FORCE)
 
 # Patch CrispASR for subdirectory use (idempotent):
 #   1. fix CMAKE_SOURCE_DIR → CMAKE_CURRENT_SOURCE_DIR for talk-llama path
@@ -47,6 +51,25 @@ if(_already_patched)
 endif()
 
 add_subdirectory(third_party/crispasr EXCLUDE_FROM_ALL)
+
+# EchoFlow only consumes the qwen3 session API. Keep its C API dispatcher and
+# the compatibility implementation that the dispatcher still references;
+# omit file decoding, device I/O, VAD, diarization, alignment, enhancement,
+# chat, and other library surfaces. Adjust the target after CrispASR declares
+# it instead of rewriting submodule files, so no-op install-user.sh builds do
+# not see changed source mtimes.
+get_target_property(_crispasr_sources crispasr-lib SOURCES)
+list(FILTER _crispasr_sources INCLUDE REGEX "(^|/)(crispasr|crispasr_c_api)\\.cpp$")
+set_property(TARGET crispasr-lib PROPERTY SOURCES "${_crispasr_sources}")
+
+get_target_property(_crispasr_links crispasr-lib LINK_LIBRARIES)
+list(FILTER _crispasr_links EXCLUDE REGEX "audioseal|snac|crispasr-llama-core")
+set_property(TARGET crispasr-lib PROPERTY LINK_LIBRARIES "${_crispasr_links}")
+
+get_target_property(_crispasr_interface_links crispasr-lib INTERFACE_LINK_LIBRARIES)
+list(FILTER _crispasr_interface_links EXCLUDE REGEX "audioseal|snac|crispasr-llama-core")
+set_property(TARGET crispasr-lib PROPERTY INTERFACE_LINK_LIBRARIES "${_crispasr_interface_links}")
+
 target_compile_definitions(crispasr-lib PRIVATE CRISPASR_QWEN3_ONLY)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(crispasr-lib PRIVATE -ffunction-sections -fdata-sections)

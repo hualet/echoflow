@@ -44,6 +44,11 @@ assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow.servic
 assert_contains "$ROOT/install-user.sh" '$BUILD_DIR/systemd/user/echoflow-ui.service' "install-user.sh installs configured UI service unit"
 
 assert_absent "$ROOT/CMakeLists.txt" "qwen-asr-runtime" "top-level no longer builds qwen-asr-runtime"
+assert_contains "$ROOT/CMakeLists.txt" 'set(CRISPASR_OPUS OFF CACHE BOOL "" FORCE)' "EchoFlow disables unused CrispASR Opus decoding"
+assert_contains "$ROOT/CMakeLists.txt" 'list(FILTER _crispasr_sources INCLUDE REGEX "(^|/)(crispasr|crispasr_c_api)\\.cpp$")' "EchoFlow only compiles the required CrispASR session sources"
+assert_contains "$ROOT/CMakeLists.txt" 'EXCLUDE REGEX "audioseal|snac|crispasr-llama-core"' "EchoFlow filters unused CrispASR link dependencies"
+assert_contains "$ROOT/CMakeLists.txt" 'list(FILTER _crispasr_interface_links EXCLUDE REGEX' "EchoFlow filters transitive CrispASR link dependencies"
+assert_absent "$ROOT/CMakeLists.txt" 'file(WRITE "${_crispasr_cmakelists}"' "CMake configure does not rewrite CrispASR sources"
 assert_absent "$ROOT/service/CMakeLists.txt" "qwen_asr" "service no longer links qwen_asr"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(fcitx-addon)" "top-level builds fcitx-addon"
 assert_contains "$ROOT/CMakeLists.txt" "add_subdirectory(ui-host)" "top-level builds ui-host"
