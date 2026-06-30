@@ -4,6 +4,7 @@
 import QtQuick 2.15
 import QtQuick.Window 2.15
 import QtQuick.Controls 2.15
+import org.deepin.dtk 1.0 as D
 
 // Single fixed-position voice capsule. Morphs between idle (hint + mic button),
 // recording (waveform + pause button), and transcribing (status text). When idle
@@ -13,6 +14,7 @@ Window {
     id: root
     flags: Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
     color: "transparent"
+    D.DWindow.enableBlurWindow: true
     visible: false
 
     property string message: ""
@@ -20,6 +22,16 @@ Window {
     property int targetX: 0
     property int targetY: 0
     readonly property color capsuleBackground: typeof theme !== "undefined" ? theme.capsuleBackground : "#232629"
+    readonly property color capsuleBlend: Qt.rgba(capsuleBackground.r,
+                                                   capsuleBackground.g,
+                                                   capsuleBackground.b,
+                                                   D.DTK.themeType === D.ApplicationHelper.DarkType ? 0.6 : 0.4)
+    readonly property color capsuleOutsideBorder: D.DTK.themeType === D.ApplicationHelper.DarkType
+                                                    ? Qt.rgba(0, 0, 0, 0.6)
+                                                    : Qt.rgba(0, 0, 0, 0.1)
+    readonly property color capsuleInsideBorder: D.DTK.themeType === D.ApplicationHelper.DarkType
+                                                   ? Qt.rgba(1, 1, 1, 0.1)
+                                                   : Qt.rgba(1, 1, 1, 0.2)
     readonly property color capsuleBorder: typeof theme !== "undefined" ? theme.capsuleBorder : "#3f4348"
     readonly property color capsuleText: typeof theme !== "undefined" ? theme.capsuleText : "#f4f6f8"
     readonly property color accent: typeof theme !== "undefined" ? theme.accent : "#0081ff"
@@ -127,10 +139,8 @@ Window {
 
         height: kHeight
         radius: kRadius
-        color: root.capsuleBackground
-        border.color: root.capsuleBorder
-        border.width: 1
-        clip: true
+        color: "transparent"
+        clip: false
 
         width: root.recording
                ? waveArea.width + kHPad + (root.hasLiveText ? kGap + liveText.width : 0)
@@ -141,6 +151,27 @@ Window {
 
         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
         Behavior on opacity { NumberAnimation { duration: capsule.opacityAnimationDuration; easing.type: Easing.InOutQuad } }
+
+        D.StyledBehindWindowBlur {
+            anchors.fill: parent
+            control: root
+            cornerRadius: capsule.kRadius
+            blendColor: root.capsuleBlend
+        }
+
+        D.OutsideBoxBorder {
+            anchors.fill: parent
+            radius: capsule.kRadius
+            color: root.capsuleOutsideBorder
+            z: D.DTK.AboveOrder
+        }
+
+        D.InsideBoxBorder {
+            anchors.fill: parent
+            radius: capsule.kRadius
+            color: root.capsuleInsideBorder
+            z: D.DTK.AboveOrder
+        }
 
         // ---- recording: waveform (left) ----
         Item {

@@ -99,6 +99,12 @@ assert_absent "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.strip_trai
 assert_contains "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.stream_transcription" "EchoFlowSettings writes stream transcription default"
 assert_contains "$ROOT/service/main.cpp" "PipeWireRecorder" "service keeps non-stream recorder path"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "opacityAnimationDuration = 500" "tooltip appears with 500ms opacity animation"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "import org.deepin.dtk 1.0 as D" "tooltip imports DTK QML controls"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enableBlurWindow: true" "tooltip enables window blur"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.StyledBehindWindowBlur" "capsule uses DTK background blur"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.OutsideBoxBorder" "capsule uses notification-style outside border"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.InsideBoxBorder" "capsule uses notification-style inside border"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "org.deepin.ds.notification" "capsule avoids shell-private notification dependency"
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
