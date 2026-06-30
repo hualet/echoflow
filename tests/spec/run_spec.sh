@@ -100,7 +100,7 @@ assert_contains "$ROOT/ui-host/EchoFlowSettings.cpp" "basic.recognition.stream_t
 assert_contains "$ROOT/service/main.cpp" "PipeWireRecorder" "service keeps non-stream recorder path"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "opacityAnimationDuration = 500" "tooltip appears with 500ms opacity animation"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "import org.deepin.dtk 1.0 as D" "tooltip imports DTK QML controls"
-assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enableBlurWindow: true" "tooltip enables window blur"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enableBlurWindow: root.visible && capsule.opacity > 0" "tooltip blur follows capsule visibility"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enabled: true" "tooltip enables DTK window handling"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.windowRadius: capsule.kRadius" "tooltip window radius matches capsule"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.StyledBehindWindowBlur" "capsule uses DTK background blur"
