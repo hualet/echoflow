@@ -15,6 +15,8 @@ Window {
     flags: Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
     color: "transparent"
     D.DWindow.enableBlurWindow: true
+    D.DWindow.enabled: true
+    D.DWindow.windowRadius: capsule.kRadius
     visible: false
 
     property string message: ""
