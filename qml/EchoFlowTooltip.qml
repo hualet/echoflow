@@ -43,8 +43,8 @@ Window {
     readonly property bool idle: root.visible && !root.busy
 
     // (targetX, targetY) is the capsule's bottom-center anchor.
-    width: capsule.width + 16
-    height: capsule.height + 16
+    width: capsule.width
+    height: capsule.height
     x: targetX - width / 2
     y: targetY - height
 

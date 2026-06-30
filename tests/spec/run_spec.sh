@@ -105,6 +105,10 @@ assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.StyledBehindWindowBlur" "caps
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.OutsideBoxBorder" "capsule uses notification-style outside border"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.InsideBoxBorder" "capsule uses notification-style inside border"
 assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "org.deepin.ds.notification" "capsule avoids shell-private notification dependency"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "width: capsule.width" "tooltip window width matches capsule"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "height: capsule.height" "tooltip window height matches capsule"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.width + 16" "tooltip has no horizontal blur margin"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.height + 16" "tooltip has no vertical blur margin"
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
