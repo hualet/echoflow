@@ -3,7 +3,10 @@
 
 #include "SegmentAsrWorker.h"
 #include "LiveSegmentCoordinator.h"
+#include "LiveDebugRecorder.h"
 
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <chrono>
@@ -23,6 +26,7 @@ private slots:
     void slowTranscriberPreservesOrderAndEverySegment();
     void sustainedInputIsPreservedWhileTranscriptionIsSlow();
     void completedSegmentsPublishAccumulatedTextBeforeFinish();
+    void debugRecorderWritesExactPcmAndMetrics();
 };
 
 void TestSegmentAsrWorker::slowTranscriberPreservesOrderAndEverySegment()
@@ -45,6 +49,38 @@ void TestSegmentAsrWorker::slowTranscriberPreservesOrderAndEverySegment()
     QCOMPARE(worker.enqueuedCount(), size_t(12));
     QCOMPARE(worker.completedCount(), size_t(12));
     QVERIFY(worker.highWaterMark() > 1);
+}
+
+void TestSegmentAsrWorker::debugRecorderWritesExactPcmAndMetrics()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    LiveDebugRecorder recorder(dir.path().toStdString());
+    recorder.start();
+    std::vector<int16_t> samples(32000, int16_t(1234));
+    recorder.append(samples.data(), samples.size());
+    LivePipelineMetrics metrics;
+    metrics.inputSamples = samples.size();
+    metrics.segmentSamples = samples.size();
+    metrics.enqueuedSegments = 2;
+    metrics.asrQueueHighWaterMark = 1;
+    recorder.finish(metrics, {"第一段", "第二段"});
+
+    QFile wav(QString::fromStdString(recorder.wavPath().string()));
+    QVERIFY(wav.open(QIODevice::ReadOnly));
+    QCOMPARE(wav.size(), qint64(44 + samples.size() * sizeof(int16_t)));
+    const QByteArray wavBytes = wav.readAll();
+    QCOMPARE(wavBytes.mid(0, 4), QByteArray("RIFF"));
+    QCOMPARE(wavBytes.mid(8, 4), QByteArray("WAVE"));
+    QCOMPARE(wavBytes.mid(36, 4), QByteArray("data"));
+
+    QFile metadata(QString::fromStdString(recorder.metadataPath().string()));
+    QVERIFY(metadata.open(QIODevice::ReadOnly));
+    const QByteArray json = metadata.readAll();
+    QVERIFY(json.contains("\"captured_samples\":32000"));
+    QVERIFY(json.contains("\"segment_samples\":32000"));
+    QVERIFY(json.contains("\"audio_dropped\":false"));
+    QVERIFY(json.contains("第一段 第二段"));
 }
 
 void TestSegmentAsrWorker::completedSegmentsPublishAccumulatedTextBeforeFinish()

@@ -5,6 +5,7 @@
 
 #include "CrispAsrEngine.h"
 #include "CrispSession.h"
+#include "LiveDebugRecorder.h"
 #include "Recorder.h"
 #include "log.h"
 
@@ -109,6 +110,10 @@ void CrispLiveVoicePipeline::start()
             emitText(joinText(results));
         });
     coordinator_->start();
+    if (cfg_.saveLiveDebugAudio) {
+        debugRecorder_ = std::make_unique<LiveDebugRecorder>(cfg_.recordingsDir);
+        debugRecorder_->start();
+    }
 
     int pipeFds[2] = {-1, -1};
     if (pipe(pipeFds) != 0)
@@ -180,6 +185,9 @@ void CrispLiveVoicePipeline::readerLoop()
                 }
                 if (offset < byteCount) { carry = buf[offset]; hasCarry = true; }
 
+                if (debugRecorder_) {
+                    debugRecorder_->append(samples.data(), samples.size());
+                }
                 if (!coordinator_ || !coordinator_->append(samples.data(), samples.size())) {
                     throw std::runtime_error("live segment queue stopped accepting audio");
                 }
@@ -209,9 +217,15 @@ std::string CrispLiveVoicePipeline::finish()
 
     std::string finalText;
     if (!cancelled_ && coordinator_) {
-        finalText = joinText(coordinator_->finish());
+        const std::vector<std::string> results = coordinator_->finish();
+        finalText = joinText(results);
+        if (debugRecorder_) {
+            debugRecorder_->finish(coordinator_->metrics(), results);
+            log("live debug audio saved: " + debugRecorder_->wavPath().string());
+        }
     }
     active_ = false;
+    debugRecorder_.reset();
     coordinator_.reset();
     session_.reset();
     log("crisp live finish in " + std::to_string(elapsedSeconds(finishStarted)) +
@@ -230,6 +244,7 @@ void CrispLiveVoicePipeline::cancel()
         active_ = false;
         if (coordinator_) coordinator_->cancel();
         coordinator_.reset();
+        debugRecorder_.reset();
         session_.reset();
     } catch (const std::exception& e) {
         log(std::string("crisp pipeline cancel failed: ") + e.what());

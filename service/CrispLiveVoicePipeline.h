@@ -20,6 +20,7 @@
 namespace echoflow {
 
 class CrispSession;
+class LiveDebugRecorder;
 
 class CrispLiveVoicePipeline : public ILiveVoicePipeline {
 public:
@@ -49,6 +50,7 @@ private:
     mutable std::mutex callbackMutex_;
 
     std::unique_ptr<LiveSegmentCoordinator> coordinator_;
+    std::unique_ptr<LiveDebugRecorder> debugRecorder_;
 
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};
