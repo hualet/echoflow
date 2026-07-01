@@ -203,15 +203,29 @@ Window {
                     var barW = capsule.kWaveBarWidth
                     var gap = capsule.kWaveSpacing
                     var h = waveArea.height
+                    // Build a rounded-rect path with arcTo (Qt Quick's Context2D
+                    // has no roundedRect), then fill it once per bar.
+                    var r = barW / 2
+                    var roundBar = function(x, y, bw, bh) {
+                        ctx.beginPath()
+                        ctx.moveTo(x + r, y)
+                        ctx.lineTo(x + bw - r, y)
+                        ctx.arcTo(x + bw, y, x + bw, y + r, r)
+                        ctx.lineTo(x + bw, y + bh - r)
+                        ctx.arcTo(x + bw, y + bh, x + bw - r, y + bh, r)
+                        ctx.lineTo(x + r, y + bh)
+                        ctx.arcTo(x, y + bh, x, y + bh - r, r)
+                        ctx.lineTo(x, y + r)
+                        ctx.arcTo(x, y, x + r, y, r)
+                        ctx.closePath()
+                    }
                     for (var i = 0; i < n; ++i) {
                         var amp = waveAnim.amplitudes.length === n
                                   ? waveAnim.amplitudes[i] : 0.5
                         var barH = waveCanvas.peaks[i] * h * (0.45 + 0.55 * amp)
                         var x = i * (barW + gap)
                         var y = (h - barH) / 2
-                        // rounded capsule bars
-                        ctx.beginPath()
-                        ctx.roundedRect(x, y, barW, barH, barW / 2)
+                        roundBar(x, y, barW, barH)
                         ctx.fill()
                     }
                 }
@@ -310,6 +324,7 @@ Window {
                 next.push(cur + (target - cur) * 0.55)
             }
             waveAnim.amplitudes = next
+            waveCanvas.requestPaint()
         }
     }
 
