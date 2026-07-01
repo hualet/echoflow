@@ -188,6 +188,16 @@ not complete, so the active user service has not yet been replaced by this
 candidate. Installed microphone/Fcitx validation remains an explicit release
 gate.
 
+On 2026-07-01 at 13:19, the active installed binary was verified as the older
+June 30 build (`SHA256 976a33b2...`), not the candidate build
+(`SHA256 61927613...`). Two live runs on that installed baseline measured:
+
+- 16.368 seconds recording, 4.937 seconds from stop to finish;
+- 4.086 seconds recording, 3.227 seconds from stop to finish.
+
+These measurements confirm the reported latency but cannot evaluate the new
+capture/ASR queue until installation permission is granted.
+
 ## Acceptance Status
 
 | Gate | Status | Evidence |
