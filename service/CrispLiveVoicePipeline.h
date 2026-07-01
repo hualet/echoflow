@@ -4,9 +4,9 @@
 #ifndef ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 #define ECHOFLOW_CRISP_LIVE_VOICE_PIPELINE_H
 
-#include "AudioSegmenter.h"
 #include "Config.h"
 #include "Interfaces.h"
+#include "LiveSegmentCoordinator.h"
 
 #include <atomic>
 #include <chrono>
@@ -16,7 +16,6 @@
 #include <string>
 #include <sys/types.h>
 #include <thread>
-#include <vector>
 
 namespace echoflow {
 
@@ -49,9 +48,7 @@ private:
     std::function<void(const std::string&)> partialTextCallback_;
     mutable std::mutex callbackMutex_;
 
-    mutable std::mutex segmentMutex_;
-    std::unique_ptr<AudioSegmenter> segmenter_;
-    std::vector<std::string> results_;
+    std::unique_ptr<LiveSegmentCoordinator> coordinator_;
 
     std::atomic<bool> active_{false};
     std::atomic<bool> cancelled_{false};

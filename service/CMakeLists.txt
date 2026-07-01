@@ -8,6 +8,7 @@ add_library(echoflow_service STATIC
     CrispAsrEngine.cpp
     CrispLiveVoicePipeline.cpp
     CrispSession.cpp
+    LiveSegmentCoordinator.cpp
     Recorder.cpp
     SegmentAsrWorker.cpp
     SelfTest.cpp

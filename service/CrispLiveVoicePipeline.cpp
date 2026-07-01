@@ -51,6 +51,19 @@ std::vector<float> toFloat32(const std::vector<int16_t>& s16)
     return out;
 }
 
+std::string joinText(const std::vector<std::string>& results)
+{
+    std::string joined;
+    for (const auto& text : results) {
+        if (!text.empty()) {
+            if (!joined.empty() && joined.back() != ' ' && text.front() != ' ')
+                joined += " ";
+            joined += text;
+        }
+    }
+    return joined;
+}
+
 }  // namespace
 
 CrispLiveVoicePipeline::CrispLiveVoicePipeline(Config cfg)
@@ -86,7 +99,16 @@ void CrispLiveVoicePipeline::start()
 
     AudioSegmenterConfig segCfg;
     segCfg.sampleRate = 16000;
-    segmenter_ = std::make_unique<AudioSegmenter>(segCfg);
+    coordinator_ = std::make_unique<LiveSegmentCoordinator>(
+        segCfg,
+        [this](const AudioSegment& segment) {
+            auto f32 = toFloat32(segment.samples);
+            return session_->transcribe(f32.data(), static_cast<int>(f32.size()));
+        },
+        [this](const std::vector<std::string>& results) {
+            emitText(joinText(results));
+        });
+    coordinator_->start();
 
     int pipeFds[2] = {-1, -1};
     if (pipe(pipeFds) != 0)
@@ -122,10 +144,6 @@ void CrispLiveVoicePipeline::start()
     recorderChild_ = pid;
     readFd_ = readFd;
     cancelled_ = false;
-    {
-        std::lock_guard<std::mutex> lock(segmentMutex_);
-        results_.clear();
-    }
     startedAt_ = Clock::now();
     active_ = true;
 
@@ -162,52 +180,14 @@ void CrispLiveVoicePipeline::readerLoop()
                 }
                 if (offset < byteCount) { carry = buf[offset]; hasCarry = true; }
 
-                // Feed through energy-VAD segmenter
-                auto segments = segmenter_->append(samples.data(), samples.size());
-
-                // Transcribe completed segments with warm model
-                if (!segments.empty() && session_) {
-                    for (auto& seg : segments) {
-                        auto f32 = toFloat32(seg.samples);
-                        std::string text = session_->transcribe(
-                            f32.data(), static_cast<int>(f32.size()));
-                        {
-                            std::lock_guard<std::mutex> lock(segmentMutex_);
-                            if (!text.empty()) results_.push_back(text);
-                        }
-                    }
-                    // Emit accumulated text as partial
-                    std::string joined;
-                    {
-                        std::lock_guard<std::mutex> lock(segmentMutex_);
-                        for (const auto& r : results_) {
-                            if (!r.empty()) {
-                                if (!joined.empty() && joined.back() != ' ' && r.front() != ' ')
-                                    joined += " ";
-                                joined += r;
-                            }
-                        }
-                    }
-                    emitText(joined);
+                if (!coordinator_ || !coordinator_->append(samples.data(), samples.size())) {
+                    throw std::runtime_error("live segment queue stopped accepting audio");
                 }
                 continue;
             }
             if (n == 0) break;
             if (errno == EINTR) continue;
             break;
-        }
-        // Flush any remaining open segment
-        if (!cancelled_ && segmenter_) {
-            auto remaining = segmenter_->flush();
-            if (remaining.has_value() && session_) {
-                auto f32 = toFloat32(remaining->samples);
-                std::string text = session_->transcribe(
-                    f32.data(), static_cast<int>(f32.size()));
-                if (!text.empty()) {
-                    std::lock_guard<std::mutex> lock(segmentMutex_);
-                    results_.push_back(text);
-                }
-            }
         }
     } catch (const std::exception& e) {
         log(std::string("crisp live reader failed: ") + e.what());
@@ -224,22 +204,15 @@ std::string CrispLiveVoicePipeline::finish()
 
     stopRecorder();
     reapChild(recorderChild_);
-    close(readFd_); readFd_ = -1;
     if (readerThread_.joinable()) readerThread_.join();
+    if (readFd_ != -1) { close(readFd_); readFd_ = -1; }
 
     std::string finalText;
-    if (!cancelled_) {
-        std::lock_guard<std::mutex> lock(segmentMutex_);
-        for (const auto& r : results_) {
-            if (!r.empty()) {
-                if (!finalText.empty() && finalText.back() != ' ' && r.front() != ' ')
-                    finalText += " ";
-                finalText += r;
-            }
-        }
+    if (!cancelled_ && coordinator_) {
+        finalText = joinText(coordinator_->finish());
     }
     active_ = false;
-    segmenter_.reset();
+    coordinator_.reset();
     session_.reset();
     log("crisp live finish in " + std::to_string(elapsedSeconds(finishStarted)) +
         "s, chars=" + std::to_string(finalText.size()));
@@ -255,7 +228,8 @@ void CrispLiveVoicePipeline::cancel()
         if (readFd_ != -1) { close(readFd_); readFd_ = -1; }
         if (readerThread_.joinable()) readerThread_.join();
         active_ = false;
-        segmenter_.reset();
+        if (coordinator_) coordinator_->cancel();
+        coordinator_.reset();
         session_.reset();
     } catch (const std::exception& e) {
         log(std::string("crisp pipeline cancel failed: ") + e.what());

@@ -21,8 +21,9 @@ namespace echoflow {
 class SegmentAsrWorker {
 public:
     using Transcribe = std::function<std::string(const AudioSegment&)>;
+    using ResultCallback = std::function<void(const std::vector<std::string>&)>;
 
-    explicit SegmentAsrWorker(Transcribe transcribe);
+    explicit SegmentAsrWorker(Transcribe transcribe, ResultCallback callback = {});
     ~SegmentAsrWorker();
 
     SegmentAsrWorker(const SegmentAsrWorker&) = delete;
@@ -41,6 +42,7 @@ private:
     void run();
 
     Transcribe transcribe_;
+    ResultCallback callback_;
     mutable std::mutex mutex_;
     std::condition_variable ready_;
     std::deque<AudioSegment> queue_;

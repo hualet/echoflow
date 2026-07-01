@@ -9,8 +9,9 @@
 
 namespace echoflow {
 
-SegmentAsrWorker::SegmentAsrWorker(Transcribe transcribe)
+SegmentAsrWorker::SegmentAsrWorker(Transcribe transcribe, ResultCallback callback)
     : transcribe_(std::move(transcribe))
+    , callback_(std::move(callback))
 {
     if (!transcribe_) {
         throw std::invalid_argument("segment transcriber is required");
@@ -127,10 +128,17 @@ void SegmentAsrWorker::run()
             }
         }
 
-        std::lock_guard<std::mutex> lock(mutex_);
-        ++completedCount_;
-        if (!text.empty()) {
-            results_.push_back(std::move(text));
+        std::vector<std::string> published;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ++completedCount_;
+            if (!text.empty()) {
+                results_.push_back(std::move(text));
+                published = results_;
+            }
+        }
+        if (!published.empty() && callback_) {
+            callback_(published);
         }
     }
 }
