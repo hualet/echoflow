@@ -149,6 +149,57 @@ text.
 | Better real latency | Candidate live/replay comparison not run yet | Pending |
 | Better long-dictation CER | 30/60-second labeled samples not run yet | Pending |
 
+## Long-Duration Replay
+
+To exercise queue draining and ordered assembly beyond the original recordings,
+`live-20260621-003152.wav` was concatenated twice and four times without
+re-encoding. This produces deterministic 34.642-second and 69.284-second inputs
+whose repeated reference text makes omissions and ordering errors visible.
+
+| Duration | Segments | First stable text | Stop latency | CER | Result |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 34.642 s | 8 | 3.235 s | 0 ms | 16.88% | Both repetitions present and ordered |
+| 69.284 s | 16 | 3.127 s | 0 ms | 16.77% | All four repetitions present and ordered |
+
+The residual CER is punctuation/spacing plus two `上屏` → `上平` substitutions;
+there is no missing repetition or tail truncation. Raw output is
+`/tmp/echoflow-vad-long-candidate.jsonl`.
+
+This is a long-duration regression fixture, not a substitute for a fresh human
+30/60-second dictation: it repeats one known recording and contains its natural
+inter-utterance silence.
+
+## Verification
+
+Repository verification on candidate `f79e7e9` plus the final report edits:
+
+- `cmake --build build -j 8`: pass;
+- `ctest --test-dir build --output-on-failure`: 14/14 pass outside the socket-restricted sandbox;
+- `bash -n install-user.sh uninstall-user.sh tests/spec/*.sh`: pass;
+- `sh -n run.sh`: pass;
+- `tests/spec/run_spec.sh`: 90/90 pass;
+- default config JSON parses with `vad_backend=energy`, ratio 3, RMS40, and
+  500 ms forced-boundary overlap.
+
+The isolated build's self-test passes model and runtime-path checks; its
+recordings-directory check is blocked only inside the filesystem sandbox.
+Installing to `~/.local` was requested but the privilege approval channel did
+not complete, so the active user service has not yet been replaced by this
+candidate. Installed microphone/Fcitx validation remains an explicit release
+gate.
+
+## Acceptance Status
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| No silent PCM loss under slow ASR | Pass | 640,000 input and covered samples, 40 ordered segments |
+| Better transcript completeness | Pass on current replay set | CER 35.71% → 29.37%; quiet tail recovered |
+| No long-result truncation | Pass on deterministic replay | 34/69-second ordered output, zero stop backlog |
+| Neural VAD beats fallback | Fail; not promoted | Silero threshold tradeoffs documented above |
+| First stable/stop latency preserved | Pass in replay timeline | Baseline-like early boundaries; 0-348 ms stop backlog |
+| Independently labeled VAD miss/false rate | Pending | Existing private clips lack speech interval labels |
+| Installed microphone and Fcitx commit | Pending | Candidate installation awaits external write approval |
+
 ## Next Measurements
 
 1. Build a labeled manifest containing quiet speech, short interjections,
@@ -158,4 +209,5 @@ text.
 4. Run installed microphone capture with opt-in debug audio and compare sample
    count with wall-clock duration.
 5. Complete acceptance tables for VAD miss rate, false activation, endpoint
-   delay, first stable text, stop latency, CER, and boundary duplication.
+   delay, and installed microphone behavior. CER, replay latency, sample
+   preservation, and boundary duplication already have candidate evidence.
