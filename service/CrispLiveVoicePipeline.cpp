@@ -146,6 +146,7 @@ void CrispLiveVoicePipeline::start()
     recorderChild_ = pid;
     readFd_ = readFd;
     cancelled_ = false;
+    readerError_ = nullptr;
     startedAt_ = Clock::now();
     active_ = true;
 
@@ -195,8 +196,10 @@ void CrispLiveVoicePipeline::readerLoop()
             break;
         }
     } catch (const std::exception& e) {
+        readerError_ = std::current_exception();
         log(std::string("crisp live reader failed: ") + e.what());
     } catch (...) {
+        readerError_ = std::current_exception();
         log("crisp live reader failed");
     }
 }
@@ -211,6 +214,15 @@ std::string CrispLiveVoicePipeline::finish()
     reapChild(recorderChild_);
     if (readerThread_.joinable()) readerThread_.join();
     if (readFd_ != -1) { close(readFd_); readFd_ = -1; }
+
+    if (readerError_) {
+        if (coordinator_) coordinator_->cancel();
+        active_ = false;
+        coordinator_.reset();
+        debugRecorder_.reset();
+        session_.reset();
+        std::rethrow_exception(readerError_);
+    }
 
     std::string finalText;
     if (!cancelled_ && coordinator_) {

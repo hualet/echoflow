@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,6 +47,7 @@ private:
     pid_t recorderChild_ = -1;
     int readFd_ = -1;
     std::thread readerThread_;
+    std::exception_ptr readerError_;
     std::function<void(const std::string&)> partialTextCallback_;
     mutable std::mutex callbackMutex_;
 
