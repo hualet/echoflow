@@ -101,8 +101,6 @@ Window {
                  + kGap + kButtonSize + kHPad   // ✓ button
                : statusLabel.implicitWidth + 2 * kHPad
 
-        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
-
         D.StyledBehindWindowBlur {
             anchors.fill: parent
             control: root
@@ -171,6 +169,9 @@ Window {
         }
 
         // ---- recording: symbolic waveform (always shown, right of the text) ----
+        // Single Canvas draws all bars in one pass — far cheaper than a
+        // Repeater of Rectangles each with its own height animation, and it
+        // avoids per-bar NumberAnimation nodes competing for render budget.
         Item {
             id: waveArea
             anchors {
@@ -182,28 +183,36 @@ Window {
             height: capsule.kWaveHeight
             visible: root.recording
 
-            Row {
-                anchors.centerIn: parent
-                spacing: capsule.kWaveSpacing
-
-                Repeater {
-                    model: capsule.kWaveBars
-                    Item {
-                        width: capsule.kWaveBarWidth
-                        height: waveArea.height
-                        // symmetric, organic peak profile (center tallest)
-                        readonly property real peak: [0.34, 0.66, 1.0, 0.66, 0.34][index]
-
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: capsule.kWaveBarWidth
-                            radius: width / 2
-                            color: root.accent
-                            // animated amplitude as a fraction of peak height
-                            height: parent.peak * waveArea.height * (0.45 + 0.55 * waveAnim.amplitudes[index])
-                            y: (parent.height - height) / 2
-                            Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-                        }
+            Canvas {
+                id: waveCanvas
+                anchors.fill: parent
+                // symmetric, organic peak profile (center tallest)
+                readonly property var peaks: [0.34, 0.66, 1.0, 0.66, 0.34]
+                onPeaksChanged: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                Connections {
+                    target: waveAnim
+                    function onAmplitudesChanged() { waveCanvas.requestPaint() }
+                }
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.fillStyle = root.accent
+                    var n = capsule.kWaveBars
+                    var barW = capsule.kWaveBarWidth
+                    var gap = capsule.kWaveSpacing
+                    var h = waveArea.height
+                    for (var i = 0; i < n; ++i) {
+                        var amp = waveAnim.amplitudes.length === n
+                                  ? waveAnim.amplitudes[i] : 0.5
+                        var barH = waveCanvas.peaks[i] * h * (0.45 + 0.55 * amp)
+                        var x = i * (barW + gap)
+                        var y = (h - barH) / 2
+                        // rounded capsule bars
+                        ctx.beginPath()
+                        ctx.roundedRect(x, y, barW, barH, barW / 2)
+                        ctx.fill()
                     }
                 }
             }
