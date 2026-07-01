@@ -22,6 +22,7 @@ struct AudioSegmenterConfig {
     int forceOverlapMs = 500;
     double speechRatio = 3.0;
     double minSpeechRms = 40.0;
+    double minActiveSpeechRms = 80.0;
 };
 
 struct AudioSegment {
@@ -34,6 +35,16 @@ struct AudioSegment {
     double durationSeconds() const;
 };
 
+struct AudioSegmenterDiagnostics {
+    size_t frameCount = 0;
+    double minFrameRms = 0.0;
+    double maxFrameRms = 0.0;
+    int longestBelow40Ms = 0;
+    int longestBelow80Ms = 0;
+    int longestBelow120Ms = 0;
+    int longestBelow200Ms = 0;
+};
+
 class AudioSegmenter {
 public:
     explicit AudioSegmenter(AudioSegmenterConfig config);
@@ -41,6 +52,7 @@ public:
     std::vector<AudioSegment> append(const int16_t* samples, size_t count);
     std::optional<AudioSegment> flush();
     void reset();
+    AudioSegmenterDiagnostics diagnostics() const;
 
 private:
     size_t samplesForMs(int milliseconds) const;
@@ -63,14 +75,22 @@ private:
 
     double noiseFloor_ = 1.0;
     bool hasNoiseFloor_ = false;
+    bool useElevatedEndpoint_ = false;
     bool active_ = false;
     size_t speechSamples_ = 0;
     size_t trailingSilenceSamples_ = 0;
+    double trailingSilenceRmsSum_ = 0.0;
+    size_t trailingSilenceFrames_ = 0;
     uint64_t processedSamples_ = 0;
     uint64_t segmentStartSample_ = 0;
     std::vector<int16_t> pendingSamples_;
     std::vector<int16_t> prePadding_;
     std::vector<int16_t> segmentSamples_;
+    AudioSegmenterDiagnostics diagnostics_;
+    size_t currentBelow40Frames_ = 0;
+    size_t currentBelow80Frames_ = 0;
+    size_t currentBelow120Frames_ = 0;
+    size_t currentBelow200Frames_ = 0;
 };
 
 }  // namespace echoflow

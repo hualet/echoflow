@@ -3,7 +3,10 @@
 
 #include "SegmentAsrWorker.h"
 
+#include "log.h"
+
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -119,6 +122,7 @@ void SegmentAsrWorker::run()
         }
 
         std::string text;
+        const auto startedAt = std::chrono::steady_clock::now();
         try {
             text = transcribe_(segment);
         } catch (...) {
@@ -129,14 +133,24 @@ void SegmentAsrWorker::run()
         }
 
         std::vector<std::string> published;
+        size_t pendingCount = 0;
+        const size_t characterBytes = text.size();
         {
             std::lock_guard<std::mutex> lock(mutex_);
             ++completedCount_;
+            pendingCount = queue_.size();
             if (!text.empty()) {
                 results_.push_back(std::move(text));
                 published = results_;
             }
         }
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startedAt).count();
+        log("live segment ASR finished: audio_ms="
+            + std::to_string(static_cast<long long>(segment.durationSeconds() * 1000.0))
+            + ", asr_ms=" + std::to_string(elapsedMs)
+            + ", chars=" + std::to_string(characterBytes)
+            + ", pending=" + std::to_string(pendingCount));
         if (!published.empty() && callback_) {
             callback_(published);
         }

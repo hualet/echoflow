@@ -41,7 +41,27 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
     while (pendingSamples_.size() >= frameSamples_) {
         const uint64_t frameStartSample = processedSamples_;
         const double frameRms = rms(pendingSamples_.data(), frameSamples_);
-        const bool speech = isSpeech(frameRms);
+        if (diagnostics_.frameCount == 0) {
+            diagnostics_.minFrameRms = frameRms;
+            diagnostics_.maxFrameRms = frameRms;
+        } else {
+            diagnostics_.minFrameRms = std::min(diagnostics_.minFrameRms, frameRms);
+            diagnostics_.maxFrameRms = std::max(diagnostics_.maxFrameRms, frameRms);
+        }
+        ++diagnostics_.frameCount;
+        const auto updateRun = [this, frameRms](double threshold, size_t& current,
+                                                int& longestMs) {
+            current = frameRms < threshold ? current + 1 : 0;
+            longestMs = std::max(longestMs,
+                                 static_cast<int>(current) * config_.frameMs);
+        };
+        updateRun(40.0, currentBelow40Frames_, diagnostics_.longestBelow40Ms);
+        updateRun(80.0, currentBelow80Frames_, diagnostics_.longestBelow80Ms);
+        updateRun(120.0, currentBelow120Frames_, diagnostics_.longestBelow120Ms);
+        updateRun(200.0, currentBelow200Frames_, diagnostics_.longestBelow200Ms);
+        const bool speech = isSpeech(frameRms)
+            && (!active_ || !useElevatedEndpoint_
+                || frameRms >= config_.minActiveSpeechRms);
 
         if (!active_) {
             if (!speech) {
@@ -53,12 +73,15 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
                     noiseFloor_ = noiseFloor_ * 0.95 + std::max(1.0, frameRms) * 0.05;
                 }
             } else {
+                useElevatedEndpoint_ = !hasNoiseFloor_;
                 active_ = true;
                 segmentStartSample_ = frameStartSample >= prePadding_.size()
                     ? frameStartSample - prePadding_.size()
                     : 0;
                 speechSamples_ = frameSamples_;
                 trailingSilenceSamples_ = 0;
+                trailingSilenceRmsSum_ = 0.0;
+                trailingSilenceFrames_ = 0;
                 segmentSamples_ = prePadding_;
                 segmentSamples_.insert(segmentSamples_.end(),
                                        pendingSamples_.begin(),
@@ -74,8 +97,12 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
             if (speech) {
                 speechSamples_ += frameSamples_;
                 trailingSilenceSamples_ = 0;
+                trailingSilenceRmsSum_ = 0.0;
+                trailingSilenceFrames_ = 0;
             } else {
                 trailingSilenceSamples_ += frameSamples_;
+                trailingSilenceRmsSum_ += frameRms;
+                ++trailingSilenceFrames_;
             }
 
             if (speechSamples_ < minSegmentSamples_
@@ -92,6 +119,8 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
                 active_ = !segmentSamples_.empty();
                 speechSamples_ = active_ ? segmentSamples_.size() : 0;
                 trailingSilenceSamples_ = 0;
+                trailingSilenceRmsSum_ = 0.0;
+                trailingSilenceFrames_ = 0;
             } else if (speechSamples_ >= minSegmentSamples_
                        && trailingSilenceSamples_ >= endSilenceSamples_) {
                 std::optional<AudioSegment> segment = sealWithPostPadding();
@@ -134,14 +163,26 @@ std::optional<AudioSegment> AudioSegmenter::flush() {
 void AudioSegmenter::reset() {
     hasNoiseFloor_ = false;
     noiseFloor_ = 1.0;
+    useElevatedEndpoint_ = false;
     active_ = false;
     speechSamples_ = 0;
     trailingSilenceSamples_ = 0;
+    trailingSilenceRmsSum_ = 0.0;
+    trailingSilenceFrames_ = 0;
     processedSamples_ = 0;
     segmentStartSample_ = 0;
     pendingSamples_.clear();
     prePadding_.clear();
     segmentSamples_.clear();
+    diagnostics_ = {};
+    currentBelow40Frames_ = 0;
+    currentBelow80Frames_ = 0;
+    currentBelow120Frames_ = 0;
+    currentBelow200Frames_ = 0;
+}
+
+AudioSegmenterDiagnostics AudioSegmenter::diagnostics() const {
+    return diagnostics_;
 }
 
 size_t AudioSegmenter::samplesForMs(int milliseconds) const {
@@ -189,8 +230,11 @@ void AudioSegmenter::appendPrePadding(const int16_t* samples, size_t count) {
 void AudioSegmenter::discardActiveSegmentToPrePadding() {
     const std::vector<int16_t> discarded = segmentSamples_;
     active_ = false;
+    useElevatedEndpoint_ = false;
     speechSamples_ = 0;
     trailingSilenceSamples_ = 0;
+    trailingSilenceRmsSum_ = 0.0;
+    trailingSilenceFrames_ = 0;
     segmentSamples_.clear();
     prePadding_.clear();
     appendPrePadding(discarded.data(), discarded.size());
@@ -207,12 +251,25 @@ std::optional<AudioSegment> AudioSegmenter::sealWithPostPadding() {
     const size_t segmentCount = segmentSamples_.size() - std::min(extraSilence, segmentSamples_.size());
     AudioSegment segment = makeSegment(segmentCount);
 
+    if (useElevatedEndpoint_ && trailingSilenceFrames_ > 0) {
+        const double measuredNoise = trailingSilenceRmsSum_
+            / static_cast<double>(trailingSilenceFrames_);
+        const double maximumNoise = config_.speechRatio > 0.0
+            ? config_.minActiveSpeechRms / config_.speechRatio
+            : measuredNoise;
+        noiseFloor_ = std::max(1.0, std::min(measuredNoise, maximumNoise));
+        hasNoiseFloor_ = true;
+    }
+
     const std::vector<int16_t> leftover(segmentSamples_.begin()
                                             + static_cast<std::ptrdiff_t>(segmentCount),
                                         segmentSamples_.end());
     active_ = false;
+    useElevatedEndpoint_ = false;
     speechSamples_ = 0;
     trailingSilenceSamples_ = 0;
+    trailingSilenceRmsSum_ = 0.0;
+    trailingSilenceFrames_ = 0;
     segmentSamples_.clear();
     prePadding_.clear();
     appendPrePadding(leftover.data(), leftover.size());

@@ -13,6 +13,7 @@ class TestTextJoiner : public QObject {
 private slots:
     void removesExactChineseOverlap();
     void preservesNearMatch();
+    void preservesRepeatedCompleteUtterance();
 };
 
 void TestTextJoiner::removesExactChineseOverlap()
@@ -25,6 +26,12 @@ void TestTextJoiner::preservesNearMatch()
 {
     QCOMPARE(joinOverlappingText("输入可能丢字", "输入不应该丢字"),
              std::string("输入可能丢字 输入不应该丢字"));
+}
+
+void TestTextJoiner::preservesRepeatedCompleteUtterance()
+{
+    QCOMPARE(joinOverlappingText("重复测试", "重复测试"),
+             std::string("重复测试 重复测试"));
 }
 
 QTEST_GUILESS_MAIN(TestTextJoiner)

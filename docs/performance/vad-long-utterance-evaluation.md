@@ -208,7 +208,40 @@ capture/ASR queue until installation permission is granted.
 | Neural VAD beats fallback | Fail; not promoted | Silero threshold tradeoffs documented above |
 | First stable/stop latency preserved | Pass in replay timeline | Baseline-like early boundaries; 0-348 ms stop backlog |
 | Independently labeled VAD miss/false rate | Pending | Existing private clips lack speech interval labels |
-| Installed microphone and Fcitx commit | Pending | Candidate installation awaits external write approval |
+| Installed microphone and Fcitx commit | Pass in tested environment | Natural pause segments streamed incrementally; user accepted final behavior |
+
+## Installed Microphone Validation
+
+The final installed validation used the same PipeWire microphone that exposed
+the production failure. Numeric diagnostics showed why the original energy VAD
+did not endpoint: during a four-sentence 7.92-second run, the longest continuous
+energy below RMS40 was only 40 ms, while the longest run below RMS80 was 1.24
+seconds. The 500 ms endpoint could therefore never fire at the original active
+threshold, and the whole recording was decoded only after release.
+
+The selected fix uses separate start and endpoint floors only when recording
+begins before a noise baseline exists: RMS40 still admits quiet speech, while
+RMS80 identifies the measured pauses. Once a pause establishes the noise
+baseline, its contribution to the next start threshold is capped at the RMS80
+equivalent. Complete repeated segment transcripts are preserved rather than
+being mistaken for forced-boundary overlap.
+
+Two final installed runs produced these results:
+
+| Recording | Natural segments | Segment audio | Segment ASR | Partial text growth | Stop work |
+| --- | ---: | --- | --- | --- | ---: |
+| 4.30 s | 2 | 1.48 s, 1.18 s | 600 ms, 541 ms | 12 → 25 bytes | 234 ms |
+| 6.94 s | 2 | 1.72 s, 3.28 s | 631 ms, 1.223 s | 18 → 55 bytes | 372 ms |
+
+Both runs endpointed on natural pauses rather than the eight-second safety
+split. The user reported the final behavior as good after the earlier candidate
+had exposed and then fixed repeated-text removal and an over-raised post-pause
+start threshold.
+
+The installed evidence changes the microphone/Fcitx gate to pass for the tested
+environment. It does not change the remaining limitation: the existing replay
+clips lack independently labeled speech intervals, so a formal VAD miss-rate
+and false-activation-rate claim is still pending.
 
 ## Next Measurements
 

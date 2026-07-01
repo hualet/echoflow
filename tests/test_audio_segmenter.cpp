@@ -40,11 +40,13 @@ private slots:
     void detectsQuietSpeechWithDcOffset();
     void adaptiveNoiseFloorPreventsLowLevelBackgroundFromStartingSpeech();
     void emitsSegmentAfterTrailingSilence();
+    void elevatedBackgroundEndsActiveSpeechWithoutBlockingQuietStart();
     void ignoresVeryShortNoise();
     void discardsShortNoiseBeforeLaterSpeech();
     void includesPreAndPostPadding();
     void forceSplitsLongSpeech();
     void flushReturnsOpenSegment();
+    void reportsEnergyRunsWithoutRetainingAudio();
 };
 
 void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
@@ -60,6 +62,7 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
     QCOMPARE(config.forceOverlapMs, 500);
     QCOMPARE(config.speechRatio, 3.0);
     QCOMPARE(config.minSpeechRms, 40.0);
+    QCOMPARE(config.minActiveSpeechRms, 80.0);
 }
 
 void TestAudioSegmenter::dcOffsetDoesNotStartSpeech() {
@@ -110,6 +113,22 @@ void TestAudioSegmenter::emitsSegmentAfterTrailingSilence() {
     QCOMPARE(segments[0].beginSample, uint64_t(1600));
     QCOMPARE(segments[0].endSample, uint64_t(24000));
     QVERIFY(qAbs(segments[0].durationSeconds() - 1.4) < 0.0001);
+}
+
+void TestAudioSegmenter::elevatedBackgroundEndsActiveSpeechWithoutBlockingQuietStart() {
+    AudioSegmenter segmenter(AudioSegmenterConfig{});
+
+    QCOMPARE(append(segmenter, tone(1.0, 1200)).size(), size_t(0));
+    const std::vector<AudioSegment> segments = append(segmenter, tone(0.8, 60));
+
+    QCOMPARE(segments.size(), size_t(1));
+    QVERIFY(segments[0].durationSeconds() >= 1.0);
+    QVERIFY(segments[0].durationSeconds() < 1.5);
+
+    QCOMPARE(append(segmenter, tone(0.6, 60)).size(), size_t(0));
+    QVERIFY(!segmenter.flush().has_value());
+    QCOMPARE(append(segmenter, tone(0.8, 90)).size(), size_t(0));
+    QVERIFY(segmenter.flush().has_value());
 }
 
 void TestAudioSegmenter::ignoresVeryShortNoise() {
@@ -178,6 +197,23 @@ void TestAudioSegmenter::flushReturnsOpenSegment() {
 
     QVERIFY(segment.has_value());
     QCOMPARE(segment->sampleCount(), size_t(16000));
+}
+
+void TestAudioSegmenter::reportsEnergyRunsWithoutRetainingAudio() {
+    AudioSegmenter segmenter(AudioSegmenterConfig{});
+
+    append(segmenter, tone(0.2, 300));
+    append(segmenter, tone(0.6, 60));
+    append(segmenter, tone(0.2, 300));
+    const AudioSegmenterDiagnostics diagnostics = segmenter.diagnostics();
+
+    QCOMPARE(diagnostics.frameCount, size_t(50));
+    QCOMPARE(diagnostics.minFrameRms, 60.0);
+    QCOMPARE(diagnostics.maxFrameRms, 300.0);
+    QCOMPARE(diagnostics.longestBelow40Ms, 0);
+    QCOMPARE(diagnostics.longestBelow80Ms, 600);
+    QCOMPARE(diagnostics.longestBelow120Ms, 600);
+    QCOMPARE(diagnostics.longestBelow200Ms, 600);
 }
 
 QTEST_GUILESS_MAIN(TestAudioSegmenter)

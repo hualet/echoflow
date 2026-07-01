@@ -104,7 +104,10 @@ void CrispLiveVoicePipeline::start()
             return session_->transcribe(f32.data(), static_cast<int>(f32.size()));
         },
         [this](const std::vector<std::string>& results) {
-            emitText(joinText(results));
+            const std::string text = joinText(results);
+            log("live partial emitted: segments=" + std::to_string(results.size())
+                + ", chars=" + std::to_string(text.size()));
+            emitText(text);
         });
     coordinator_->start();
     if (cfg_.saveLiveDebugAudio) {

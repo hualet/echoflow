@@ -46,6 +46,7 @@ std::string joinOverlappingText(const std::string& stable, const std::string& ne
         }
         if (count == 2) break;
     }
+    if (overlapBytes == next.size()) return stable + " " + next;
     if (overlapBytes > 0) return stable + next.substr(overlapBytes);
     return stable + " " + next;
 }

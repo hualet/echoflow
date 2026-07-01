@@ -3,6 +3,8 @@
 
 #include "LiveSegmentCoordinator.h"
 
+#include "log.h"
+
 #include <utility>
 
 namespace echoflow {
@@ -41,6 +43,14 @@ bool LiveSegmentCoordinator::append(const int16_t* samples, size_t count)
 std::vector<std::string> LiveSegmentCoordinator::finish()
 {
     if (active_) {
+        const AudioSegmenterDiagnostics diagnostics = segmenter_.diagnostics();
+        log("live VAD energy: frames=" + std::to_string(diagnostics.frameCount)
+            + ", min_rms=" + std::to_string(diagnostics.minFrameRms)
+            + ", max_rms=" + std::to_string(diagnostics.maxFrameRms)
+            + ", below40_ms=" + std::to_string(diagnostics.longestBelow40Ms)
+            + ", below80_ms=" + std::to_string(diagnostics.longestBelow80Ms)
+            + ", below120_ms=" + std::to_string(diagnostics.longestBelow120Ms)
+            + ", below200_ms=" + std::to_string(diagnostics.longestBelow200Ms));
         if (auto remaining = segmenter_.flush()) {
             enqueue(std::move(*remaining));
         }
@@ -70,6 +80,9 @@ LivePipelineMetrics LiveSegmentCoordinator::metrics() const
 bool LiveSegmentCoordinator::enqueue(AudioSegment segment)
 {
     const size_t sampleCount = segment.sampleCount();
+    const uint64_t beginSample = segment.beginSample;
+    const uint64_t endSample = segment.endSample;
+    const int sampleRate = segment.sampleRate;
     if (!worker_.enqueue(std::move(segment))) {
         std::lock_guard<std::mutex> lock(mutex_);
         metrics_.audioDropped = true;
@@ -78,6 +91,10 @@ bool LiveSegmentCoordinator::enqueue(AudioSegment segment)
     std::lock_guard<std::mutex> lock(mutex_);
     metrics_.segmentSamples += sampleCount;
     ++metrics_.enqueuedSegments;
+    log("live segment queued: index=" + std::to_string(metrics_.enqueuedSegments)
+        + ", begin_ms=" + std::to_string(beginSample * 1000 / sampleRate)
+        + ", end_ms=" + std::to_string(endSample * 1000 / sampleRate)
+        + ", audio_ms=" + std::to_string(sampleCount * 1000 / sampleRate));
     return true;
 }
 
