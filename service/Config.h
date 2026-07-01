@@ -37,6 +37,8 @@ struct Config {
     std::string crispBackend = "qwen3";
     int crispThreads = 6;
     int crispMaxNewTokens = 0;
+    std::string vadBackend = "energy";
+    std::string vadModelPath;
 
     static Config defaultConfig();
 };

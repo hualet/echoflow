@@ -38,7 +38,7 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         : (modelPath.empty() ? std::string("crisp model path not set")
                              : "missing: " + modelPath);
 
-    return {
+    std::vector<RuntimeCheck> checks = {
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
         {"crisp model available", modelOk, modelDetail},
@@ -49,6 +49,15 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         {"ui socket path parent", fs::exists(uiSocketPath(cfg).parent_path()),
          uiSocketPath(cfg).string()},
     };
+    if (cfg.vadBackend == "silero") {
+        const bool vadOk = !cfg.vadModelPath.empty() && fs::exists(cfg.vadModelPath);
+        checks.push_back({"silero VAD model available", vadOk,
+                          vadOk ? cfg.vadModelPath
+                                : (cfg.vadModelPath.empty()
+                                       ? std::string("silero VAD model path not set")
+                                       : "missing: " + cfg.vadModelPath)});
+    }
+    return checks;
 }
 
 int runSelfTest(const Config& cfg)

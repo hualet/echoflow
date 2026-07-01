@@ -75,6 +75,48 @@ claim.
 Aggregate CER is 35.71%. The two decisive baseline failures are the missing
 latter half of `004142` and the zero-segment short utterance in `122709`.
 
+## Neural VAD Evaluation
+
+CrispASR Silero 6.2.0 (885 KB) was evaluated at thresholds 0.1, 0.2, 0.3,
+0.4, and 0.5 on the same four recordings. The adapter uses the existing
+`crispasr_vad_segments` ABI; no unrelated CrispASR backend was restored.
+
+Important results:
+
+- At 0.5, Silero produced no segment at all for `004142` and `122709`.
+- At 0.2, it fragmented `004142` into six short regions; aggregate CER was
+  36.51%, slightly worse than the 35.71% baseline.
+- At 0.1, it covered the long quiet regions and reduced aggregate CER to
+  15.87%. However, `003152` became one 14.34-second segment whose decode took
+  6.355 seconds, compared with 3.832 seconds for the energy baseline's four
+  progressive segments.
+- No tested Silero threshold detected the short `嗯` recording.
+
+Silero therefore improves transcript completeness only at a threshold that
+materially worsens first-stable-text latency and still does not solve the short
+utterance failure. It remains an explicit advanced/replay backend but is not
+promoted to the production default from this dataset.
+
+Raw result files:
+
+- `/tmp/echoflow-vad-silero-0.1.jsonl`
+- `/tmp/echoflow-vad-silero-0.2.jsonl`
+- `/tmp/echoflow-vad-silero-segments.jsonl`
+
+## Energy Threshold Evaluation
+
+The current minimum RMS of 50 is the main reason quiet regions in `004142` are
+discarded. A scan of speech ratios 1.5, 2.0, 2.5, 3.0, and 4.0 with minimum RMS
+30 recovered speech through 18.08 seconds. Ratio 3.0 is the conservative choice:
+it preserves the existing background-noise test (`RMS 40` over a `RMS 20`
+floor remains non-speech) while retaining quiet `RMS 80` speech.
+
+The ratio-2/RMS-30 transcript run reduced aggregate CER from 35.71% to 21.43%.
+The ratio-3 segment boundaries are effectively identical on this sample set,
+so ratio 3 is selected to reduce false activation risk. The increased total
+decode work reflects recovered speech; with the new asynchronous worker it no
+longer blocks capture.
+
 ## Candidate Evidence So Far
 
 | Requirement | Evidence | Verdict |

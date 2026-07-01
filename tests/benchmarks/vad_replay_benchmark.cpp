@@ -4,6 +4,7 @@
 #include "AudioSegmenter.h"
 #include "Config.h"
 #include "CrispSession.h"
+#include "SileroVadBackend.h"
 #include "VadMetrics.h"
 
 #include <QCoreApplication>
@@ -110,19 +111,30 @@ int main(int argc, char** argv)
     QCoreApplication app(argc, argv);
     std::optional<fs::path> manifestPath;
     std::optional<fs::path> configPath;
+    std::optional<fs::path> vadModelPath;
     std::string backend = "energy";
+    float vadThreshold = 0.5f;
+    double speechRatio = 4.0;
+    double minSpeechRms = 50.0;
+    int endSilenceMs = 500;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--manifest" && i + 1 < argc) manifestPath = fs::path(argv[++i]);
         else if (arg == "--config" && i + 1 < argc) configPath = fs::path(argv[++i]);
         else if (arg == "--backend" && i + 1 < argc) backend = argv[++i];
+        else if (arg == "--vad-model" && i + 1 < argc) vadModelPath = fs::path(argv[++i]);
+        else if (arg == "--threshold" && i + 1 < argc) vadThreshold = std::stof(argv[++i]);
+        else if (arg == "--speech-ratio" && i + 1 < argc) speechRatio = std::stod(argv[++i]);
+        else if (arg == "--min-speech-rms" && i + 1 < argc) minSpeechRms = std::stod(argv[++i]);
+        else if (arg == "--end-silence-ms" && i + 1 < argc) endSilenceMs = std::stoi(argv[++i]);
         else {
             std::fprintf(stderr, "Usage: vad_replay_benchmark --manifest FILE [--backend energy] [--config FILE]\n");
             return 2;
         }
     }
-    if (!manifestPath || backend != "energy") {
-        std::fprintf(stderr, "the current baseline supports --backend energy\n");
+    if (!manifestPath || (backend != "energy" && backend != "silero")
+        || (backend == "silero" && !vadModelPath)) {
+        std::fprintf(stderr, "use --backend energy, or --backend silero --vad-model FILE\n");
         return 2;
     }
 
@@ -154,9 +166,26 @@ int main(int argc, char** argv)
                     std::clamp(sample, -1.0f, 0.999969f) * 32768.0f)));
             }
 
-            echoflow::AudioSegmenter segmenter(echoflow::AudioSegmenterConfig{});
-            std::vector<echoflow::AudioSegment> segments = segmenter.append(pcm.data(), pcm.size());
-            if (auto tail = segmenter.flush()) segments.push_back(std::move(*tail));
+            std::vector<echoflow::AudioSegment> segments;
+            if (backend == "energy") {
+                echoflow::AudioSegmenterConfig segmenterConfig;
+                segmenterConfig.speechRatio = speechRatio;
+                segmenterConfig.minSpeechRms = minSpeechRms;
+                segmenterConfig.endSilenceMs = endSilenceMs;
+                echoflow::AudioSegmenter segmenter(segmenterConfig);
+                segments = segmenter.append(pcm.data(), pcm.size());
+                if (auto tail = segmenter.flush()) segments.push_back(std::move(*tail));
+            } else {
+                echoflow::SileroVadBackend vad(*vadModelPath, vadThreshold);
+                for (const auto& interval : vad.detect(pcm.data(), pcm.size())) {
+                    echoflow::AudioSegment segment;
+                    segment.beginSample = interval.beginSample;
+                    segment.endSample = interval.endSample;
+                    segment.samples.assign(pcm.begin() + static_cast<std::ptrdiff_t>(interval.beginSample),
+                                           pcm.begin() + static_cast<std::ptrdiff_t>(interval.endSample));
+                    segments.push_back(std::move(segment));
+                }
+            }
             std::vector<echoflow::TimeInterval> predicted;
             QString transcript;
             double decodeMs = 0.0;
@@ -182,6 +211,9 @@ int main(int argc, char** argv)
                 ? 0.0 : static_cast<double>(errors) / entry.reference.size();
             QJsonObject output {
                 {"type", "clip"}, {"backend", QString::fromStdString(backend)},
+                {"vad_threshold", vadThreshold},
+                {"speech_ratio", speechRatio}, {"min_speech_rms", minSpeechRms},
+                {"end_silence_ms", endSilenceMs},
                 {"audio", QString::fromStdString(entry.audio.string())},
                 {"condition", entry.condition}, {"duration_s", pcm.size() / 16000.0},
                 {"segments", intervalsToJson(predicted)},
@@ -205,6 +237,9 @@ int main(int argc, char** argv)
 
         writeJsonLine(QJsonObject {
             {"type", "summary"}, {"backend", QString::fromStdString(backend)},
+            {"vad_threshold", vadThreshold},
+            {"speech_ratio", speechRatio}, {"min_speech_rms", minSpeechRms},
+            {"end_silence_ms", endSilenceMs},
             {"clips", clips},
             {"labelled_clips", labelledClips},
             {"miss_rate", totalSpeech > 0.0 ? totalMissed / totalSpeech : 0.0},

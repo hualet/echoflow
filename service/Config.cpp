@@ -196,6 +196,10 @@ Config loadDtkConf(const fs::path& path)
             cfg.crispThreads = std::max(1, std::stoi(val));
         } else if (section == "advanced.crisp.max_new_tokens") {
             cfg.crispMaxNewTokens = std::max(0, std::stoi(val));
+        } else if (section == "advanced.vad.backend") {
+            cfg.vadBackend = val;
+        } else if (section == "advanced.vad.model") {
+            cfg.vadModelPath = val;
         }
     }
 
@@ -207,6 +211,9 @@ Config loadDtkConf(const fs::path& path)
         cfg.crispModelPath = (base / cfg.modelName / (cfg.modelName + "-q4_k.gguf")).string();
     } else {
         cfg.crispModelPath = expandPath(cfg.crispModelPath, base);
+    }
+    if (!cfg.vadModelPath.empty()) {
+        cfg.vadModelPath = expandPath(cfg.vadModelPath, base);
     }
     return cfg;
 }

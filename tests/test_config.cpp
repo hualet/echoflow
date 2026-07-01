@@ -19,6 +19,7 @@ private slots:
     void loadDtkConfIgnoresModelDirKey();
     void loadDtkConfReadsLiveDebugAudioFlag();
     void loadDtkConfReadsStreamTranscriptionFlag();
+    void loadDtkConfReadsVadSettings();
     void loadDtkConfIgnoresUnknownSections();
 };
 
@@ -38,6 +39,22 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(c.openBlasThreads, 4);
     QCOMPARE(c.crispThreads, 6);
     QCOMPARE(c.crispMaxNewTokens, 0);
+    QCOMPARE(QString::fromStdString(c.vadBackend), QStringLiteral("energy"));
+    QVERIFY(c.vadModelPath.empty());
+}
+
+void TestConfig::loadDtkConfReadsVadSettings() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[advanced.vad.backend]\nvalue=silero\n"
+            "[advanced.vad.model]\nvalue=vad/ggml-silero-v6.2.0.bin\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QCOMPARE(QString::fromStdString(c.vadBackend), QStringLiteral("silero"));
+    QCOMPARE(QString::fromStdString(c.vadModelPath),
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "vad/ggml-silero-v6.2.0.bin").string()));
 }
 
 void TestConfig::expandPathResolvesHome() {

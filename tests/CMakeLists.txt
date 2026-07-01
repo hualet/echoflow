@@ -21,6 +21,7 @@ set(ECHOFLOW_TESTS
     test_recorder_command
     test_segment_asr_worker
     test_vad_metrics
+    test_vad_backend
     test_single_instance)
 
 foreach(test_target ${ECHOFLOW_TESTS})

@@ -19,12 +19,25 @@ private slots:
     void runtimeChecksReportsMissingCrispModel();
     void runtimeChecksActionableWhenCrispModelPathEmpty();
     void runtimeChecksPassesWhenCrispModelExists();
+    void runtimeChecksReportsMissingSelectedVadModel();
 };
 
 void TestSelfTest::resolveModelDirIsTrivial() {
     Config c;
     c.modelDir = "/some/derived/path";
     QCOMPARE(resolveModelDir(c), std::filesystem::path("/some/derived/path"));
+}
+
+void TestSelfTest::runtimeChecksReportsMissingSelectedVadModel() {
+    Config c;
+    c.vadBackend = "silero";
+    c.vadModelPath = "/tmp/echoflow-no-such-silero-model.bin";
+    auto checks = runtimeChecks(c);
+    auto it = std::find_if(checks.begin(), checks.end(),
+                           [](const RuntimeCheck& r) { return r.name == "silero VAD model available"; });
+    QVERIFY(it != checks.end());
+    QVERIFY(!it->passed);
+    QVERIFY(it->detail.find("missing:") != std::string::npos);
 }
 
 void TestSelfTest::canCreateDirectoryOnTmp() {
