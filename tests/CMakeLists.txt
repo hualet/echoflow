@@ -20,6 +20,7 @@ set(ECHOFLOW_TESTS
     test_model_catalog
     test_recorder_command
     test_segment_asr_worker
+    test_vad_metrics
     test_single_instance)
 
 foreach(test_target ${ECHOFLOW_TESTS})
@@ -36,3 +37,7 @@ add_test(NAME spec_tests
 add_executable(voice_latency_benchmark benchmarks/voice_latency_benchmark.cpp)
 target_link_libraries(voice_latency_benchmark PRIVATE echoflow_service pthread)
 echoflow_enable_dead_strip(voice_latency_benchmark)
+
+add_executable(vad_replay_benchmark benchmarks/vad_replay_benchmark.cpp)
+target_link_libraries(vad_replay_benchmark PRIVATE echoflow_service Qt6::Core pthread)
+echoflow_enable_dead_strip(vad_replay_benchmark)

@@ -16,6 +16,7 @@ add_library(echoflow_service STATIC
     Server.cpp
     SingleInstance.cpp
     UiNotifier.cpp
+    VadMetrics.cpp
     VoiceSession.cpp)
 
 target_include_directories(echoflow_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

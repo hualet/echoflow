@@ -106,6 +106,8 @@ void TestAudioSegmenter::emitsSegmentAfterTrailingSilence() {
     QCOMPARE(segments.size(), size_t(1));
     QCOMPARE(segments[0].sampleRate, 16000);
     QCOMPARE(segments[0].sampleCount(), size_t(22400));
+    QCOMPARE(segments[0].beginSample, uint64_t(1600));
+    QCOMPARE(segments[0].endSample, uint64_t(24000));
     QVERIFY(qAbs(segments[0].durationSeconds() - 1.4) < 0.0001);
 }
 

@@ -38,6 +38,7 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
 
     pendingSamples_.insert(pendingSamples_.end(), samples, samples + count);
     while (pendingSamples_.size() >= frameSamples_) {
+        const uint64_t frameStartSample = processedSamples_;
         const double frameRms = rms(pendingSamples_.data(), frameSamples_);
         const bool speech = isSpeech(frameRms);
 
@@ -52,6 +53,9 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
                 }
             } else {
                 active_ = true;
+                segmentStartSample_ = frameStartSample >= prePadding_.size()
+                    ? frameStartSample - prePadding_.size()
+                    : 0;
                 speechSamples_ = frameSamples_;
                 trailingSilenceSamples_ = 0;
                 segmentSamples_ = prePadding_;
@@ -81,6 +85,7 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
                 segmentSamples_.erase(segmentSamples_.begin(),
                                       segmentSamples_.begin()
                                           + static_cast<std::ptrdiff_t>(maxSegmentSamples_));
+                segmentStartSample_ += maxSegmentSamples_;
                 active_ = !segmentSamples_.empty();
                 speechSamples_ = active_ ? segmentSamples_.size() : 0;
                 trailingSilenceSamples_ = 0;
@@ -96,6 +101,7 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
         pendingSamples_.erase(pendingSamples_.begin(),
                               pendingSamples_.begin()
                                   + static_cast<std::ptrdiff_t>(frameSamples_));
+        processedSamples_ += frameSamples_;
     }
 
     return emitted;
@@ -128,6 +134,8 @@ void AudioSegmenter::reset() {
     active_ = false;
     speechSamples_ = 0;
     trailingSilenceSamples_ = 0;
+    processedSamples_ = 0;
+    segmentStartSample_ = 0;
     pendingSamples_.clear();
     prePadding_.clear();
     segmentSamples_.clear();
@@ -212,6 +220,8 @@ AudioSegment AudioSegmenter::makeSegment(size_t count) const {
     AudioSegment segment;
     segment.sampleRate = config_.sampleRate;
     const size_t actualCount = std::min(count, segmentSamples_.size());
+    segment.beginSample = segmentStartSample_;
+    segment.endSample = segmentStartSample_ + actualCount;
     segment.samples.assign(segmentSamples_.begin(),
                            segmentSamples_.begin() + static_cast<std::ptrdiff_t>(actualCount));
     return segment;

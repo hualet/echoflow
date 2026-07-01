@@ -25,6 +25,8 @@ struct AudioSegmenterConfig {
 
 struct AudioSegment {
     int sampleRate = 16000;
+    uint64_t beginSample = 0;
+    uint64_t endSample = 0;
     std::vector<int16_t> samples;
 
     size_t sampleCount() const;
@@ -62,6 +64,8 @@ private:
     bool active_ = false;
     size_t speechSamples_ = 0;
     size_t trailingSilenceSamples_ = 0;
+    uint64_t processedSamples_ = 0;
+    uint64_t segmentStartSample_ = 0;
     std::vector<int16_t> pendingSamples_;
     std::vector<int16_t> prePadding_;
     std::vector<int16_t> segmentSamples_;
