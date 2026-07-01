@@ -1,3 +1,19 @@
+echoflow (0.2.1) unstable; urgency=medium
+
+  * Rework the voice capsule so it appears only while recording or
+    transcribing, with a cancel (X) button and a stop-and-transcribe
+    (check) button instead of the old focus-tracking idle hint.
+  * Redesign the recording waveform as a compact symbolic indicator that
+    sits beside the live text, replacing the loud scaling bars.
+  * Improve speech endpointing so the last phrase of a dictation is no
+    longer cut off, and keep quiet and boundary speech from being dropped.
+  * Smooth the capsule's appear and state transitions by removing the
+    width animation that forced expensive per-frame background blur.
+  * Reject stale partial text after a capture failure so corrupted audio
+    never reaches the committed output.
+
+ -- Hualet Wang <hualet@deepin.org>  Wed, 01 Jul 2026 23:42:04 +0800
+
 echoflow (0.2.0) unstable; urgency=medium
 
   * Add live and segmented Qwen transcription so recognition can progress
