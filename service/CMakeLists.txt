@@ -9,6 +9,7 @@ add_library(echoflow_service STATIC
     CrispLiveVoicePipeline.cpp
     CrispSession.cpp
     Recorder.cpp
+    SegmentAsrWorker.cpp
     SelfTest.cpp
     Server.cpp
     SingleInstance.cpp
