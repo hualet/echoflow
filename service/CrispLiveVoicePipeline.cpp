@@ -7,6 +7,7 @@
 #include "CrispSession.h"
 #include "LiveDebugRecorder.h"
 #include "Recorder.h"
+#include "TextJoiner.h"
 #include "log.h"
 
 #include <array>
@@ -56,11 +57,7 @@ std::string joinText(const std::vector<std::string>& results)
 {
     std::string joined;
     for (const auto& text : results) {
-        if (!text.empty()) {
-            if (!joined.empty() && joined.back() != ' ' && text.front() != ' ')
-                joined += " ";
-            joined += text;
-        }
+        if (!text.empty()) joined = joinOverlappingText(joined, text);
     }
     return joined;
 }

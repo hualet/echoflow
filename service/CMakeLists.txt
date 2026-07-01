@@ -16,6 +16,7 @@ add_library(echoflow_service STATIC
     SileroVadBackend.cpp
     Server.cpp
     SingleInstance.cpp
+    TextJoiner.cpp
     UiNotifier.cpp
     VadMetrics.cpp
     VoiceSession.cpp)

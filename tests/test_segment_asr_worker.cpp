@@ -119,6 +119,7 @@ void TestSegmentAsrWorker::sustainedInputIsPreservedWhileTranscriptionIsSlow()
     AudioSegmenterConfig config;
     config.maxSegmentMs = 1000;
     config.minSegmentMs = 200;
+    config.forceOverlapMs = 0;
     LiveSegmentCoordinator coordinator(config, [](const AudioSegment& segment) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         return std::to_string(segment.sampleCount());

@@ -111,11 +111,28 @@ discarded. A scan of speech ratios 1.5, 2.0, 2.5, 3.0, and 4.0 with minimum RMS
 it preserves the existing background-noise test (`RMS 40` over a `RMS 20`
 floor remains non-speech) while retaining quiet `RMS 80` speech.
 
-The ratio-2/RMS-30 transcript run reduced aggregate CER from 35.71% to 21.43%.
-The ratio-3 segment boundaries are effectively identical on this sample set,
-so ratio 3 is selected to reduce false activation risk. The increased total
-decode work reflects recovered speech; with the new asynchronous worker it no
-longer blocks capture.
+The ratio-3/RMS-30 transcript run reduced aggregate CER from 35.71% to 21.43%.
+Ratio 3 is selected to reduce false activation risk. The increased total decode
+work reflects recovered speech; with the new asynchronous worker it no longer
+blocks capture.
+
+| Recording | Baseline CER | Candidate CER | Baseline decode | Candidate decode |
+| --- | ---: | ---: | ---: | ---: |
+| `003152` | 15.79% | 15.79% | 3.832 s | 4.673 s |
+| `004142` | 62.50% | 30.36% | 2.523 s | 5.431 s |
+| `082316` | 9.68% | 9.68% | 2.801 s | 2.888 s |
+| `122709` | 100% | 100% | 0 s | 0 s |
+
+The candidate improves the decisive long-recording omission but performs more
+decode work. File-level summed decode time is not the interactive stop latency:
+in the candidate, these segments decode concurrently with continued capture.
+Installed measurements are still needed to prove first-stable-text and stop
+latency. The report therefore treats the latency gate as pending, not passed.
+
+Forced eight-second boundaries now retain 500 ms of audio overlap. Final text
+removes only an exact UTF-8 suffix/prefix match of at least two code points;
+near-matches are retained to avoid turning uncertain deduplication into missing
+text.
 
 ## Candidate Evidence So Far
 

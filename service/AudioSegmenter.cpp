@@ -27,7 +27,8 @@ AudioSegmenter::AudioSegmenter(AudioSegmenterConfig config)
       minSegmentSamples_(samplesForMs(config_.minSegmentMs)),
       prePaddingSamples_(samplesForMs(config_.prePaddingMs)),
       postPaddingSamples_(samplesForMs(config_.postPaddingMs)),
-      maxSegmentSamples_(samplesForMs(config_.maxSegmentMs)) {
+      maxSegmentSamples_(samplesForMs(config_.maxSegmentMs)),
+      forceOverlapSamples_(samplesForMs(config_.forceOverlapMs)) {
 }
 
 std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t count) {
@@ -82,10 +83,12 @@ std::vector<AudioSegment> AudioSegmenter::append(const int16_t* samples, size_t 
                 discardActiveSegmentToPrePadding();
             } else if (maxSegmentSamples_ > 0 && segmentSamples_.size() >= maxSegmentSamples_) {
                 emitted.push_back(makeSegment(maxSegmentSamples_));
+                const size_t overlap = std::min(forceOverlapSamples_, maxSegmentSamples_ - 1);
+                const size_t consumed = maxSegmentSamples_ - overlap;
                 segmentSamples_.erase(segmentSamples_.begin(),
                                       segmentSamples_.begin()
-                                          + static_cast<std::ptrdiff_t>(maxSegmentSamples_));
-                segmentStartSample_ += maxSegmentSamples_;
+                                          + static_cast<std::ptrdiff_t>(consumed));
+                segmentStartSample_ += consumed;
                 active_ = !segmentSamples_.empty();
                 speechSamples_ = active_ ? segmentSamples_.size() : 0;
                 trailingSilenceSamples_ = 0;

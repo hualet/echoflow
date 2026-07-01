@@ -19,8 +19,9 @@ struct AudioSegmenterConfig {
     int prePaddingMs = 200;
     int postPaddingMs = 200;
     int maxSegmentMs = 8000;
-    double speechRatio = 4.0;
-    double minSpeechRms = 50.0;
+    int forceOverlapMs = 500;
+    double speechRatio = 3.0;
+    double minSpeechRms = 30.0;
 };
 
 struct AudioSegment {
@@ -58,6 +59,7 @@ private:
     size_t prePaddingSamples_ = 0;
     size_t postPaddingSamples_ = 0;
     size_t maxSegmentSamples_ = 0;
+    size_t forceOverlapSamples_ = 0;
 
     double noiseFloor_ = 1.0;
     bool hasNoiseFloor_ = false;

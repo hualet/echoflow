@@ -57,8 +57,9 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
     QCOMPARE(config.prePaddingMs, 200);
     QCOMPARE(config.postPaddingMs, 200);
     QCOMPARE(config.maxSegmentMs, 8000);
-    QCOMPARE(config.speechRatio, 4.0);
-    QCOMPARE(config.minSpeechRms, 50.0);
+    QCOMPARE(config.forceOverlapMs, 500);
+    QCOMPARE(config.speechRatio, 3.0);
+    QCOMPARE(config.minSpeechRms, 30.0);
 }
 
 void TestAudioSegmenter::dcOffsetDoesNotStartSpeech() {
@@ -152,6 +153,7 @@ void TestAudioSegmenter::forceSplitsLongSpeech() {
     AudioSegmenterConfig config;
     config.maxSegmentMs = 1000;
     config.minSegmentMs = 200;
+    config.forceOverlapMs = 200;
     AudioSegmenter segmenter(config);
 
     const std::vector<AudioSegment> segments = append(segmenter, tone(1.2, 3000));
@@ -160,7 +162,11 @@ void TestAudioSegmenter::forceSplitsLongSpeech() {
     QCOMPARE(segments[0].sampleCount(), size_t(16000));
     const std::optional<AudioSegment> tail = segmenter.flush();
     QVERIFY(tail.has_value());
-    QCOMPARE(tail->sampleCount(), size_t(3200));
+    QCOMPARE(tail->sampleCount(), size_t(6400));
+    QCOMPARE(segments[0].beginSample, uint64_t(0));
+    QCOMPARE(segments[0].endSample, uint64_t(16000));
+    QCOMPARE(tail->beginSample, uint64_t(12800));
+    QCOMPARE(tail->endSample, uint64_t(19200));
 }
 
 void TestAudioSegmenter::flushReturnsOpenSegment() {
