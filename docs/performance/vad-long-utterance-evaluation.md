@@ -171,13 +171,13 @@ inter-utterance silence.
 
 ## Verification
 
-Repository verification on candidate `f79e7e9` plus the final report edits:
+Repository verification on candidate `b7473ad`:
 
 - `cmake --build build -j 8`: pass;
 - `ctest --test-dir build --output-on-failure`: 14/14 pass outside the socket-restricted sandbox;
 - `bash -n install-user.sh uninstall-user.sh tests/spec/*.sh`: pass;
 - `sh -n run.sh`: pass;
-- `tests/spec/run_spec.sh`: 90/90 pass;
+- `tests/spec/run_spec.sh`: 92/92 pass;
 - default config JSON parses with `vad_backend=energy`, ratio 3, RMS40, and
   500 ms forced-boundary overlap.
 
