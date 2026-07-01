@@ -208,6 +208,11 @@ public slots:
         sendControlCommand(controlPath_, "CTRL_DOWN");
     }
 
+    // The capsule's X button: discard the recording and hide the capsule.
+    void requestCancel() {
+        sendControlCommand(controlPath_, "CANCEL");
+    }
+
 signals:
     void tooltipChanged(bool visible, const QString &message, bool busy,
                         bool hasPosition, int moveX, int moveY);
@@ -327,27 +332,12 @@ private slots:
 
 private:
     void applyMessage(const QString &message) {
+        // The capsule now appears only when recording starts, so the legacy
+        // SHOW_TOOLTIP (idle hint on input focus) is intentionally ignored.
+        // Kept here so a still-running older service can't bring back the old
+        // focus-tracking capsule.
         if (message.startsWith(QStringLiteral("SHOW_TOOLTIP"))) {
-            recordingStreamActive_ = false;
-            // The capsule is fixed in place; we only parse off any leading
-            // "x y w h" cursor rect the service forwarded to recover the text.
-            QString text = message.mid(QStringLiteral("SHOW_TOOLTIP").size()).trimmed();
-            const QStringList parts = text.split(QChar(' '), Qt::SkipEmptyParts);
-            if (parts.size() >= 4) {
-                bool okX = false, okY = false, okW = false, okH = false;
-                parts.at(0).toInt(&okX);
-                parts.at(1).toInt(&okY);
-                parts.at(2).toInt(&okW);
-                parts.at(3).toInt(&okH);
-                if (okX && okY && okW && okH) {
-                    text = parts.mid(4).join(QChar(' '));
-                }
-            }
-            if (text.isEmpty()) {
-                text = QStringLiteral("按右 Ctrl 语音输入");
-            }
-            const TooltipPos pos = fixedCapsulePosition();
-            controller_->setTooltip(true, text, false, pos.hasPosition, pos.x, pos.y);
+            return;
         } else if (message == QStringLiteral("RECORDING")) {
             recordingStreamActive_ = true;
             const TooltipPos pos = fixedCapsulePosition();

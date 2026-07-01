@@ -6,10 +6,11 @@ import QtQuick.Window 2.15
 import QtQuick.Controls 2.15
 import org.deepin.dtk 1.0 as D
 
-// Single fixed-position voice capsule. Morphs between idle (hint + mic button),
-// recording (waveform + pause button), and transcribing (status text). When idle
-// it fades out in two stages if the mouse is absent; the C++ host hides it
-// outright when the service reports the user is typing.
+// Voice capsule shown only while a recording or transcription is in flight.
+// Appears the moment recording starts and disappears when the session ends
+// (IDLE). During recording the left X button cancels (discard), the right
+// check button stops and starts transcription; a symbolic waveform animates
+// between them. While transcribing it shows centered status text.
 Window {
     id: root
     flags: Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
@@ -42,7 +43,6 @@ Window {
     readonly property bool transcribing: root.busy && root.message === "正在转写"
     readonly property bool recording: root.busy && !root.transcribing
     readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
-    readonly property bool idle: root.visible && !root.busy
 
     // (targetX, targetY) is the capsule's bottom-center anchor.
     width: capsule.width
@@ -50,17 +50,9 @@ Window {
     x: targetX - width / 2
     y: targetY - height
 
-    function stopFade() {
-        appearFade.stop()
-        fadeStage1.stop()
-        fadeStage2.stop()
-        hideAfterFade.stop()
-    }
-
     Connections {
         target: tooltipController
         function onTooltipChanged(visibility, msg, isBusy, hasPosition, moveX, moveY) {
-            var wasVisible = root.visible
             root.message = msg
             root.busy = isBusy
             if (hasPosition) {
@@ -69,54 +61,8 @@ Window {
             }
             if (visibility) {
                 root.visible = true
-                root.stopFade()
-                if (!wasVisible) {
-                    capsule.opacityAnimationDuration = 0
-                    capsule.opacity = 0
-                    appearFade.restart()
-                } else {
-                    capsule.opacityAnimationDuration = 200
-                    capsule.opacity = 1
-                }
-                if (!isBusy) {
-                    fadeStage1.restart()
-                }
+                capsule.opacity = 1
             } else {
-                root.stopFade()
-                root.visible = false
-            }
-        }
-    }
-
-    Timer {
-        id: appearFade
-        interval: 0
-        onTriggered: {
-            capsule.opacityAnimationDuration = 500
-            capsule.opacity = 1
-        }
-    }
-
-    // stage 1: 2s of no mouse interaction -> opacity 0.1
-    Timer {
-        id: fadeStage1
-        interval: 2000
-        onTriggered: { capsule.opacity = 0.1; fadeStage2.restart() }
-    }
-
-    // stage 2: another 2s -> opacity 0, then hide
-    Timer {
-        id: fadeStage2
-        interval: 2000
-        onTriggered: { capsule.opacity = 0; hideAfterFade.start() }
-    }
-
-    // wait for the opacity animation (Behavior below) to finish before hiding
-    Timer {
-        id: hideAfterFade
-        interval: 250
-        onTriggered: {
-            if (root.idle && capsule.opacity === 0) {
                 root.visible = false
             }
         }
@@ -128,31 +74,34 @@ Window {
         anchors.centerIn: parent
 
         readonly property int kHeight: 40
-        readonly property int kButtonSize: 32
+        readonly property int kButtonSize: 28
         readonly property int kRadius: kHeight / 2
-        readonly property int kButtonInset: kRadius - kButtonSize / 2
-        readonly property int kHPad: 14
-        readonly property int kGap: 12
-        readonly property int kWaveBars: 11
-        readonly property int kWaveBarWidth: 4
-        readonly property int kWaveSpacing: 4
+        readonly property int kButtonInset: (kHeight - kButtonSize) / 2
+        readonly property int kHPad: 10
+        readonly property int kGap: 8
+        // symbolic waveform geometry. kWaveHeight caps the tallest bar so the
+        // wave stays roughly level with the 13px text and the 12-14px glyphs.
+        readonly property int kWaveBars: 5
+        readonly property int kWaveBarWidth: 3
+        readonly property int kWaveSpacing: 5
+        readonly property int kWaveHeight: 16
         readonly property int kWaveWidth: kWaveBars * kWaveBarWidth + (kWaveBars - 1) * kWaveSpacing
-        property int opacityAnimationDuration: 200
 
         height: kHeight
         radius: kRadius
         color: "transparent"
         clip: false
 
+        // recording: [pad][X][gap][live text][gap][wave][gap][✓][pad]
+        // transcribing: [ centered status text ]
         width: root.recording
-               ? waveArea.width + kHPad + (root.hasLiveText ? kGap + liveText.width : 0)
-                 + kGap + kButtonSize + kButtonInset
-               : (root.transcribing
-                  ? statusLabel.implicitWidth + 2 * kHPad
-                  : idleHint.implicitWidth + kGap + kButtonSize + kHPad + kButtonInset)
+               ? kHPad + kButtonSize            // X button
+                 + (root.hasLiveText ? kGap + liveText.width : 0)
+                 + kGap + waveArea.width        // waveform (always present)
+                 + kGap + kButtonSize + kHPad   // ✓ button
+               : statusLabel.implicitWidth + 2 * kHPad
 
-        Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
-        Behavior on opacity { NumberAnimation { duration: capsule.opacityAnimationDuration; easing.type: Easing.InOutQuad } }
+        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
 
         D.StyledBehindWindowBlur {
             anchors.fill: parent
@@ -175,16 +124,62 @@ Window {
             z: D.DTK.AboveOrder
         }
 
-        // ---- recording: waveform (left) ----
+        // ---- left: cancel (X) button ----
         Item {
-            id: waveArea
+            id: cancelButton
+            width: capsule.kButtonSize
+            height: capsule.kButtonSize
             anchors {
                 left: parent.left
                 leftMargin: capsule.kHPad
                 verticalCenter: parent.verticalCenter
             }
+            visible: root.recording
+
+            Rectangle {
+                id: cancelBg
+                anchors.fill: parent
+                radius: width / 2
+                color: cancelArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                Behavior on color { ColorAnimation { duration: 120 } }
+            }
+
+            // symbolic X glyph
+            Canvas {
+                anchors.centerIn: parent
+                width: 12; height: 12
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.strokeStyle = root.capsuleText
+                    ctx.lineWidth = 1.8
+                    ctx.lineCap = "round"
+                    ctx.beginPath()
+                    ctx.moveTo(2, 2); ctx.lineTo(10, 10)
+                    ctx.moveTo(10, 2); ctx.lineTo(2, 10)
+                    ctx.stroke()
+                }
+            }
+
+            MouseArea {
+                id: cancelArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: tooltipController.requestCancel()
+            }
+        }
+
+        // ---- recording: symbolic waveform (always shown, right of the text) ----
+        Item {
+            id: waveArea
+            anchors {
+                left: root.hasLiveText ? liveText.right : cancelButton.right
+                leftMargin: capsule.kGap
+                verticalCenter: parent.verticalCenter
+            }
             width: capsule.kWaveWidth
-            height: parent.height
+            height: capsule.kWaveHeight
             visible: root.recording
 
             Row {
@@ -193,29 +188,32 @@ Window {
 
                 Repeater {
                     model: capsule.kWaveBars
-                    Rectangle {
+                    Item {
                         width: capsule.kWaveBarWidth
-                        radius: width / 2
-                        color: root.accent
-                        height: [4, 10, 16, 22, 18, 14, 18, 22, 16, 10, 4][index]
-                        transformOrigin: Item.Center
-                        SequentialAnimation on scale {
-                            running: root.visible && root.recording
-                            loops: Animation.Infinite
-                            PauseAnimation { duration: index * 60 }
-                            NumberAnimation { to: 1.5; duration: 250; easing.type: Easing.InOutQuad }
-                            NumberAnimation { to: 0.5; duration: 250; easing.type: Easing.InOutQuad }
+                        height: waveArea.height
+                        // symmetric, organic peak profile (center tallest)
+                        readonly property real peak: [0.34, 0.66, 1.0, 0.66, 0.34][index]
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: capsule.kWaveBarWidth
+                            radius: width / 2
+                            color: root.accent
+                            // animated amplitude as a fraction of peak height
+                            height: parent.peak * waveArea.height * (0.45 + 0.55 * waveAnim.amplitudes[index])
+                            y: (parent.height - height) / 2
+                            Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                         }
                     }
                 }
             }
         }
 
-        // ---- recording: live ASR text ----
+        // ---- recording: live ASR text (left of the waveform) ----
         Label {
             id: liveText
             anchors {
-                left: waveArea.right
+                left: cancelButton.right
                 leftMargin: capsule.kGap
                 verticalCenter: parent.verticalCenter
             }
@@ -224,22 +222,8 @@ Window {
             color: root.capsuleText
             font.pixelSize: 13
             width: Math.min(implicitWidth, 420)
-            horizontalAlignment: Text.AlignRight
-            elide: Text.ElideLeft
-        }
-
-        // ---- idle: hint text (left) ----
-        Label {
-            id: idleHint
-            anchors {
-                left: parent.left
-                leftMargin: capsule.kHPad
-                verticalCenter: parent.verticalCenter
-            }
-            visible: root.idle
-            text: "按右 Ctrl 语音输入"
-            color: root.capsuleText
-            font.pixelSize: 13
+            horizontalAlignment: Text.AlignLeft
+            elide: Text.ElideRight
         }
 
         // ---- transcribing: centered status ----
@@ -252,67 +236,76 @@ Window {
             font.pixelSize: 13
         }
 
-        // ---- right-side action button: mic (idle) / pause (recording) ----
-        Rectangle {
-            id: actionButton
+        // ---- right: stop & transcribe (✓) button ----
+        Item {
+            id: confirmButton
             width: capsule.kButtonSize
             height: capsule.kButtonSize
-            radius: width / 2
-            color: root.accent
-            visible: root.idle || root.recording
             anchors {
                 right: parent.right
-                rightMargin: capsule.kButtonInset
+                rightMargin: capsule.kHPad
                 verticalCenter: parent.verticalCenter
             }
+            visible: root.recording
 
-            // mic glyph (idle)
-            Column {
-                anchors.centerIn: parent
-                spacing: 1
-                visible: root.idle
-                Rectangle { width: 8; height: 12; radius: 4; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
-                Rectangle { width: 2; height: 3; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
-                Rectangle { width: 12; height: 2; radius: 1; color: root.accentText; anchors.horizontalCenter: parent.horizontalCenter }
+            Rectangle {
+                id: confirmBg
+                anchors.fill: parent
+                radius: width / 2
+                color: root.accent
             }
 
-            // pause glyph (recording)
-            Row {
+            // symbolic check glyph
+            Canvas {
                 anchors.centerIn: parent
-                spacing: 4
-                visible: root.recording
-                Repeater {
-                    model: 2
-                    Rectangle {
-                        width: 4; height: 12; radius: 1; color: root.accentText
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
+                width: 14; height: 14
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.strokeStyle = root.accentText
+                    ctx.lineWidth = 2.0
+                    ctx.lineCap = "round"
+                    ctx.lineJoin = "round"
+                    ctx.beginPath()
+                    ctx.moveTo(2, 7.5)
+                    ctx.lineTo(5.5, 11)
+                    ctx.lineTo(12, 3.5)
+                    ctx.stroke()
                 }
+            }
+
+            MouseArea {
+                id: confirmArea
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: tooltipController.requestToggle()
             }
         }
+    }
 
-        // whole capsule is the hover + click target
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: (root.idle || root.recording) ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onEntered: {
-                if (root.idle) {
-                    root.stopFade()
-                    capsule.opacity = 1
-                }
+    // Drives the symbolic waveform: a small set of smoothly varying amplitudes
+    // (0..1) updated on a short cadence so the bars breathe organically rather
+    // than the old mechanical per-bar scale animation.
+    Timer {
+        id: waveTimer
+        interval: 110
+        repeat: true
+        running: root.visible && root.recording && waveArea.visible
+        onTriggered: {
+            var next = []
+            for (var i = 0; i < capsule.kWaveBars; ++i) {
+                // ease toward a new random target to avoid jittery jumps
+                var target = 0.25 + 0.75 * Math.random()
+                var cur = waveAnim.amplitudes.length === capsule.kWaveBars
+                          ? waveAnim.amplitudes[i] : 0.5
+                next.push(cur + (target - cur) * 0.55)
             }
-            onExited: {
-                if (root.idle) {
-                    root.stopFade()
-                    fadeStage1.restart()
-                }
-            }
-            onClicked: {
-                if (root.idle || root.recording) {
-                    tooltipController.requestToggle()
-                }
-            }
+            waveAnim.amplitudes = next
         }
+    }
+
+    QtObject {
+        id: waveAnim
+        property var amplitudes: [0.5, 0.5, 0.5, 0.5, 0.5]
     }
 }

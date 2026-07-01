@@ -24,12 +24,13 @@ public:
 
     std::string handleCommand(const std::string& command);
     SessionState state() const { return state_; }
-    bool tooltipVisible() const { return tooltipVisible_; }
-    bool typedHidden() const { return typedHidden_; }
 
 private:
     std::string startRecording();
     std::string stopTranscribeCommit();
+    // Discard any in-flight recording and return to Idle, emitting IDLE so the
+    // UI hides the capsule. Shared by BLUR (focus lost) and CANCEL (X button).
+    void cancelRecording();
 
     Config cfg_;
     IRecorder* recorder_ = nullptr;
@@ -38,8 +39,9 @@ private:
     ICommitter& committer_;
     IUiNotifier& ui_;
     SessionState state_ = SessionState::Idle;
-    bool tooltipVisible_ = false;
-    bool typedHidden_ = false;
+    // True while a live (streaming) session is active so late STREAM_TEXT
+    // datagrams arriving after a CANCEL/TRANSCRIBING are ignored.
+    bool recordingStreamActive_ = false;
 };
 
 }  // namespace echoflow

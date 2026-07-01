@@ -102,7 +102,13 @@ assert_contains "$ROOT/service/main.cpp" '\"vad_backend\"' "default config repor
 assert_contains "$ROOT/service/main.cpp" '\"energy_min_speech_rms\"' "default config reports energy VAD floor"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.h" "readerError_" "live pipeline retains capture thread failures"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "rethrow_exception(readerError_)" "live pipeline rejects partial text after capture failure"
-assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "opacityAnimationDuration = 500" "tooltip appears with 500ms opacity animation"
+# The capsule appears only when recording starts and has no idle hint or
+# focus-tracking fade timers anymore.
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestCancel()" "capsule X button cancels recording"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestToggle()" "capsule check button stops and transcribes"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "按右 Ctrl 语音输入" "capsule has no idle focus hint"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "fadeStage1" "capsule has no staged fade timer"
+assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "appearFade" "capsule has no appear-fade timer"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "import org.deepin.dtk 1.0 as D" "tooltip imports DTK QML controls"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enableBlurWindow: root.visible && capsule.opacity > 0" "tooltip blur follows capsule visibility"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "D.DWindow.enabled: true" "tooltip enables DTK window handling"

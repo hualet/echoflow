@@ -51,7 +51,9 @@ VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
     , ui_(ui)
 {
     livePipeline_->setPartialTextCallback([this](const std::string& text) {
-        if (!text.empty()) {
+        // Ignore partials that arrive after the pipeline was finished or
+        // cancelled — they belong to a session the user already closed.
+        if (!text.empty() && recordingStreamActive_) {
             ui_.send("STREAM_TEXT " + text);
         }
     });
@@ -64,42 +66,24 @@ std::string VoiceSession::handleCommand(const std::string& command)
     std::string verb = upper(space == std::string::npos ? cmd : cmd.substr(0, space));
     std::string argument = trim(space == std::string::npos ? std::string() : cmd.substr(space + 1));
 
-    if (verb == "FOCUS") {
-        tooltipVisible_ = true;
-        if (typedHidden_) {
-            return "TOOLTIP suppressed";
-        }
-        std::string suffix = argument.empty() ? std::string() : " " + argument;
-        ui_.send("SHOW_TOOLTIP" + suffix + " 按右 Ctrl 语音输入");
-        return "TOOLTIP show";
+    // The capsule no longer tracks input focus, so FOCUS/TYPED no longer show
+    // or hide anything. We keep accepting them for backward compatibility with
+    // older fcitx addons; they are now harmless no-ops.
+    if (verb == "FOCUS" || verb == "TYPED") {
+        return "IGNORED";
     }
 
     if (verb == "BLUR") {
-        tooltipVisible_ = false;
-        typedHidden_ = false;
-        if (state_ == SessionState::Recording) {
-            if (livePipeline_) {
-                try {
-                    livePipeline_->cancel();
-                } catch (const std::exception& e) {
-                    log(std::string("voice cancel failed: ") + e.what());
-                }
-            } else {
-                recorder_->stop();
-            }
-        }
-        state_ = SessionState::Idle;
-        ui_.send("HIDE_TOOLTIP");
+        // Focus left the input context: discard any live recording the same way
+        // the X button does, then hide the capsule.
+        cancelRecording();
         return "TOOLTIP hide";
     }
 
-    if (verb == "TYPED") {
-        if (state_ == SessionState::Idle && tooltipVisible_ && !typedHidden_) {
-            typedHidden_ = true;
-            ui_.send("HIDE_TOOLTIP");
-            return "TYPING hide";
-        }
-        return "IGNORED";
+    if (verb == "CANCEL") {
+        // The capsule's X button: discard the recording and hide.
+        cancelRecording();
+        return "CANCELLED";
     }
 
     if (verb == "CTRL_DOWN") {
@@ -126,9 +110,11 @@ std::string VoiceSession::startRecording()
     } catch (const std::exception& e) {
         log(std::string("voice start failed: ") + e.what());
         state_ = SessionState::Idle;
+        recordingStreamActive_ = false;
         ui_.send("IDLE");
         return "ERR " + std::string(e.what());
     }
+    recordingStreamActive_ = true;
     ui_.send("RECORDING");
     state_ = SessionState::Recording;
     return "RECORDING";
@@ -136,6 +122,8 @@ std::string VoiceSession::startRecording()
 
 std::string VoiceSession::stopTranscribeCommit()
 {
+    // The pipeline is about to be finalized; stop accepting streaming partials.
+    recordingStreamActive_ = false;
     state_ = SessionState::Transcribing;
     ui_.send("TRANSCRIBING");
 
@@ -173,6 +161,24 @@ std::string VoiceSession::stopTranscribeCommit()
     state_ = SessionState::Idle;
     ui_.send("IDLE");
     return ok ? "COMMITTED" : "ERR " + detail;
+}
+
+void VoiceSession::cancelRecording()
+{
+    recordingStreamActive_ = false;
+    if (state_ == SessionState::Recording) {
+        if (livePipeline_) {
+            try {
+                livePipeline_->cancel();
+            } catch (const std::exception& e) {
+                log(std::string("voice cancel failed: ") + e.what());
+            }
+        } else {
+            recorder_->stop();
+        }
+    }
+    state_ = SessionState::Idle;
+    ui_.send("IDLE");
 }
 
 }  // namespace echoflow

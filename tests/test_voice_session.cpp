@@ -102,21 +102,21 @@ class TestVoiceSession : public QObject {
     Q_OBJECT
 
 private slots:
-    void focusThenCtrlStartsRecording();
-    void focusWithCursorRectForwardsTooltipPosition();
-    void typedHidesTooltipWhenIdle();
-    void focusAfterTypedStaysHiddenUntilBlur();
-    void typedWhileRecordingIsIgnored();
+    void ctrlStartsRecording();
+    void focusIsNowHarmless();
+    void typedIsNowHarmless();
     void secondCtrlStopsTranscribesAndCommits();
     void transcribeExceptionReturnsToIdle();
     void tooShortAudioIsCancelled();
+    void cancelDiscardsRecording();
     void blurWhileRecordingCancelsAndDiscards();
     void liveCtrlStartsPipeline();
     void liveSecondCtrlFinishesAndCommits();
     void liveEmptyResultDoesNotCommit();
     void liveFinishExceptionReturnsToIdle();
-    void liveBlurCancelsAndDiscards();
+    void liveCancelDiscardsRecording();
     void liveCancelExceptionStillReturnsToIdleAndHidesTooltip();
+    void liveBlurCancelsAndDiscards();
     void livePartialTextUpdatesTooltip();
     void livePreviewDoesNotAffectCommittedText();
     void liveStartExceptionReturnsToIdle();
@@ -135,84 +135,53 @@ static VoiceSession makeLiveSession(FakeLivePipeline& pipeline,
     return VoiceSession(Config::defaultConfig(), pipeline, committer, ui);
 }
 
-void TestVoiceSession::focusThenCtrlStartsRecording()
+void TestVoiceSession::ctrlStartsRecording()
 {
     FakeRecorder recorder;
     FakeAsr asr;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
-
-    QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS")), QStringLiteral("TOOLTIP show"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("SHOW_TOOLTIP 按右 Ctrl 语音输入"));
 
     QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
     QCOMPARE(recorder.starts, 1);
     QCOMPARE(session.state(), SessionState::Recording);
-    QVERIFY(session.tooltipVisible());
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("RECORDING"));
 }
 
-void TestVoiceSession::focusWithCursorRectForwardsTooltipPosition()
+void TestVoiceSession::focusIsNowHarmless()
 {
+    // The capsule no longer tracks input focus, so FOCUS must not emit any UI
+    // message. A subsequent CTRL_DOWN still starts recording normally.
     FakeRecorder recorder;
     FakeAsr asr;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS 120 240 2 18")), QStringLiteral("TOOLTIP show"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()),
-             QStringLiteral("SHOW_TOOLTIP 120 240 2 18 按右 Ctrl 语音输入"));
-}
-
-void TestVoiceSession::typedHidesTooltipWhenIdle()
-{
-    FakeRecorder recorder;
-    FakeAsr asr;
-    FakeCommitter committer;
-    FakeUi ui;
-    auto session = makeSession(recorder, asr, committer, ui);
-    session.handleCommand("FOCUS");
-    ui.messages.clear();
-
-    QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("TYPING hide"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
-    QVERIFY(session.typedHidden());
-}
-
-void TestVoiceSession::focusAfterTypedStaysHiddenUntilBlur()
-{
-    FakeRecorder recorder;
-    FakeAsr asr;
-    FakeCommitter committer;
-    FakeUi ui;
-    auto session = makeSession(recorder, asr, committer, ui);
-    session.handleCommand("FOCUS");
-    session.handleCommand("TYPED");
-    ui.messages.clear();
-
+    QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS")), QStringLiteral("IGNORED"));
     QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS 120 240 2 18")),
-             QStringLiteral("TOOLTIP suppressed"));
+             QStringLiteral("IGNORED"));
     QVERIFY(ui.messages.empty());
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
-    ui.messages.clear();
-    QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS")), QStringLiteral("TOOLTIP show"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("SHOW_TOOLTIP 按右 Ctrl 语音输入"));
+    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
 }
 
-void TestVoiceSession::typedWhileRecordingIsIgnored()
+void TestVoiceSession::typedIsNowHarmless()
 {
+    // TYPED no longer hides the capsule; it is accepted and ignored in every
+    // state, never disturbing an active recording.
     FakeRecorder recorder;
     FakeAsr asr;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
-    session.handleCommand("FOCUS");
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
+    QVERIFY(ui.messages.empty());
+
     session.handleCommand("CTRL_DOWN");
     ui.messages.clear();
-
     QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
     QVERIFY(ui.messages.empty());
     QCOMPARE(session.state(), SessionState::Recording);
@@ -226,7 +195,6 @@ void TestVoiceSession::secondCtrlStopsTranscribesAndCommits()
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    session.handleCommand("FOCUS");
     session.handleCommand("CTRL_DOWN");
 
     QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("COMMITTED"));
@@ -274,6 +242,27 @@ void TestVoiceSession::tooShortAudioIsCancelled()
     QCOMPARE(session.state(), SessionState::Idle);
 }
 
+void TestVoiceSession::cancelDiscardsRecording()
+{
+    // The capsule's X button sends CANCEL: stop the recorder, discard the
+    // audio, never transcribe/commit, and emit IDLE so the UI hides.
+    FakeRecorder recorder;
+    FakeAsr asr;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeSession(recorder, asr, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    ui.messages.clear();
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
+    QCOMPARE(recorder.stops, 1);
+    QVERIFY(asr.audioPaths.empty());
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+}
+
 void TestVoiceSession::blurWhileRecordingCancelsAndDiscards()
 {
     FakeRecorder recorder;
@@ -282,13 +271,12 @@ void TestVoiceSession::blurWhileRecordingCancelsAndDiscards()
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    session.handleCommand("FOCUS");
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
     QCOMPARE(recorder.stops, 1);
     QVERIFY(committer.texts.empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveCtrlStartsPipeline()
@@ -359,6 +347,26 @@ void TestVoiceSession::liveFinishExceptionReturnsToIdle()
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
 }
 
+void TestVoiceSession::liveCancelDiscardsRecording()
+{
+    // The capsule's X button sends CANCEL: cancel the live pipeline, discard,
+    // never finish/commit, and emit IDLE so the UI hides.
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    ui.messages.clear();
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
+    QCOMPARE(pipeline.cancels, 1);
+    QCOMPARE(pipeline.finishes, 0);
+    QVERIFY(committer.texts.empty());
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+}
+
 void TestVoiceSession::liveBlurCancelsAndDiscards()
 {
     FakeLivePipeline pipeline;
@@ -372,7 +380,7 @@ void TestVoiceSession::liveBlurCancelsAndDiscards()
     QCOMPARE(pipeline.finishes, 0);
     QVERIFY(committer.texts.empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
@@ -389,7 +397,7 @@ void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
     QCOMPARE(pipeline.finishes, 0);
     QVERIFY(committer.texts.empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("HIDE_TOOLTIP"));
+    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::livePartialTextUpdatesTooltip()
@@ -400,9 +408,18 @@ void TestVoiceSession::livePartialTextUpdatesTooltip()
     auto session = makeLiveSession(pipeline, committer, ui);
 
     QVERIFY(pipeline.partialTextCallback);
+    // Partials only flow while a recording is active.
+    session.handleCommand("CTRL_DOWN");
+    ui.messages.clear();
     pipeline.partialTextCallback("实时文本");
 
     QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("STREAM_TEXT 实时文本"));
+
+    // After CANCEL, late partials are dropped (the session the user closed).
+    session.handleCommand("CANCEL");
+    ui.messages.clear();
+    pipeline.partialTextCallback("迟到文本");
+    QVERIFY(ui.messages.empty());
 }
 
 void TestVoiceSession::livePreviewDoesNotAffectCommittedText()
