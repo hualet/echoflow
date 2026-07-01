@@ -12,6 +12,7 @@ class TestVadMetrics : public QObject {
 
 private slots:
     void computesMissFalseActivationAndEndpointDelay();
+    void simulatesQueuedStreamingLatency();
 };
 
 void TestVadMetrics::computesMissFalseActivationAndEndpointDelay()
@@ -25,6 +26,15 @@ void TestVadMetrics::computesMissFalseActivationAndEndpointDelay()
     QVERIFY(qAbs(metrics.missedSpeechSeconds - 0.2) < 0.0001);
     QVERIFY(qAbs(metrics.falseActivationSeconds - 1.4) < 0.0001);
     QVERIFY(qAbs(metrics.medianEndpointDelaySeconds - 0.45) < 0.0001);
+}
+
+void TestVadMetrics::simulatesQueuedStreamingLatency()
+{
+    const StreamingLatencyMetrics metrics = simulateStreamingLatency(
+        {2.0, 5.0}, {1500.0, 2000.0}, 6.0);
+    QCOMPARE(metrics.firstStableTextMs, 3500.0);
+    QCOMPARE(metrics.stopLatencyMs, 1000.0);
+    QCOMPARE(metrics.lastCompletionMs, 7000.0);
 }
 
 QTEST_GUILESS_MAIN(TestVadMetrics)

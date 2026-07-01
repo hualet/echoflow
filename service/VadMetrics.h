@@ -20,8 +20,18 @@ struct VadMetrics {
     double medianEndpointDelaySeconds = 0.0;
 };
 
+struct StreamingLatencyMetrics {
+    double firstStableTextMs = 0.0;
+    double stopLatencyMs = 0.0;
+    double lastCompletionMs = 0.0;
+};
+
 VadMetrics evaluateVadIntervals(const std::vector<TimeInterval>& reference,
                                 const std::vector<TimeInterval>& predicted);
+StreamingLatencyMetrics simulateStreamingLatency(
+    const std::vector<double>& segmentEndSeconds,
+    const std::vector<double>& decodeMilliseconds,
+    double recordingDurationSeconds);
 
 }  // namespace echoflow
 

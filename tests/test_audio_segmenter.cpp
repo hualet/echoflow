@@ -59,7 +59,7 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
     QCOMPARE(config.maxSegmentMs, 8000);
     QCOMPARE(config.forceOverlapMs, 500);
     QCOMPARE(config.speechRatio, 3.0);
-    QCOMPARE(config.minSpeechRms, 30.0);
+    QCOMPARE(config.minSpeechRms, 40.0);
 }
 
 void TestAudioSegmenter::dcOffsetDoesNotStartSpeech() {

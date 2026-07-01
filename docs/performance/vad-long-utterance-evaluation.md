@@ -106,28 +106,31 @@ Raw result files:
 ## Energy Threshold Evaluation
 
 The current minimum RMS of 50 is the main reason quiet regions in `004142` are
-discarded. A scan of speech ratios 1.5, 2.0, 2.5, 3.0, and 4.0 with minimum RMS
-30 recovered speech through 18.08 seconds. Ratio 3.0 is the conservative choice:
-it preserves the existing background-noise test (`RMS 40` over a `RMS 20`
-floor remains non-speech) while retaining quiet `RMS 80` speech.
+discarded. Scans covered speech ratios 1.5, 2.0, 2.5, 3.0, and 4.0 and minimum
+RMS values 30, 35, 40, and 45. Ratio 3.0 preserves the existing background-noise
+test (`RMS 40` over a `RMS 20` floor remains non-speech) while retaining quiet
+`RMS 80` speech.
 
-The ratio-3/RMS-30 transcript run reduced aggregate CER from 35.71% to 21.43%.
-Ratio 3 is selected to reduce false activation risk. The increased total decode
-work reflects recovered speech; with the new asynchronous worker it no longer
-blocks capture.
+RMS30 reduced aggregate CER to 21.43%, but merged the first two regions of
+`004142`, increasing first-stable-text time from a baseline median near 3.38
+seconds to roughly 8-9 seconds under repeated load. It is rejected as too
+aggressive. RMS40 retains baseline-like early boundaries, recovers the final
+quiet phrase, and reduces aggregate CER to 29.37% without a material first-text
+or stop-latency regression. Production therefore uses ratio 3 / RMS40.
 
 | Recording | Baseline CER | Candidate CER | Baseline decode | Candidate decode |
 | --- | ---: | ---: | ---: | ---: |
-| `003152` | 15.79% | 15.79% | 3.832 s | 4.673 s |
-| `004142` | 62.50% | 30.36% | 2.523 s | 5.431 s |
-| `082316` | 9.68% | 9.68% | 2.801 s | 2.888 s |
+| `003152` | 15.79% | 15.79% | 5.536 s* | 5.532 s* |
+| `004142` | 62.50% | 48.21% | 3.660 s* | 5.701 s* |
+| `082316` | 9.68% | 9.68% | 4.060 s* | 4.082 s* |
 | `122709` | 100% | 100% | 0 s | 0 s |
 
-The candidate improves the decisive long-recording omission but performs more
-decode work. File-level summed decode time is not the interactive stop latency:
-in the candidate, these segments decode concurrently with continued capture.
-Installed measurements are still needed to prove first-stable-text and stop
-latency. The report therefore treats the latency gate as pending, not passed.
+`*` These decode totals come from the closest same-load baseline/candidate runs;
+individual runs vary with host load. The simulated streaming timeline is the
+interactive measure: first-stable text remained approximately 3.70/3.45/5.96
+seconds for the three non-empty candidate clips, and only `082316` had residual
+stop work (348 ms), matching the baseline range (332-360 ms). Installed
+measurements remain required for the final gate.
 
 Forced eight-second boundaries now retain 500 ms of audio overlap. Final text
 removes only an exact UTF-8 suffix/prefix match of at least two code points;

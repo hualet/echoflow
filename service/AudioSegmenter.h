@@ -21,7 +21,7 @@ struct AudioSegmenterConfig {
     int maxSegmentMs = 8000;
     int forceOverlapMs = 500;
     double speechRatio = 3.0;
-    double minSpeechRms = 30.0;
+    double minSpeechRms = 40.0;
 };
 
 struct AudioSegment {

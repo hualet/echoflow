@@ -189,8 +189,11 @@ int main(int argc, char** argv)
             std::vector<echoflow::TimeInterval> predicted;
             QString transcript;
             double decodeMs = 0.0;
+            std::vector<double> segmentDecodeMs;
+            std::vector<double> segmentEndSeconds;
             for (const auto& segment : segments) {
                 predicted.push_back({segment.beginSample / 16000.0, segment.endSample / 16000.0});
+                segmentEndSeconds.push_back(segment.endSample / 16000.0);
                 if (session) {
                     std::vector<float> audio;
                     audio.reserve(segment.samples.size());
@@ -198,7 +201,10 @@ int main(int argc, char** argv)
                     const auto started = Clock::now();
                     const QString text = QString::fromStdString(
                         session->transcribe(audio.data(), static_cast<int>(audio.size())));
-                    decodeMs += std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+                    const double elapsed =
+                        std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+                    decodeMs += elapsed;
+                    segmentDecodeMs.push_back(elapsed);
                     if (!transcript.isEmpty() && !text.isEmpty()) transcript += ' ';
                     transcript += text;
                 }
@@ -209,6 +215,10 @@ int main(int argc, char** argv)
             const int errors = entry.reference.isEmpty() ? 0 : editDistance(entry.reference, transcript);
             const double cer = entry.reference.isEmpty()
                 ? 0.0 : static_cast<double>(errors) / entry.reference.size();
+            const auto latency = echoflow::simulateStreamingLatency(
+                segmentEndSeconds, segmentDecodeMs, pcm.size() / 16000.0);
+            QJsonArray decodeTimes;
+            for (double value : segmentDecodeMs) decodeTimes.append(value);
             QJsonObject output {
                 {"type", "clip"}, {"backend", QString::fromStdString(backend)},
                 {"vad_threshold", vadThreshold},
@@ -217,7 +227,10 @@ int main(int argc, char** argv)
                 {"audio", QString::fromStdString(entry.audio.string())},
                 {"condition", entry.condition}, {"duration_s", pcm.size() / 16000.0},
                 {"segments", intervalsToJson(predicted)},
-                {"decode_ms", decodeMs}, {"transcript", transcript}, {"cer", cer}
+                {"decode_ms", decodeMs}, {"segment_decode_ms", decodeTimes},
+                {"first_stable_text_ms", latency.firstStableTextMs},
+                {"stop_latency_ms", latency.stopLatencyMs},
+                {"transcript", transcript}, {"cer", cer}
             };
             if (!entry.speech.empty()) {
                 output.insert("speech_s", metrics.speechSeconds);

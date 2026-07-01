@@ -90,4 +90,22 @@ VadMetrics evaluateVadIntervals(const std::vector<TimeInterval>& reference,
     return metrics;
 }
 
+StreamingLatencyMetrics simulateStreamingLatency(
+    const std::vector<double>& segmentEndSeconds,
+    const std::vector<double>& decodeMilliseconds,
+    double recordingDurationSeconds)
+{
+    StreamingLatencyMetrics metrics;
+    const size_t count = std::min(segmentEndSeconds.size(), decodeMilliseconds.size());
+    double completion = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        completion = std::max(completion, segmentEndSeconds[i] * 1000.0)
+            + decodeMilliseconds[i];
+        if (i == 0) metrics.firstStableTextMs = completion;
+    }
+    metrics.lastCompletionMs = completion;
+    metrics.stopLatencyMs = std::max(0.0, completion - recordingDurationSeconds * 1000.0);
+    return metrics;
+}
+
 }  // namespace echoflow

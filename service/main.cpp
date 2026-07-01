@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "Committer.h"
+#include "AudioSegmenter.h"
 #include "Config.h"
 #include "CrispAsrEngine.h"
 #include "CrispLiveVoicePipeline.h"
@@ -39,6 +40,7 @@ void printUsage()
 void printDefaultConfig()
 {
     auto cfg = echoflow::Config::defaultConfig();
+    const echoflow::AudioSegmenterConfig segmenter;
     std::printf("{\n"
                 "  \"model_name\": \"%s\",\n"
                 "  \"model_dir\": \"(derived at runtime: <config_dir>/<model_name>)\",\n"
@@ -57,7 +59,12 @@ void printDefaultConfig()
                  "  \"crisp_model_path\": \"%s\",\n"
                  "  \"crisp_backend\": \"%s\",\n"
                  "  \"crisp_threads\": %d,\n"
-                 "  \"crisp_max_new_tokens\": %d\n"
+                 "  \"crisp_max_new_tokens\": %d,\n"
+                 "  \"vad_backend\": \"%s\",\n"
+                 "  \"vad_model_path\": \"%s\",\n"
+                 "  \"energy_speech_ratio\": %.1f,\n"
+                 "  \"energy_min_speech_rms\": %.1f,\n"
+                 "  \"forced_segment_overlap_ms\": %d\n"
                  "}\n",
                  cfg.modelName.c_str(),
                  cfg.language.value_or("").c_str(), cfg.prompt.c_str(),
@@ -68,7 +75,10 @@ void printDefaultConfig()
                  cfg.saveLiveDebugAudio ? "true" : "false",
                  cfg.openBlasThreads, cfg.fcitxCommit ? "true" : "false",
                  cfg.crispModelPath.c_str(), cfg.crispBackend.c_str(),
-                 cfg.crispThreads, cfg.crispMaxNewTokens);
+                 cfg.crispThreads, cfg.crispMaxNewTokens,
+                 cfg.vadBackend.c_str(), cfg.vadModelPath.c_str(),
+                 segmenter.speechRatio, segmenter.minSpeechRms,
+                 segmenter.forceOverlapMs);
 }
 
 }  // namespace
