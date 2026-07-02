@@ -128,6 +128,40 @@ class ReleasePerformanceDriverTest(unittest.TestCase):
             self.assertIsNone(driver.find_local_submodule_source(
                 [Path(directory) / "missing"], "0" * 40))
 
+    def test_local_clone_fetches_unreferenced_historical_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            destination = root / "destination"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+            (source / "historical").write_text("old tree", encoding="utf-8")
+            subprocess.run(["git", "add", "historical"], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "historical"], cwd=source, check=True)
+            historical = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=source, check=True,
+                text=True, stdout=subprocess.PIPE).stdout.strip()
+            original_branch = subprocess.run(
+                ["git", "branch", "--show-current"], cwd=source, check=True,
+                text=True, stdout=subprocess.PIPE).stdout.strip()
+            subprocess.run(["git", "checkout", "-q", "--orphan", "active"], cwd=source, check=True)
+            (source / "historical").unlink()
+            (source / "active").write_text("new tree", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "active"], cwd=source, check=True)
+            subprocess.run(["git", "branch", "-D", original_branch], cwd=source, check=True,
+                           stdout=subprocess.DEVNULL)
+
+            driver.clone_local_submodule(source, destination, historical)
+
+            checked_out = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=destination, check=True,
+                text=True, stdout=subprocess.PIPE).stdout.strip()
+            self.assertEqual(checked_out, historical)
+            self.assertEqual((destination / "historical").read_text(encoding="utf-8"), "old tree")
+
 
 if __name__ == "__main__":
     unittest.main()

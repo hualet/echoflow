@@ -137,6 +137,14 @@ def find_local_submodule_source(candidates, commit):
     return None
 
 
+def clone_local_submodule(source, destination, commit):
+    _run(["git", "clone", "--shared", "--no-checkout", str(source), str(destination)],
+         cwd=destination.parent)
+    _run(["git", "update-ref", "refs/echoflow/historical-baseline", commit],
+         cwd=destination)
+    _run(["git", "checkout", "--detach", commit], cwd=destination)
+
+
 def _local_submodule_candidates(root):
     output = _run(["git", "worktree", "list", "--porcelain"], cwd=root)
     return [
@@ -160,8 +168,7 @@ def _initialize_submodule(root, tree, ref):
         return
     if destination.exists():
         shutil.rmtree(destination)
-    _run(["git", "clone", "--local", "--no-checkout", str(source), str(destination)], cwd=tree)
-    _run(["git", "checkout", "--detach", commit], cwd=destination)
+    clone_local_submodule(source, destination, commit)
 
 
 def _cpu_fields():
