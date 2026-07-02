@@ -4,3 +4,6 @@ export DH_VERBOSE = 1
 
 %:
 	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DECHOFLOW_CPU_TARGET=x86-64-v3

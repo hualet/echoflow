@@ -13,6 +13,32 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(ECHOFLOW_BUILD_TESTS "Build QTest unit tests + spec tests" ON)
+set(ECHOFLOW_CPU_TARGET "native" CACHE STRING
+    "CPU target for CrispASR: native or x86-64-v3")
+set_property(CACHE ECHOFLOW_CPU_TARGET PROPERTY STRINGS native x86-64-v3)
+
+if(ECHOFLOW_CPU_TARGET STREQUAL "x86-64-v3")
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+        message(FATAL_ERROR "x86-64-v3 requires an amd64 build host")
+    endif()
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_SSE42 ON CACHE BOOL "" FORCE)
+    set(GGML_AVX ON CACHE BOOL "" FORCE)
+    set(GGML_AVX2 ON CACHE BOOL "" FORCE)
+    set(GGML_BMI2 ON CACHE BOOL "" FORCE)
+    set(GGML_FMA ON CACHE BOOL "" FORCE)
+    set(GGML_F16C ON CACHE BOOL "" FORCE)
+    set(GGML_AVX_VNNI OFF CACHE BOOL "" FORCE)
+    set(GGML_AVX512 OFF CACHE BOOL "" FORCE)
+    set(GGML_AVX512_VBMI OFF CACHE BOOL "" FORCE)
+    set(GGML_AVX512_VNNI OFF CACHE BOOL "" FORCE)
+    set(GGML_AVX512_BF16 OFF CACHE BOOL "" FORCE)
+    set(GGML_AMX_TILE OFF CACHE BOOL "" FORCE)
+    set(GGML_AMX_INT8 OFF CACHE BOOL "" FORCE)
+    set(GGML_AMX_BF16 OFF CACHE BOOL "" FORCE)
+elseif(NOT ECHOFLOW_CPU_TARGET STREQUAL "native")
+    message(FATAL_ERROR "Unsupported ECHOFLOW_CPU_TARGET=${ECHOFLOW_CPU_TARGET}")
+endif()
 
 # Vendored CrispASR — build as static lib, link C-ABI into echoflow_service.
 # Only the qwen3 backend is compiled (other backends stripped at configure time).

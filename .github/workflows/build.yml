@@ -40,7 +40,7 @@ jobs:
             pipewire-bin
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=/usr
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=/usr -DECHOFLOW_CPU_TARGET=x86-64-v3
 
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
