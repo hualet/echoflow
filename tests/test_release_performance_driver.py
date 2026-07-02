@@ -132,9 +132,12 @@ class ReleasePerformanceDriverTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source"
+            source_git = root / "source.git"
             destination = root / "destination"
             source.mkdir()
-            subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "init", "-q", f"--separate-git-dir={source_git}", str(source)],
+                cwd=root, check=True)
             subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
             (source / "historical").write_text("old tree", encoding="utf-8")

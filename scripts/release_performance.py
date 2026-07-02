@@ -138,8 +138,14 @@ def find_local_submodule_source(candidates, commit):
 
 
 def clone_local_submodule(source, destination, commit):
-    _run(["git", "clone", "--shared", "--no-checkout", str(source), str(destination)],
-         cwd=destination.parent)
+    _run(["git", "init", "--quiet", str(destination)], cwd=destination.parent)
+    common_dir = Path(_run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=source,
+    ).strip())
+    alternates = destination / ".git" / "objects" / "info" / "alternates"
+    alternates.write_text(str(common_dir / "objects") + "\n", encoding="utf-8")
+    _run(["git", "cat-file", "-e", f"{commit}^{{tree}}"], cwd=destination)
     _run(["git", "update-ref", "refs/echoflow/historical-baseline", commit],
          cwd=destination)
     _run(["git", "checkout", "--detach", commit], cwd=destination)
