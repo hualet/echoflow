@@ -17,6 +17,10 @@ rm -f "$PREFIX/bin/echoflow-ui"
 rm -f "$PREFIX/lib/fcitx5/libechoflow.so"
 rm -f "$PREFIX/lib/x86_64-linux-gnu/fcitx5/libechoflow.so"
 
+if command -v fcitx5 >/dev/null 2>&1; then
+  fcitx5 -rd || echo "Warning: restart Fcitx manually: fcitx5 -rd" >&2
+fi
+
 echo "EchoFlow user services and binaries removed."
 echo "Preserved state/config:"
 echo "  $STATE_DIR"

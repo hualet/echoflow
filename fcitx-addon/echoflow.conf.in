@@ -1,7 +1,7 @@
 [Addon]
 Name=echoflow
 Category=Module
-Library=echoflow
+Library=libechoflow
 Type=SharedLibrary
 OnDemand=False
 Configurable=False

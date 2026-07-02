@@ -101,6 +101,9 @@ install -m 0644 "$BUILD_DIR/systemd/user/echoflow-ui.service" "$SYSTEMD_USER_DIR
 systemctl --user daemon-reload
 if [[ "$START_SERVICES" == "1" ]]; then
   systemctl --user enable --now echoflow.service echoflow-ui.service
+  if command -v fcitx5 >/dev/null 2>&1; then
+    fcitx5 -rd || echo "Warning: restart Fcitx manually: fcitx5 -rd" >&2
+  fi
 else
   systemctl --user enable echoflow.service echoflow-ui.service
 fi
@@ -108,7 +111,7 @@ fi
 echo "EchoFlow installed."
 echo "Config: $CONFIG_DIR/echoflow.conf"
 echo "Fcitx addon: $FCITX_ADDON_DIR/echoflow.conf"
-echo "Restart Fcitx if needed: fcitx5 -rd"
 if [[ "$START_SERVICES" == "0" ]]; then
   echo "Start services later: systemctl --user start echoflow.service echoflow-ui.service"
+  echo "Then reload Fcitx: fcitx5 -rd"
 fi

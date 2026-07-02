@@ -59,6 +59,18 @@ cmake --build build
 - `echoflow.service`——语音识别后台守护进程
 - `echoflow-ui.service`——托盘图标和语音胶囊提示
 
+本地安装会同时重载 Fcitx，使用户目录中的 addon 和对应的绝对模块路径
+立即生效。使用 `--no-start` 时不会修改当前 Fcitx 会话，稍后需手动执行
+`fcitx5 -rd`。
+
+通过 deb 安装或升级时，addon 使用系统模块名 `libechoflow`。由于 Debian
+维护脚本不能安全重启某个用户的桌面输入法会话，安装完成后需在该用户会话中
+执行一次：
+
+```bash
+fcitx5 -rd
+```
+
 ### 第三步：下载模型 & 开始使用
 
 1. 点击托盘图标 → **设置** → **模型**，选择 `Qwen3-ASR-0.6B`（轻量）或 `Qwen3-ASR-1.7B`（高精度），点击**下载**。
