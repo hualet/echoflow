@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "AudioSegmenter.h"
+#include "BenchmarkManifest.h"
 #include "Config.h"
 #include "CrispSession.h"
 #include "SileroVadBackend.h"
 #include "VadMetrics.h"
 
 #include <QCoreApplication>
-#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -28,45 +28,6 @@ namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-
-struct ManifestEntry {
-    fs::path audio;
-    QString reference;
-    QString condition;
-    std::vector<echoflow::TimeInterval> speech;
-};
-
-std::vector<ManifestEntry> readManifest(const fs::path& path)
-{
-    QFile file(QString::fromStdString(path.string()));
-    if (!file.open(QIODevice::ReadOnly)) {
-        throw std::runtime_error("cannot open manifest: " + path.string());
-    }
-    QJsonParseError error;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
-    if (error.error != QJsonParseError::NoError || !document.isArray()) {
-        throw std::runtime_error("manifest must be a JSON array: " + error.errorString().toStdString());
-    }
-
-    std::vector<ManifestEntry> entries;
-    for (const auto& value : document.array()) {
-        const QJsonObject object = value.toObject();
-        ManifestEntry entry;
-        entry.audio = object.value("audio").toString().toStdString();
-        if (entry.audio.is_relative()) entry.audio = path.parent_path() / entry.audio;
-        entry.reference = object.value("reference").toString();
-        entry.condition = object.value("condition").toString();
-        for (const auto& intervalValue : object.value("speech").toArray()) {
-            const QJsonArray interval = intervalValue.toArray();
-            if (interval.size() == 2) {
-                entry.speech.push_back({interval[0].toDouble(), interval[1].toDouble()});
-            }
-        }
-        if (entry.audio.empty()) throw std::runtime_error("manifest entry has no audio path");
-        entries.push_back(std::move(entry));
-    }
-    return entries;
-}
 
 int editDistance(const QString& left, const QString& right)
 {
@@ -156,7 +117,8 @@ int main(int argc, char** argv)
         int totalErrors = 0;
         int clips = 0;
         int labelledClips = 0;
-        for (const ManifestEntry& entry : readManifest(*manifestPath)) {
+        for (const echoflow::BenchmarkEntry& entry :
+             echoflow::loadBenchmarkManifest(QString::fromStdString(manifestPath->string()))) {
             const std::vector<float> f32 = echoflow::CrispSession::readWavF32(entry.audio.string());
             if (f32.empty()) throw std::runtime_error("empty or unreadable WAV: " + entry.audio.string());
             std::vector<int16_t> pcm;
@@ -221,6 +183,7 @@ int main(int argc, char** argv)
             for (double value : segmentDecodeMs) decodeTimes.append(value);
             QJsonObject output {
                 {"type", "clip"}, {"backend", QString::fromStdString(backend)},
+                {"id", entry.id}, {"sha256", entry.sha256},
                 {"vad_threshold", vadThreshold},
                 {"speech_ratio", speechRatio}, {"min_speech_rms", minSpeechRms},
                 {"end_silence_ms", endSilenceMs},

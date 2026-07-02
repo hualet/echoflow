@@ -1,6 +1,8 @@
 [
   {
+    "id": "quiet-dictation",
     "audio": "/absolute/path/to/quiet-zh.wav",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "reference": "你好，这是轻声测试",
     "speech": [[0.42, 2.71]],
     "condition": "quiet"

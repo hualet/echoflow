@@ -186,10 +186,11 @@ int runTranscribeFile(const fs::path& audio, const std::optional<fs::path>& conf
 
         std::printf("{\"mode\":\"transcribe-file\",\"iteration\":%d,"
                     "\"transcribe_ms\":%.3f,\"chars\":%zu,"
-                    "\"audio\":\"%s\",\"model\":\"%s\"}\n",
+                    "\"audio\":\"%s\",\"model\":\"%s\","
+                    "\"transcript\":\"%s\"}\n",
                     i + 1,
                     transcribeMs, text.size(), jsonEscape(audio.string()).c_str(),
-                    jsonEscape(cfg.crispModelPath).c_str());
+                    jsonEscape(cfg.crispModelPath).c_str(), jsonEscape(text).c_str());
     }
     return 0;
 }
