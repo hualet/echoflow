@@ -223,3 +223,62 @@ Interpretation:
 3. Keep model preloading synchronous for now.
    Startup is delayed by about 0.8 seconds in the measured setup, but the
    service avoids a race between background loading and the first transcription.
+
+## 2026-07-02 Release Regression Gate
+
+The Debian 0.2.1 artifact previously took about 11.7 seconds to transcribe the
+9.534-second `live-20260621-082316.wav`, while local optimized builds completed
+in roughly 2.7-3.3 seconds. The package now selects a deterministic
+`x86-64-v3` profile instead of relying on the build host's implicit GGML CPU
+target. Debian build logs confirmed these exact flags:
+
+```text
+-msse4.2 -mf16c -mfma -mbmi2 -mavx -mavx2
+```
+
+The release gate compares optimized binaries, not Debian packages. It reuses a
+recorded baseline only when CPU and all benchmark identity fields match. With
+no compatible history, it built both `v0.2.1` (`b73bb6d`) and candidate
+`3cf0473` on the same AMD Ryzen 7 6800H with GCC 12.3, six CrispASR threads,
+four OpenBLAS threads, and the same x86-64-v3 profile.
+
+Input identity:
+
+- model SHA-256: `4c67426908a518c28c24bc780df27175fcf84ce4d6dbd678133a4531904bbcc9`;
+- manifest SHA-256: `2b023affdb30112ff78eecd42e90de40a4f3ab73f6111dfb01e8b2e8450cdbb8`;
+- config SHA-256: `6ab1c8a70dd86ad80a8c5fbb08f9eb813b334ee773ad1f3316e7281de0a5caaa`;
+- five fixed samples: normal dictation, pauses, quiet speech, a short
+  interjection, and a deterministic 34.642-second repeated dictation;
+- one discarded warm-up followed by three measured iterations per sample.
+
+| Sample | Baseline median | Candidate median | Change | Baseline CER | Candidate CER |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| normal | 2391.108 ms | 2355.686 ms | -1.48% | 13.79% | 6.90% |
+| pauses | 5059.722 ms | 5456.556 ms | +7.84% | 60.38% | 5.66% |
+| quiet | 2635.434 ms | 2591.121 ms | -1.68% | 45.83% | 20.83% |
+| short | 2563.113 ms | 2662.207 ms | +3.87% | 100.00% | 3200.00% |
+| long | 8967.498 ms | 8883.950 ms | -0.93% | 27.14% | 12.86% |
+
+The aggregate median changed from 2635.434 to 2662.207 ms, a 1.02% regression
+under the 10% limit. The worst per-sample latency regression was 7.84%, under
+the 20% limit. Aggregate CER improved from 37.85% to 28.81%. The formal gate
+therefore passed.
+
+One negative finding remains visible: the short `嗯` sample produced
+`Transcribe the speech in Chinese` in the candidate, while the baseline was
+empty. Aggregate CER still improved enough to satisfy the approved gate, but
+this sample-level recognition regression should be investigated separately and
+must not be described as a quality improvement.
+
+The actual Debian build passed all 18 tests and installed the expected service,
+UI, systemd units, `libechoflow.so`, and addon metadata with
+`Library=libechoflow`. Its SHA-256 was
+`b4e2da306b1293d3ff867ed58f78ae74031d20498081cdbf61daa82909c2b517`.
+An extracted package binary successfully transcribed the 9.534-second normal
+sample, confirming the optimized package path no longer reproduces the earlier
+11.7-second behavior.
+
+The implementation also preserves no-op incremental builds, adds deterministic
+model-free comparison tests, verifies release-only commits in both GitHub
+workflows, and rejects a version bump whose evidence does not identify its
+candidate parent and previous release baseline.
