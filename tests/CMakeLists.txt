@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 find_package(Qt6 REQUIRED COMPONENTS Test)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 qt_standard_project_setup()
 
 function(echoflow_enable_dead_strip target)
@@ -38,6 +39,11 @@ target_sources(test_benchmark_manifest PRIVATE benchmarks/BenchmarkManifest.cpp)
 
 add_test(NAME spec_tests
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/spec/run_spec.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME performance_gate_tests
+    COMMAND ${Python3_EXECUTABLE} -m unittest -v tests.test_performance_gate)
+set_tests_properties(performance_gate_tests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(voice_latency_benchmark benchmarks/voice_latency_benchmark.cpp)
