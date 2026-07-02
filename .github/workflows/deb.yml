@@ -29,6 +29,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify release performance evidence
+        run: python3 scripts/verify-release-performance-evidence.py --commit HEAD
+
+      - name: Verify release tag
+        if: github.event_name != 'workflow_dispatch'
+        run: python3 scripts/verify-release-performance-evidence.py --commit HEAD --tag "${RELEASE_TAG}"
 
       - name: Install build dependencies
         run: |

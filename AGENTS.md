@@ -78,14 +78,26 @@ single source of truth and the version carries no Debian revision suffix
 (e.g. `0.1.0`, not `0.1.0-1`). When bumping the version
 (e.g. `0.1.0` → `0.1.1`):
 
-1. **`debian/changelog`** — prepend a new entry. Keep the version to at
+1. Commit all source changes for the release candidate. The candidate commit
+   must not contain the version bump.
+2. Run `scripts/check-release-performance.py` against the previous release.
+   Reuse historical data only when its CPU and benchmark identity match;
+   otherwise let the script build both revisions on the current machine. The
+   aggregate median latency may regress by at most 10%, no sample by more than
+   20%, and aggregate CER must not increase.
+3. **`debian/changelog`** — prepend a new entry. Keep the version to at
    most three numeric segments (`major.minor.patch`), matching the
    existing header format (package name, `(version)`, `unstable;
-   urgency=medium`, maintainer line). Follow the changelog rules below.
-2. **Tag the release** — `git tag v<new-version>` (e.g. `v0.1.1`); the
+   urgency=medium`, maintainer line). Add the generated
+   `docs/performance/releases/<version>.json` in the same release-only commit;
+   no source file may change in that commit. Follow the changelog rules below.
+4. Run `python3 scripts/verify-release-performance-evidence.py --commit HEAD`
+   to verify the candidate parent, baseline identity, thresholds, and allowed
+   release files.
+5. **Tag the release** — `git tag v<new-version>` (e.g. `v0.1.1`); the
    `.github/workflows/deb.yml` workflow fires on `v*` tags and releases
    to build and publish the `.deb`.
-3. Rebuild and verify:
+6. Rebuild and verify:
    `cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build && ctest --test-dir build --output-on-failure`
 
 There is currently no `linglong.yaml` and the CMake `project()` carries
