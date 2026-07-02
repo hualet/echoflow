@@ -97,8 +97,9 @@ def verify_noop_build_output(output):
 
 
 def _run(command, *, cwd, capture=True):
+    command = [str(item) for item in command]
     result = subprocess.run(
-        [str(item) for item in command],
+        command,
         cwd=cwd,
         check=False,
         text=True,
@@ -117,6 +118,50 @@ def _git_root():
 
 def _git_resolve(root, ref):
     return _run(["git", "rev-parse", f"{ref}^{{commit}}"], cwd=root).strip()
+
+
+def find_local_submodule_source(candidates, commit):
+    for candidate in candidates:
+        candidate = Path(candidate)
+        if not candidate.is_dir():
+            continue
+        result = subprocess.run(
+            ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+            cwd=candidate,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0:
+            return candidate
+    return None
+
+
+def _local_submodule_candidates(root):
+    output = _run(["git", "worktree", "list", "--porcelain"], cwd=root)
+    return [
+        Path(line.removeprefix("worktree ")) / "third_party" / "crispasr"
+        for line in output.splitlines()
+        if line.startswith("worktree ")
+    ]
+
+
+def _initialize_submodule(root, tree, ref):
+    listing = _run(["git", "ls-tree", ref, "third_party/crispasr"], cwd=root).strip()
+    fields = listing.split()
+    if len(fields) < 3 or fields[1] != "commit":
+        raise RuntimeError(f"cannot resolve CrispASR gitlink for {ref}")
+    commit = fields[2]
+    source = find_local_submodule_source(_local_submodule_candidates(root), commit)
+    destination = tree / "third_party" / "crispasr"
+    if source is None:
+        _run(["git", "submodule", "update", "--init", "--recursive",
+              "third_party/crispasr"], cwd=tree)
+        return
+    if destination.exists():
+        shutil.rmtree(destination)
+    _run(["git", "clone", "--local", "--no-checkout", str(source), str(destination)], cwd=tree)
+    _run(["git", "checkout", "--detach", commit], cwd=destination)
 
 
 def _cpu_fields():
@@ -292,8 +337,7 @@ def run_release_check(args):
             build = temporary_root / f"{item.role}-build"
             _run(["git", "worktree", "add", "--detach", str(tree), item.ref], cwd=root)
             worktrees.append(tree)
-            _run(["git", "submodule", "update", "--init", "--recursive",
-                  "third_party/crispasr"], cwd=tree)
+            _initialize_submodule(root, tree, item.ref)
             _configure_and_build(tree, build)
             result = _benchmark_build(
                 build,

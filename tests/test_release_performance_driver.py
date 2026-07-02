@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+import subprocess
 
 from scripts import release_performance as driver
 from tests.test_performance_gate import IDENTITY
@@ -103,6 +104,29 @@ class ReleasePerformanceDriverTest(unittest.TestCase):
 
     def test_link_only_second_build_is_accepted(self):
         driver.verify_noop_build_output("[100%] Built target voice_latency_benchmark")
+
+    def test_finds_submodule_object_in_another_local_worktree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "local-submodule"
+            repository.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+            (repository / "file").write_text("content", encoding="utf-8")
+            subprocess.run(["git", "add", "file"], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "object"], cwd=repository, check=True)
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repository, check=True,
+                text=True, stdout=subprocess.PIPE).stdout.strip()
+            found = driver.find_local_submodule_source(
+                [root / "missing", repository], commit)
+            self.assertEqual(found, repository)
+
+    def test_missing_local_submodule_object_returns_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(driver.find_local_submodule_source(
+                [Path(directory) / "missing"], "0" * 40))
 
 
 if __name__ == "__main__":
