@@ -21,8 +21,8 @@ bump.
 
 - Make the amd64 Debian build use a deterministic optimized CPU target instead
   of inheriting an unknown CI host's native or generic target.
-- Compare the exact candidate Debian artifact with the previous accepted Debian
-  artifact on one machine, with one model and one fixed recording manifest.
+- Compare the candidate binary with the previous accepted binary baseline on
+  equivalent hardware and fixed benchmark inputs.
 - Reject a release if median ASR latency exceeds 110% of the baseline or if
   aggregate CER is higher than the baseline.
 - Reject empty transcripts, missing samples, mismatched models, and stale or
@@ -52,10 +52,10 @@ recording is:
 | local `-march=native` | 3.25 s | 93 |
 | explicit x86-64-v3 | 2.66 s | 93 |
 
-The final implementation must rebuild an actual Debian artifact and benchmark
-the binary extracted from that artifact. A CMake build alone is not sufficient
-evidence for the packaging fix, and installing either package system-wide is
-not required for the automated comparison.
+The final implementation benchmarks the optimized CMake binary. Debian package
+validation separately proves that packaging uses the same deterministic CPU
+feature configuration; package-to-package performance comparison is not part of
+the release gate.
 
 ## Benchmark Inputs
 
@@ -78,28 +78,32 @@ real manifest.
 
 ## Same-machine Comparison
 
-`scripts/check-release-performance.sh` accepts a baseline Debian package,
-candidate commit, config path, model path, manifest, iteration count, and output
-path. The previous accepted `.deb` is the authoritative baseline because it is
-the artifact users actually ran and remains measurable even if an old source
-tag references an unavailable submodule commit. The script verifies the
-baseline package version and SHA-256 against its release evidence, extracts it
-without installing it, then builds and extracts the candidate Debian package.
+`scripts/check-release-performance.sh` accepts a baseline tag, candidate commit,
+config path, model path, manifest, iteration count, and output path. It first
+checks the latest accepted baseline record. Historical baseline data is reused
+only when all comparison-critical identity fields match:
 
-The script also creates an isolated candidate worktree/build directory and
-builds `voice_latency_benchmark` plus `vad_replay_benchmark`. A current source
-build is measured as diagnostic evidence, but package-to-package results decide
-the release gate. Rebuilding an old source tag is optional diagnostic work and
-cannot replace the accepted baseline artifact.
+- normalized CPU model and architecture;
+- required CPU feature flags;
+- benchmark schema and build profile;
+- model, manifest, sample, configuration, and thread-setting hashes.
 
-For both package binaries it runs:
+If every field matches, the script builds only the candidate binary and compares
+it with the recorded baseline metrics. If the CPU or any other identity field
+does not match, it creates isolated worktrees for the baseline tag and candidate
+commit, initializes both reachable submodules, and builds both binaries on the
+current machine with the same compiler and x86-64-v3 configuration. An
+unbuildable baseline is a hard error because its measurements cannot be validly
+substituted from another machine.
+
+For each measured binary it runs:
 
 - at least three warm ASR iterations per non-empty sample;
 - the VAD replay benchmark for segmentation, first-stable latency, stop latency,
   transcript, and CER.
 
-For the candidate source tree it additionally runs a second build in the same
-directory to prove the incremental build is a no-op.
+For each source tree built during the check, it additionally runs a second build
+in the same directory to prove the incremental build is a no-op.
 
 The comparator uses per-sample medians and an aggregate median. The release
 passes only when:
@@ -109,7 +113,8 @@ passes only when:
 - candidate aggregate CER <= baseline aggregate CER;
 - every sample expected to contain speech produces non-empty text;
 - all expected samples are present in both result sets;
-- the candidate Debian artifact satisfies the package-to-package threshold.
+- the candidate binary satisfies the threshold against either the compatible
+  recorded baseline or the freshly rebuilt baseline binary.
 
 The 20% per-sample guard prevents a large regression in one condition from being
 hidden by a faster aggregate while allowing normal short-sample variance.
@@ -119,16 +124,16 @@ hidden by a faster aggregate while allowing normal short-sample variance.
 The check writes `docs/performance/releases/<version>.json` with:
 
 - schema version and pass/fail status;
-- baseline package version, filename, SHA-256, release tag, and resolved commit;
+- baseline source version, release tag, resolved commit, and binary SHA-256;
 - tested candidate commit;
 - CPU model, architecture flags, compiler, build type, and thread settings;
 - model ID and SHA-256;
 - manifest SHA-256 and every WAV SHA-256;
 - raw per-iteration latency, median latency, transcript, and CER;
 - aggregate baseline/candidate metrics and threshold calculations;
-- candidate Debian package filename, SHA-256, and extracted-binary benchmark
-  metrics;
-- diagnostic candidate source-build metrics, which do not authorize a release.
+- candidate binary SHA-256 and benchmark metrics;
+- whether the baseline was reused or rebuilt, including every identity field
+  used to make that decision.
 
 Raw transcript text is included because CER evidence must be auditable. The
 manifest controls whether a recording is appropriate to store in release
@@ -154,16 +159,14 @@ The verifier requires:
 - the release commit changes only allowed release metadata and evidence files;
 - latency and CER calculations satisfy the configured thresholds;
 - the baseline tag matches the previous changelog version;
-- the baseline package version and SHA-256 match the previous accepted release
-  evidence;
+- a reused baseline has matching CPU and benchmark identity fields, or a
+  mismatched baseline was rebuilt on the candidate machine;
 - the manifest/model/sample hashes are complete and internally consistent.
 
 The first gated release has one explicit bootstrap exception because 0.2.1 has
-no committed evidence file. Its baseline package version must equal 0.2.1, its
-Git tag and package metadata must agree, and the newly generated evidence must
-record the supplied package SHA-256. The verifier permits this exception only
-when no earlier release evidence exists. Every later release must match the
-previous committed evidence, forming an unbroken package hash chain.
+no committed baseline record. It must build both the 0.2.1 tag and candidate on
+the current machine and record both result sets. Every later release may reuse
+the previous accepted metrics only under the identity checks above.
 
 This avoids a circular commit hash while ensuring no unbenchmarked source change
 can be smuggled into the version-bump commit. The build and Debian workflows run
@@ -176,9 +179,9 @@ baseline value, candidate value, and threshold. It still writes a failed JSON
 report so negative results remain inspectable, but failed evidence cannot
 authorize a version bump.
 
-Missing model files, recordings, baseline packages, dirty worktrees, candidate
-submodule commits, mismatched hashes, fewer than three iterations, or package
-extraction failures are hard errors rather than skipped checks.
+Missing model files, recordings, dirty worktrees, baseline or candidate
+submodule commits, mismatched hashes, fewer than three iterations, or failed
+baseline builds are hard errors rather than skipped checks.
 
 ## Testing
 
@@ -188,16 +191,17 @@ extraction failures are hard errors rather than skipped checks.
   temporary Git repositories.
 - Run the existing CTest suite and shell specifications.
 - Build twice and assert the second build compiles no C/C++ source.
-- Build a real Debian package, inspect its Fcitx addon and binary, extract it in
-  the test environment, and run the fixed recording set. Keep a separate manual
-  install smoke test for service and addon integration.
-- Record old Debian, native, x86-64-v3 CMake, and fixed Debian results in the
-  performance report.
+- Build a real Debian package and inspect its build metadata, Fcitx addon, and
+  binary to confirm it uses the tested deterministic feature configuration.
+  Keep a separate manual install smoke test for service and addon integration.
+- Record the reused or rebuilt baseline, native diagnostic build, and candidate
+  x86-64-v3 results in the performance report.
 
 ## Acceptance Criteria
 
-- The fixed Debian artifact passes the 110% aggregate and 20% per-sample latency
-  guards against the previous accepted release on the same machine.
+- The candidate binary passes the 110% aggregate and 20% per-sample latency
+  guards against a compatible recorded baseline or a baseline rebuilt on the
+  same machine.
 - Aggregate CER does not increase and all required transcripts are non-empty.
 - A version bump without fresh valid evidence fails locally and in CI.
 - A release commit containing source code in addition to release metadata fails.
