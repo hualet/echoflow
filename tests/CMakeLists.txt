@@ -46,6 +46,11 @@ add_test(NAME performance_gate_tests
 set_tests_properties(performance_gate_tests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+add_test(NAME release_performance_driver_tests
+    COMMAND ${Python3_EXECUTABLE} -m unittest -v tests.test_release_performance_driver)
+set_tests_properties(release_performance_driver_tests PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 add_executable(voice_latency_benchmark benchmarks/voice_latency_benchmark.cpp)
 target_link_libraries(voice_latency_benchmark PRIVATE echoflow_service pthread)
 echoflow_enable_dead_strip(voice_latency_benchmark)

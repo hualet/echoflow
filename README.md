@@ -175,6 +175,28 @@ tests/           QTest 逻辑测试、Shell spec 检查、性能基准
 
 测试约束：逻辑测试不依赖模型权重、PipeWire 录音或运行中的 Fcitx。
 
+### 发布性能基线
+
+每次提升版本号前运行性能门禁。若上次记录的 CPU、模型、样本、配置和线程
+设置均与当前机器一致，脚本复用历史基线；否则在当前机器以相同参数构建基线
+版本和候选版本后再比较：
+
+```bash
+python3 scripts/check-release-performance.py \
+  --baseline-ref v0.2.1 \
+  --candidate-ref HEAD \
+  --version 0.2.2 \
+  --config "$HOME/.config/echoflow/echoflow.conf" \
+  --model /path/to/model-or-model-directory \
+  --manifest /path/to/release-manifest.json \
+  --iterations 3 \
+  --output docs/performance/releases/0.2.2.json
+```
+
+有历史 evidence 时增加
+`--previous-evidence docs/performance/releases/<上一版本>.json`。聚合中位延迟
+最多回退 10%，单样本最多回退 20%，CER 不得增加，必需样本不得产生空转写。
+
 ## 鸣谢
 
 - [Fcitx5](https://github.com/fcitx/fcitx5)——输入法框架
