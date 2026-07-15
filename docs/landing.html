@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EchoFlow — 为 deepin 打造的离线语音输入法</title>
+  <meta name="description" content="EchoFlow 让 deepin 用户直接用语音输入中文。完全离线、隐私安全、Fcitx5 原生上屏。">
+  <style>
+    /* ========== Reset & Base ========== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black: #0a0a0b;
+      --ink: #16171a;
+      --graphite: #2a2c30;
+      --slate: #4a4d54;
+      --gray: #7a7e87;
+      --silver: #b8bcc4;
+      --fog: #e5e7eb;
+      --cloud: #f4f5f7;
+      --white: #ffffff;
+      --accent: #35A7FF;
+      --accent-soft: rgba(53, 167, 255, 0.08);
+      --maxw: 1200px;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--white);
+      color: var(--ink);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    code, pre { font-family: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace; }
+    ::selection { background: var(--ink); color: var(--white); }
+
+    .container { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* ========== Reveal animation ========== */
+    .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s var(--ease), transform .8s var(--ease); }
+    .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .reveal { opacity: 1; transform: none; transition: none; }
+      html { scroll-behavior: auto; }
+    }
+
+    /* ========== Nav ========== */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 16px 0;
+      transition: background .3s var(--ease), border-color .3s var(--ease), padding .3s var(--ease);
+      border-bottom: 1px solid transparent;
+    }
+    nav.scrolled {
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--fog);
+      padding: 12px 0;
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; letter-spacing: -0.01em; }
+    .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; }
+    .brand-mark svg { display: block; width: 100%; height: 100%; }
+    .nav-links { display: flex; align-items: center; gap: 36px; }
+    .nav-links a { font-size: 14px; color: var(--slate); font-weight: 500; transition: color .2s; }
+    .nav-links a:hover { color: var(--ink); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; border-radius: 10px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: all .25s var(--ease); border: none; white-space: nowrap;
+    }
+    .btn-dark { background: var(--ink); color: var(--white); }
+    .btn-dark:hover { background: var(--black); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(10,10,11,0.18); }
+    .btn-light { background: var(--white); color: var(--ink); border: 1px solid var(--fog); }
+    .btn-light:hover { border-color: var(--silver); transform: translateY(-1px); }
+    .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--graphite); }
+    .btn-ghost:hover { background: var(--ink); color: var(--white); }
+    @media (max-width: 720px) {
+      .nav-links a:not(.btn) { display: none; }
+    }
+
+    /* ========== Hero ========== */
+    header.hero {
+      position: relative;
+      padding: 160px 0 100px;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, var(--cloud), transparent 70%);
+    }
+    .hero-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(var(--fog) 1px, transparent 1px),
+        linear-gradient(90deg, var(--fog) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, var(--black) 30%, transparent 75%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, var(--black) 30%, transparent 75%);
+      opacity: 0.5;
+    }
+    .hero-inner { position: relative; text-align: center; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 999px;
+      background: var(--white); border: 1px solid var(--fog);
+      font-size: 13px; color: var(--slate); font-weight: 500;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+    .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    h1.hero-title {
+      font-size: clamp(40px, 7vw, 80px);
+      line-height: 1.04; letter-spacing: -0.03em; font-weight: 700;
+      margin: 28px auto 0; max-width: 14ch;
+      color: var(--black);
+    }
+    .hero-title em { font-style: normal; position: relative; }
+    .gradient-text {
+      background: linear-gradient(135deg, var(--ink) 0%, var(--slate) 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    p.hero-sub {
+      font-size: clamp(17px, 2vw, 20px);
+      color: var(--slate); max-width: 56ch; margin: 28px auto 0;
+      line-height: 1.7;
+    }
+    .hero-cta { display: flex; gap: 14px; justify-content: center; margin-top: 40px; flex-wrap: wrap; }
+    .hero-cta .btn { padding: 14px 26px; font-size: 15px; }
+
+    /* Voice wave visual */
+    .wave-stage {
+      margin: 72px auto 0; max-width: 760px; height: 180px;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      position: relative;
+    }
+    .wave-stage::before, .wave-stage::after {
+      content: ""; position: absolute; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--fog), transparent);
+    }
+    .wave-stage::before { top: 50%; transform: translateY(-1px); }
+    .wave-stage::after { display: none; }
+    .bar {
+      width: 4px; border-radius: 4px; background: var(--ink);
+      animation: wave 1.6s var(--ease) infinite;
+      transform-origin: center;
+    }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.18); opacity: 0.4; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) { .bar { animation: none; transform: scaleY(0.6); opacity: 0.7; } }
+
+    .hero-stats {
+      display: flex; justify-content: center; gap: 56px; margin-top: 64px;
+      flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat .num { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--black); }
+    .stat .label { font-size: 13px; color: var(--gray); margin-top: 4px; }
+
+    /* ========== Sections ========== */
+    section { padding: 120px 0; }
+    .section-head { text-align: center; max-width: 640px; margin: 0 auto 72px; }
+    .eyebrow {
+      font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--gray); margin-bottom: 16px;
+    }
+    h2.section-title {
+      font-size: clamp(30px, 4vw, 44px); line-height: 1.15; letter-spacing: -0.025em;
+      font-weight: 700; color: var(--black);
+    }
+    .section-desc { color: var(--slate); font-size: 17px; margin-top: 16px; }
+
+    /* Features */
+    .features-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    }
+    @media (max-width: 900px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .features-grid { grid-template-columns: 1fr; } }
+    .feature-card {
+      padding: 32px 28px; border-radius: 20px;
+      background: var(--white); border: 1px solid var(--fog);
+      transition: all .35s var(--ease);
+      position: relative; overflow: hidden;
+    }
+    .feature-card:hover {
+      border-color: var(--silver); transform: translateY(-4px);
+      box-shadow: 0 20px 40px -20px rgba(10,10,11,0.12);
+    }
+    .feature-card .icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--cloud); display: grid; place-items: center;
+      margin-bottom: 20px; color: var(--ink);
+      transition: background .35s, color .35s;
+    }
+    .feature-card:hover .icon { background: var(--ink); color: var(--white); }
+    .feature-card h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; color: var(--black); }
+    .feature-card p { font-size: 14.5px; color: var(--slate); line-height: 1.65; }
+
+    /* Workflow */
+    #workflow { background: var(--cloud); }
+    .flow {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+      margin-top: 24px;
+    }
+    @media (max-width: 800px) { .flow { grid-template-columns: 1fr; gap: 8px; } }
+    .flow-step {
+      padding: 36px 24px; text-align: center; position: relative;
+    }
+    .flow-step .step-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--white); border: 1px solid var(--fog);
+      display: grid; place-items: center; margin: 0 auto 20px;
+      font-size: 14px; font-weight: 600; color: var(--ink);
+    }
+    .flow-step h4 { font-size: 16px; font-weight: 600; color: var(--black); margin-bottom: 8px; }
+    .flow-step p { font-size: 14px; color: var(--slate); }
+    .flow-step::after {
+      content: ""; position: absolute; top: 54px; right: -12px;
+      width: 24px; height: 1px; background: var(--silver);
+    }
+    .flow-step:last-child::after { display: none; }
+    @media (max-width: 800px) { .flow-step::after { display: none; } }
+
+    /* Architecture diagram */
+    .arch-diagram {
+      max-width: 1040px; margin: 0 auto; padding: 8px 0 0;
+      background: var(--white); border: 1px solid var(--fog); border-radius: 24px;
+      overflow: hidden;
+    }
+    .arch-diagram svg { display: block; width: 100%; height: auto; }
+
+    /* Quickstart */
+    .qs-layout { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 56px; align-items: center; }
+    @media (max-width: 900px) { .qs-layout { grid-template-columns: 1fr; gap: 40px; } }
+    .qs-steps { list-style: none; counter-reset: qs; }
+    .qs-steps li {
+      counter-increment: qs; padding: 24px 0; border-bottom: 1px solid var(--fog);
+      display: flex; gap: 20px;
+    }
+    .qs-steps li:last-child { border-bottom: none; }
+    .qs-steps li::before {
+      content: counter(qs, decimal-leading-zero);
+      font-family: "SF Mono", Menlo, monospace; font-size: 13px; font-weight: 600;
+      color: var(--gray);
+    }
+    .qs-steps h4 { font-size: 16px; font-weight: 600; color: var(--black); margin-bottom: 4px; }
+    .qs-steps p { font-size: 14px; color: var(--slate); }
+    .terminal {
+      background: var(--ink); border-radius: 16px; overflow: hidden;
+      box-shadow: 0 30px 60px -30px rgba(10,10,11,0.4);
+    }
+    .terminal-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 18px; background: var(--graphite);
+    }
+    .terminal-bar .dots { display: flex; gap: 6px; }
+    .terminal-bar .dots span { width: 11px; height: 11px; border-radius: 50%; background: var(--slate); }
+    .terminal-bar .title { font-size: 12px; color: var(--silver); margin-left: 8px; font-family: "SF Mono", Menlo, monospace; }
+    .terminal-body {
+      padding: 22px 24px; font-size: 13.5px; line-height: 1.9;
+      color: var(--silver); font-family: "SF Mono", Menlo, monospace;
+      overflow-x: auto;
+    }
+    .terminal-body .prompt { color: var(--gray); user-select: none; }
+    .terminal-body .cmd { color: #e5e7eb; }
+    .terminal-body .out { color: #9ca0a8; }
+    .terminal-body .ok { color: #6ee7b7; }
+    .terminal-body .accent { color: var(--accent); }
+
+    /* CTA */
+    .cta-band {
+      padding: 96px 0; background: var(--black); color: var(--white);
+      position: relative; overflow: hidden;
+    }
+    .cta-band::before {
+      content: ""; position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, var(--black), transparent 80%);
+      -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, var(--black), transparent 80%);
+    }
+    .cta-inner { position: relative; text-align: center; }
+    .cta-band h2 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -0.025em; font-weight: 700; }
+    .cta-band p { color: var(--silver); margin-top: 16px; font-size: 17px; }
+    .cta-band .hero-cta { margin-top: 40px; }
+    .cta-band .btn-light { background: var(--white); border-color: var(--white); }
+
+    /* Footer */
+    footer { padding: 64px 0 40px; background: var(--cloud); border-top: 1px solid var(--fog); }
+    .footer-inner { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
+    .footer-brand { max-width: 320px; }
+    .footer-brand .brand { margin-bottom: 12px; }
+    .footer-brand p { font-size: 14px; color: var(--slate); }
+    .footer-cols { display: flex; gap: 64px; flex-wrap: wrap; }
+    .footer-col h5 { font-size: 13px; font-weight: 600; color: var(--black); margin-bottom: 16px; letter-spacing: 0.02em; }
+    .footer-col a { display: block; font-size: 14px; color: var(--slate); margin-bottom: 10px; transition: color .2s; }
+    .footer-col a:hover { color: var(--black); }
+    .footer-bottom {
+      margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--fog);
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-bottom p { font-size: 13px; color: var(--gray); }
+    .footer-bottom .license { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav id="nav">
+    <div class="container nav-inner">
+      <a href="#" class="brand">
+        <span class="brand-mark">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="56" height="56" rx="16" fill="#20242A"/><path d="M16 34C21 24 29 24 34 34C39 44 47 44 52 34" stroke="#35A7FF" stroke-width="6" stroke-linecap="round"/><path d="M16 24C21 14 29 14 34 24C39 34 47 34 52 24" stroke="#1ED6A3" stroke-width="4" stroke-linecap="round" opacity="0.9"/><rect x="15" y="38" width="34" height="12" rx="6" fill="#F7FAFC"/><rect x="22" y="42" width="12" height="4" rx="2" fill="#20242A"/><circle cx="40" cy="44" r="3" fill="#35A7FF"/></svg>
+        </span>
+        EchoFlow
+      </a>
+      <div class="nav-links">
+        <a href="#features">亮点</a>
+        <a href="#workflow">工作流程</a>
+        <a href="#architecture">架构</a>
+        <a href="#quickstart">快速开始</a>
+        <a href="https://github.com/hualet/echoflow" class="btn btn-dark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1-.02-1.96-3.2.7-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero-grid"></div>
+    <div class="container hero-inner">
+      <span class="badge reveal"><span class="dot"></span> v0.2.1 · 现已支持流式实时转写</span>
+      <h1 class="hero-title reveal" style="transition-delay:.08s">说出的话，<br><span class="gradient-text">直接落到输入框里</span></h1>
+      <p class="hero-sub reveal" style="transition-delay:.16s">
+        EchoFlow 让 deepin 用户用语音输入中文。完全离线，隐私安全，通过 Fcitx5 原生通道上屏——
+        按下右 <kbd style="font-family:'SF Mono',Menlo,monospace;font-size:.86em;padding:2px 7px;border:1px solid var(--fog);border-radius:6px;background:var(--cloud);">Ctrl</kbd>，说话，松开，文字便已就位。
+      </p>
+      <div class="hero-cta reveal" style="transition-delay:.24s">
+        <a href="#quickstart" class="btn btn-dark">快速开始</a>
+        <a href="https://github.com/hualet/echoflow" class="btn btn-light">查看源码</a>
+      </div>
+
+      <div class="wave-stage reveal" style="transition-delay:.32s" aria-hidden="true">
+        <!-- bars generated by JS -->
+      </div>
+
+      <div class="hero-stats reveal" style="transition-delay:.4s">
+        <div class="stat"><div class="num">100%</div><div class="label">离线运行</div></div>
+        <div class="stat"><div class="num">0</div><div class="label">云端依赖</div></div>
+        <div class="stat"><div class="num">~50ms</div><div class="label">冷启动延迟</div></div>
+        <div class="stat"><div class="num">GPL-3.0</div><div class="label">开源协议</div></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">核心亮点</div>
+        <h2 class="section-title">为隐私和体验而生</h2>
+        <p class="section-desc">不是简单的语音转文字。EchoFlow 接入 Fcitx5 输入法框架，像你用拼音打字一样精准上屏。</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card reveal">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <h3>离线识别，隐私安全</h3>
+          <p>录音和识别全部在本机完成，不经过任何云端服务。你的声音永远不会离开你的设备。</p>
+        </div>
+        <div class="feature-card reveal" style="transition-delay:.06s">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></div>
+          <h3>右 Ctrl 即按即说</h3>
+          <p>焦点在输入框时，轻点右 Ctrl 开始录音，再点一下结束。无需离开键盘，无需切换窗口。</p>
+        </div>
+        <div class="feature-card reveal" style="transition-delay:.12s">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+          <h3>Fcitx5 原生上屏</h3>
+          <p>通过 commitString 提交到当前输入框，不走剪贴板、不模拟按键，永远不会打错窗口。</p>
+        </div>
+        <div class="feature-card reveal" style="transition-delay:.18s">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg></div>
+          <h3>模型常驻，说出即识别</h3>
+          <p>模型在服务启动时加载并常驻内存，无冷启动等待。录音中后台分段转写，停止即得结果。</p>
+        </div>
+        <div class="feature-card reveal" style="transition-delay:.24s">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M6 12a6 6 0 0 1 12 0"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></div>
+          <h3>录音中实时预览</h3>
+          <p>语音胶囊提示里显示临时转写结果，让你确认系统正在「听」你说话，停止时文本已就绪。</p>
+        </div>
+        <div class="feature-card reveal" style="transition-delay:.3s">
+          <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+          <h3>应用内一键下载模型</h3>
+          <p>设置界面点击下载，支持 hf-mirror 和 HuggingFace 官方两种源，进度条清晰可见。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Workflow -->
+  <section id="workflow">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">工作流程</div>
+        <h2 class="section-title">从开口到上屏，一气呵成</h2>
+        <p class="section-desc">四个步骤，全程无需离开键盘。所有组件通过 Unix domain socket 在本机通信，无需网络。</p>
+      </div>
+      <div class="flow reveal">
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <h4>按下右 Ctrl</h4>
+          <p>焦点在输入框时轻点右 Ctrl，语音胶囊立即出现。</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <h4>开始说话</h4>
+          <p>Qwen ASR 在后台实时分段转写，胶囊显示临时结果。</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <h4>再按结束</h4>
+          <p>再次轻点右 Ctrl，后台完成最终转写并合并整段文本。</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <h4>文字上屏</h4>
+          <p>通过 Fcitx5 原生通道提交到当前输入框，精准无误。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section id="architecture">
+    <div class="container">
+      <div class="section-head reveal">
+        <div class="eyebrow">系统架构</div>
+        <h2 class="section-title">三个组件，各司其职</h2>
+        <p class="section-desc">守护进程、Fcitx5 插件、桌面 UI 通过本地 socket 协作，构成完整的语音输入闭环。</p>
+      </div>
+      <div class="arch-diagram reveal">
+        <svg viewBox="0 0 1040 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EchoFlow 系统架构图">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#b8bcc4"/>
+            </marker>
+            <marker id="arrAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="#7a7e87"/>
+            </marker>
+          </defs>
+
+          <!-- ===== User layer ===== -->
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="390" y="24" width="260" height="56" rx="14" fill="#0a0a0b"/>
+            <text x="520" y="50" text-anchor="middle" fill="#ffffff" font-size="15" font-weight="600">用户</text>
+            <text x="520" y="70" text-anchor="middle" fill="#b8bcc4" font-size="12">按下右 Ctrl · 开始说话</text>
+          </g>
+
+          <!-- arrow: user -> fcitx-addon (trigger) -->
+          <path d="M470 82 L470 128" stroke="#b8bcc4" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+          <text x="438" y="110" text-anchor="end" fill="#7a7e87" font-size="11" font-family="'SF Mono', Menlo, monospace">右 Ctrl</text>
+
+          <!-- ===== Fcitx5 layer ===== -->
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="90" y="128" width="260" height="92" rx="14" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="220" y="156" text-anchor="middle" fill="#0a0a0b" font-size="15" font-weight="600">Fcitx5 输入法框架</text>
+            <text x="220" y="178" text-anchor="middle" fill="#4a4d54" font-size="12">输入上下文 · 焦点事件</text>
+            <rect x="130" y="188" width="180" height="22" rx="6" fill="#0a0a0b"/>
+            <text x="220" y="203" text-anchor="middle" fill="#ffffff" font-size="11.5" font-family="'SF Mono', Menlo, monospace">fcitx-addon</text>
+          </g>
+
+          <!-- arrow: user -> echoflow-ui (trigger via tray/capsule) -->
+          <path d="M570 82 L570 128" stroke="#b8bcc4" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+          <text x="602" y="110" fill="#7a7e87" font-size="11" font-family="'SF Mono', Menlo, monospace">托盘 / 胶囊</text>
+
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="440" y="128" width="260" height="92" rx="14" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="570" y="156" text-anchor="middle" fill="#0a0a0b" font-size="15" font-weight="600">桌面 UI</text>
+            <text x="570" y="178" text-anchor="middle" fill="#4a4d54" font-size="12">Qt6 / DTK6 · 托盘 · 设置</text>
+            <rect x="480" y="188" width="180" height="22" rx="6" fill="#0a0a0b"/>
+            <text x="570" y="203" text-anchor="middle" fill="#ffffff" font-size="11.5" font-family="'SF Mono', Menlo, monospace">echoflow-ui</text>
+          </g>
+
+          <!-- arrow: user -> echoflow-service (audio) — left long path -->
+          <path d="M430 82 C 300 82, 300 300, 300 360" stroke="#b8bcc4" stroke-width="1.5" fill="none" marker-end="url(#arr)" stroke-dasharray="4 4"/>
+          <text x="285" y="230" text-anchor="end" fill="#7a7e87" font-size="11" font-family="'SF Mono', Menlo, monospace">PipeWire 音频</text>
+
+          <!-- ===== Service layer ===== -->
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="150" y="360" width="740" height="100" rx="16" fill="#0a0a0b"/>
+            <text x="520" y="388" text-anchor="middle" fill="#ffffff" font-size="15" font-weight="600">语音识别守护进程</text>
+            <text x="520" y="408" text-anchor="middle" fill="#b8bcc4" font-size="12">加载模型 · 录音管线 · 分段转写 · 状态机</text>
+            <rect x="430" y="422" width="180" height="24" rx="7" fill="#20242A"/>
+            <text x="520" y="438" text-anchor="middle" fill="#ffffff" font-size="12" font-family="'SF Mono', Menlo, monospace">echoflow-service</text>
+          </g>
+
+          <!-- internal boxes inside service: Recorder / ASR Engine -->
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="190" y="478" width="150" height="40" rx="9" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="265" y="495" text-anchor="middle" fill="#0a0a0b" font-size="12" font-weight="600">录音管线</text>
+            <text x="265" y="510" text-anchor="middle" fill="#7a7e87" font-size="10.5" font-family="'SF Mono', Menlo, monospace">PipeWire</text>
+          </g>
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="445" y="478" width="150" height="40" rx="9" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="520" y="495" text-anchor="middle" fill="#0a0a0b" font-size="12" font-weight="600">ASR 引擎</text>
+            <text x="520" y="510" text-anchor="middle" fill="#7a7e87" font-size="10.5" font-family="'SF Mono', Menlo, monospace">Qwen3-ASR</text>
+          </g>
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="700" y="478" width="150" height="40" rx="9" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="775" y="495" text-anchor="middle" fill="#0a0a0b" font-size="12" font-weight="600">模型常驻</text>
+            <text x="775" y="510" text-anchor="middle" fill="#7a7e87" font-size="10.5" font-family="'SF Mono', Menlo, monospace">内存</text>
+          </g>
+          <!-- connectors service -> internal -->
+          <path d="M265 460 L265 478" stroke="#e5e7eb" stroke-width="1.2" fill="none"/>
+          <path d="M520 460 L520 478" stroke="#e5e7eb" stroke-width="1.2" fill="none"/>
+          <path d="M775 460 L775 478" stroke="#e5e7eb" stroke-width="1.2" fill="none"/>
+
+          <!-- ===== Sockets layer (the bus) ===== -->
+          <g>
+            <rect x="120" y="556" width="800" height="30" rx="8" fill="#e5e7eb"/>
+            <text x="520" y="576" text-anchor="middle" fill="#4a4d54" font-size="11.5" font-family="'SF Mono', Menlo, monospace">Unix domain sockets · echoflow-control.sock · echoflow-fcitx.sock · echoflow-ui.sock</text>
+          </g>
+
+          <!-- bus connectors -->
+          <path d="M220 220 L220 556" stroke="#b8bcc4" stroke-width="1.2" fill="none" stroke-dasharray="3 4" opacity="0.7"/>
+          <path d="M570 220 L570 556" stroke="#b8bcc4" stroke-width="1.2" fill="none" stroke-dasharray="3 4" opacity="0.7"/>
+          <path d="M520 460 L520 556" stroke="#b8bcc4" stroke-width="1.2" fill="none" stroke-dasharray="3 4" opacity="0.7"/>
+
+          <!-- ===== Result flow (accent) ===== -->
+          <!-- service -> fcitx-addon: text -->
+          <path d="M300 360 C 300 300, 300 240, 300 222" stroke="#0a0a0b" stroke-width="2" fill="none" marker-end="url(#arrAccent)"/>
+          <text x="318" y="300" fill="#0a0a0b" font-size="11.5" font-weight="600" font-family="'SF Mono', Menlo, monospace">识别文本</text>
+
+          <!-- fcitx-addon -> application: commitString -->
+          <path d="M90 174 L40 174 L40 300" stroke="#0a0a0b" stroke-width="2" fill="none" marker-end="url(#arrAccent)"/>
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="40" y="300" width="0" height="0" fill="none"/>
+            <text x="48" y="318" fill="#0a0a0b" font-size="12" font-weight="600">commitString</text>
+            <text x="48" y="334" fill="#7a7e87" font-size="11">→ 当前输入框</text>
+          </g>
+
+          <!-- service -> ui: live preview -->
+          <path d="M700 360 C 700 300, 640 240, 640 222" stroke="#7a7e87" stroke-width="1.5" fill="none" marker-end="url(#arrAccent)" stroke-dasharray="4 3"/>
+          <text x="662" y="300" fill="#7a7e87" font-size="11" font-family="'SF Mono', Menlo, monospace">实时预览</text>
+
+          <!-- ===== Output target ===== -->
+          <g font-family="-apple-system, 'PingFang SC', sans-serif">
+            <rect x="790" y="128" width="200" height="92" rx="14" fill="#f4f5f7" stroke="#e5e7eb"/>
+            <text x="890" y="156" text-anchor="middle" fill="#0a0a0b" font-size="15" font-weight="600">目标应用</text>
+            <text x="890" y="178" text-anchor="middle" fill="#4a4d54" font-size="12">浏览器 · 编辑器 · 聊天</text>
+            <text x="890" y="200" text-anchor="middle" fill="#7a7e87" font-size="11.5" font-family="'SF Mono', Menlo, monospace">当前焦点输入框</text>
+          </g>
+          <!-- ui -> target (no direct line, just visual grouping) -->
+          <path d="M700 174 L790 174" stroke="#e5e7eb" stroke-width="1.2" fill="none"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quickstart -->
+  <section id="quickstart">
+    <div class="container">
+      <div class="section-head reveal" style="margin-bottom:56px">
+        <div class="eyebrow">快速开始</div>
+        <h2 class="section-title">三步开始用</h2>
+      </div>
+      <div class="qs-layout">
+        <ol class="qs-steps reveal">
+          <li>
+            <div>
+              <h4>克隆并构建</h4>
+              <p>需要 deepin 25.1+、Fcitx5、PipeWire。递归拉取子模块后用 CMake 构建。</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>本地安装</h4>
+              <p>运行安装脚本，自动启用两个用户 systemd 服务，并重载 Fcitx 使插件立即生效。</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>下载模型并使用</h4>
+              <p>托盘 → 设置 → 模型，选择 Qwen3-ASR，下载后轻点右 Ctrl 即可开始说话。</p>
+            </div>
+          </li>
+        </ol>
+        <div class="terminal reveal" style="transition-delay:.08s">
+          <div class="terminal-bar">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="title">bash — echoflow</span>
+          </div>
+          <div class="terminal-body">
+<span class="prompt">$ </span><span class="cmd">git clone https://github.com/hualet/echoflow.git</span>
+<span class="prompt">$ </span><span class="cmd">cd echoflow &amp;&amp; git submodule update --init --recursive</span>
+<span class="prompt">$ </span><span class="cmd">cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo</span>
+<span class="out">-- Configuring done</span>
+<span class="out">-- Generating done</span>
+<span class="prompt">$ </span><span class="cmd">cmake --build build</span>
+<span class="ok">✓ Build complete</span>
+<span class="prompt">$ </span><span class="cmd">./install-user.sh</span>
+<span class="out">→ Enabled echoflow.service</span>
+<span class="out">→ Enabled echoflow-ui.service</span>
+<span class="out">→ Reloaded Fcitx5</span>
+<span class="accent">› 托盘 → 设置 → 下载模型 → 按右 Ctrl 开始</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-band">
+    <div class="container cta-inner">
+      <h2 class="reveal">让键盘再安静一会儿</h2>
+      <p class="reveal" style="transition-delay:.08s">完全离线、隐私优先、为 deepin 原生打造。</p>
+      <div class="hero-cta reveal" style="transition-delay:.16s">
+        <a href="https://github.com/hualet/echoflow" class="btn btn-light">获取 EchoFlow</a>
+        <a href="#quickstart" class="btn btn-ghost" style="color:var(--white);border-color:var(--slate)">查看文档</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <a href="#" class="brand">
+            <span class="brand-mark">
+              <svg width="28" height="28" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="56" height="56" rx="16" fill="#20242A"/><path d="M16 34C21 24 29 24 34 34C39 44 47 44 52 34" stroke="#35A7FF" stroke-width="6" stroke-linecap="round"/><path d="M16 24C21 14 29 14 34 24C39 34 47 34 52 24" stroke="#1ED6A3" stroke-width="4" stroke-linecap="round" opacity="0.9"/><rect x="15" y="38" width="34" height="12" rx="6" fill="#F7FAFC"/><rect x="22" y="42" width="12" height="4" rx="2" fill="#20242A"/><circle cx="40" cy="44" r="3" fill="#35A7FF"/></svg>
+            </span>
+            EchoFlow
+          </a>
+          <p>为 deepin 打造的离线语音输入法。声音留在本机，文字直达输入框。</p>
+        </div>
+        <div class="footer-cols">
+          <div class="footer-col">
+            <h5>项目</h5>
+            <a href="#features">核心亮点</a>
+            <a href="#workflow">工作流程</a>
+            <a href="#architecture">系统架构</a>
+            <a href="#quickstart">快速开始</a>
+          </div>
+          <div class="footer-col">
+            <h5>资源</h5>
+            <a href="https://github.com/hualet/echoflow">GitHub 仓库</a>
+            <a href="https://github.com/hualet/echoflow/blob/main/README.md">使用文档</a>
+            <a href="https://github.com/hualet/echoflow/releases">版本发布</a>
+            <a href="https://github.com/hualet/echoflow/issues">问题反馈</a>
+          </div>
+          <div class="footer-col">
+            <h5>鸣谢</h5>
+            <a href="https://github.com/fcitx/fcitx5">Fcitx5</a>
+            <a href="https://github.com/antirez/qwen-asr">qwen-asr</a>
+            <a href="https://github.com/QwenLM/Qwen">Qwen</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2026 EchoFlow · 由 Hualet Wang 与开源社区共同打造</p>
+        <p class="license">GPL-3.0-or-later</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Nav scroll state
+    const nav = document.getElementById('nav');
+    const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 20);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // Reveal on scroll
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    // Generate voice bars
+    const stage = document.querySelector('.wave-stage');
+    if (stage) {
+      const COUNT = 56;
+      const heights = Array.from({ length: COUNT }, (_, i) => {
+        // a smooth pseudo-random envelope with a center peak
+        const t = i / (COUNT - 1);
+        const env = Math.sin(t * Math.PI);          // 0..1..0
+        const wobble = 0.55 + 0.45 * Math.sin(i * 1.7) * Math.cos(i * 0.6);
+        return Math.max(0.12, Math.min(1, env * wobble));
+      });
+      heights.forEach((h, i) => {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = (24 + h * 120) + 'px';
+        bar.style.animationDelay = (i * 0.045) + 's';
+        bar.style.animationDuration = (1.3 + (i % 5) * 0.14) + 's';
+        // taper opacity at edges for a softer look
+        const edge = Math.sin((i / (COUNT - 1)) * Math.PI);
+        bar.style.opacity = 0.35 + edge * 0.65;
+        stage.appendChild(bar);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Hualet Wang
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Deploy Landing Page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/landing.html"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage page
+        run: |
+          mkdir -p _site
+          cp docs/landing.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
