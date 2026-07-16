@@ -38,6 +38,9 @@ void QProcessSetupCommandRunner::run(const QString &id, const QString &program,
             return;
         }
         if (detail.isEmpty()) {
+            detail = QString::fromLocal8Bit(process->readAllStandardOutput()).trimmed();
+        }
+        if (detail.isEmpty()) {
             detail = status == QProcess::CrashExit
                 ? QStringLiteral("%1 crashed").arg(program)
                 : QStringLiteral("%1 exited with status %2").arg(program).arg(exitCode);

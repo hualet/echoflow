@@ -73,6 +73,7 @@ private slots:
     void reportsModelProgress();
     void processRunnerReportsSuccess();
     void processRunnerReportsNonzeroAndStderr();
+    void processRunnerReportsNonzeroAndStdout();
     void processRunnerReportsFailedStart();
     void processRunnerRejectsDuplicateId();
 };
@@ -335,6 +336,17 @@ void TestOnboardingSetupController::processRunnerReportsNonzeroAndStderr()
     QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
     QCOMPARE(spy.first().at(1).toBool(), false);
     QVERIFY(spy.first().at(2).toString().contains(QStringLiteral("broken")));
+}
+
+void TestOnboardingSetupController::processRunnerReportsNonzeroAndStdout()
+{
+    QProcessSetupCommandRunner runner;
+    QSignalSpy spy(&runner, &SetupCommandRunner::finished);
+    runner.run(QStringLiteral("inactive"), QStringLiteral("/bin/sh"),
+               {QStringLiteral("-c"), QStringLiteral("echo inactive; exit 3")});
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
+    QCOMPARE(spy.first().at(1).toBool(), false);
+    QVERIFY(spy.first().at(2).toString().contains(QStringLiteral("inactive")));
 }
 
 void TestOnboardingSetupController::processRunnerReportsFailedStart()
