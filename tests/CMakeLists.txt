@@ -1,6 +1,27 @@
 # SPDX-FileCopyrightText: 2026 Hualet Wang
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    cmake_minimum_required(VERSION 3.16)
+    project(echoflow-focused-tests LANGUAGES CXX)
+
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_AUTOMOC ON)
+
+    find_package(Qt6 REQUIRED COMPONENTS Core Test)
+    enable_testing()
+
+    add_executable(test_onboarding_state
+        test_onboarding_state.cpp
+        ../ui-host/OnboardingState.cpp)
+    target_include_directories(test_onboarding_state PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_onboarding_state PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME test_onboarding_state COMMAND test_onboarding_state)
+    return()
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Test)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 qt_standard_project_setup()
@@ -33,6 +54,15 @@ foreach(test_target ${ECHOFLOW_TESTS})
     echoflow_enable_dead_strip(${test_target})
     add_test(NAME ${test_target} COMMAND ${test_target})
 endforeach()
+
+add_executable(test_onboarding_state
+    test_onboarding_state.cpp
+    ../ui-host/OnboardingState.cpp)
+target_include_directories(test_onboarding_state PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_onboarding_state PRIVATE Qt6::Core Qt6::Test)
+echoflow_enable_dead_strip(test_onboarding_state)
+add_test(NAME test_onboarding_state COMMAND test_onboarding_state)
 
 target_include_directories(test_benchmark_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 target_sources(test_benchmark_manifest PRIVATE benchmarks/BenchmarkManifest.cpp)
