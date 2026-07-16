@@ -9,7 +9,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_AUTOMOC ON)
 
-    find_package(Qt6 REQUIRED COMPONENTS Core Test)
+    find_package(Qt6 REQUIRED COMPONENTS Core Network Test)
     enable_testing()
 
     add_executable(test_onboarding_state
@@ -19,10 +19,19 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
     target_link_libraries(test_onboarding_state PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME test_onboarding_state COMMAND test_onboarding_state)
+
+    add_executable(test_ui_activation_server
+        test_ui_activation_server.cpp
+        ../ui-host/UiActivationServer.cpp)
+    target_include_directories(test_ui_activation_server PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_ui_activation_server PRIVATE
+        Qt6::Core Qt6::Network Qt6::Test)
+    add_test(NAME test_ui_activation_server COMMAND test_ui_activation_server)
     return()
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Test)
+find_package(Qt6 REQUIRED COMPONENTS Network Test)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 qt_standard_project_setup()
 
@@ -63,6 +72,16 @@ target_include_directories(test_onboarding_state PRIVATE
 target_link_libraries(test_onboarding_state PRIVATE Qt6::Core Qt6::Test)
 echoflow_enable_dead_strip(test_onboarding_state)
 add_test(NAME test_onboarding_state COMMAND test_onboarding_state)
+
+add_executable(test_ui_activation_server
+    test_ui_activation_server.cpp
+    ../ui-host/UiActivationServer.cpp)
+target_include_directories(test_ui_activation_server PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_ui_activation_server PRIVATE
+    Qt6::Core Qt6::Network Qt6::Test)
+echoflow_enable_dead_strip(test_ui_activation_server)
+add_test(NAME test_ui_activation_server COMMAND test_ui_activation_server)
 
 target_include_directories(test_benchmark_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 target_sources(test_benchmark_manifest PRIVATE benchmarks/BenchmarkManifest.cpp)
