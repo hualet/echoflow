@@ -7,7 +7,10 @@
 #include "SetupCommandRunner.h"
 
 #include <QFile>
+#include <QIcon>
 #include <QLabel>
+#include <QPalette>
+#include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -82,6 +85,7 @@ class TestOnboardingDialog : public QObject {
     Q_OBJECT
 private slots:
     void hasFourPagesAndBoundedNavigation();
+    void usesApprovedChineseCopyAndAccessiblePresentation();
     void startRunsSetupAndDisablesPrimaryAction();
     void rendersDeterminateAndIndeterminateModelProgress();
     void failureShowsErrorAndRetriesFailedWork();
@@ -89,6 +93,7 @@ private slots:
     void successChangesPrimaryActionToFinish();
     void closeDoesNotCompleteSetup();
     void incompleteWorkResumesOnFinalPage();
+    void failedSetupReopensOnFinalPageWithRetry();
     void replayStartsAtFirstPageAndCompletedSetupDoesNotRerun();
 };
 
@@ -110,8 +115,9 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     QCOMPARE(pages->count(), 4);
     QCOMPARE(dialog.currentPage(), 0);
     QVERIFY(!back->isEnabled());
-    QCOMPARE(next->text(), QStringLiteral("Next"));
-    QCOMPARE(indicator->text(), QStringLiteral("1 / 4"));
+    QCOMPARE(back->text(), QStringLiteral("上一步"));
+    QCOMPARE(next->text(), QStringLiteral("下一步"));
+    QCOMPARE(indicator->text(), QStringLiteral("第 1 页，共 4 页"));
 
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 0);
@@ -122,11 +128,75 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
         QTest::mouseClick(next, Qt::LeftButton);
         QCOMPARE(dialog.currentPage(), page);
     }
-    QCOMPARE(next->text(), QStringLiteral("Start"));
-    QCOMPARE(indicator->text(), QStringLiteral("4 / 4"));
+    QCOMPARE(next->text(), QStringLiteral("开始使用 EchoFlow"));
+    QCOMPARE(indicator->text(), QStringLiteral("第 4 页，共 4 页"));
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 2);
-    QCOMPARE(next->text(), QStringLiteral("Next"));
+    QCOMPARE(next->text(), QStringLiteral("下一步"));
+}
+
+void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
+{
+    const QIcon previousIcon = QApplication::windowIcon();
+    QPixmap iconPixmap(12, 12);
+    iconPixmap.fill(Qt::cyan);
+    const QIcon testIcon(iconPixmap);
+    QVERIFY(!testIcon.isNull());
+    QApplication::setWindowIcon(testIcon);
+
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    OnboardingDialog dialog(&controller);
+
+    QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
+    const QList<QPair<QString, QString>> copy = {
+        {QStringLiteral("introHeading"), QStringLiteral("离线、安全、流畅")},
+        {QStringLiteral("shortcutHeading"),
+         QStringLiteral("按右 Ctrl 键开始说话")},
+        {QStringLiteral("settingsHeading"), QStringLiteral("从托盘打开设置")},
+        {QStringLiteral("setupHeading"), QStringLiteral("准备开始使用")},
+        {QStringLiteral("shortcutDescriptionLabel"),
+         QStringLiteral("第一次按下右 Ctrl 键开始录音，第二次按下停止录音。")},
+        {QStringLiteral("shortcutTranscriptLabel"),
+         QStringLiteral("识别完成后，文字会自动输入到当前聚焦的文本框。")},
+        {QStringLiteral("settingsOptionsLabel"),
+         QStringLiteral("在设置中选择模型、语言、麦克风和下载镜像。")},
+        {QStringLiteral("settingsReplayLabel"),
+         QStringLiteral("你也可以随时从托盘重播本使用指南。")},
+    };
+    for (const auto &[objectName, expected] : copy) {
+        auto *label = dialog.findChild<QLabel *>(objectName);
+        QVERIFY2(label, qPrintable(objectName));
+        QCOMPARE(label->text(), expected);
+        QVERIFY(label->wordWrap());
+    }
+
+    auto *description =
+        dialog.findChild<QLabel *>(QStringLiteral("introDescriptionLabel"));
+    QVERIFY(description);
+    QVERIFY(description->wordWrap());
+    QPalette palette = dialog.palette();
+    palette.setColor(QPalette::WindowText, QColor(12, 34, 56));
+    dialog.setPalette(palette);
+    QApplication::processEvents();
+    QCOMPARE(description->palette().color(QPalette::WindowText),
+             palette.color(QPalette::WindowText));
+
+    for (const QString &objectName : {
+             QStringLiteral("backButton"), QStringLiteral("nextButton"),
+             QStringLiteral("pageIndicator"),
+             QStringLiteral("modelStatusLabel"),
+             QStringLiteral("serviceStatusLabel"),
+             QStringLiteral("fcitxStatusLabel")}) {
+        auto *widget = dialog.findChild<QWidget *>(objectName);
+        QVERIFY2(widget, qPrintable(objectName));
+        QVERIFY2(!widget->accessibleName().isEmpty(), qPrintable(objectName));
+    }
+
+    QApplication::setWindowIcon(previousIcon);
 }
 
 void TestOnboardingDialog::startRunsSetupAndDisablesPrimaryAction()
@@ -148,7 +218,7 @@ void TestOnboardingDialog::startRunsSetupAndDisablesPrimaryAction()
     QCOMPARE(runner.calls.size(), 3);
     QVERIFY(controller.isRunning());
     QVERIFY(!next->isEnabled());
-    QCOMPARE(next->text(), QStringLiteral("Preparing..."));
+    QCOMPARE(next->text(), QStringLiteral("准备中…"));
 }
 
 void TestOnboardingDialog::rendersDeterminateAndIndeterminateModelProgress()
@@ -173,13 +243,12 @@ void TestOnboardingDialog::rendersDeterminateAndIndeterminateModelProgress()
     model.reportProgress(5 * 1024 * 1024, 10 * 1024 * 1024);
     QCOMPARE(progress->maximum(), 1000);
     QCOMPARE(progress->value(), 500);
-    QVERIFY(label->text().contains(QStringLiteral("5.0 MB")));
-    QVERIFY(label->text().contains(QStringLiteral("10.0 MB")));
+    QCOMPARE(label->text(), QStringLiteral("已下载 5.0 MB，共 10.0 MB"));
 
     model.reportProgress(7 * 1024 * 1024, 0);
     QCOMPARE(progress->minimum(), 0);
     QCOMPARE(progress->maximum(), 0);
-    QVERIFY(label->text().contains(QStringLiteral("7.0 MB downloaded")));
+    QCOMPARE(label->text(), QStringLiteral("已下载 7.0 MB"));
 }
 
 void TestOnboardingDialog::failureShowsErrorAndRetriesFailedWork()
@@ -202,12 +271,12 @@ void TestOnboardingDialog::failureShowsErrorAndRetriesFailedWork()
     QVERIFY(error);
     QCOMPARE(error->text(), QStringLiteral("Mirror timed out"));
     QVERIFY(error->isVisibleTo(&dialog));
-    QCOMPARE(next->text(), QStringLiteral("Retry"));
+    QCOMPARE(next->text(), QStringLiteral("重试"));
     QVERIFY(next->isEnabled());
 
     QTest::mouseClick(next, Qt::LeftButton);
     QCOMPARE(model.starts, 2);
-    QCOMPARE(next->text(), QStringLiteral("Preparing..."));
+    QCOMPARE(next->text(), QStringLiteral("准备中…"));
 }
 
 void TestOnboardingDialog::aggregateFailureIsVisibleAndRetryable()
@@ -233,11 +302,11 @@ void TestOnboardingDialog::aggregateFailureIsVisibleAndRetryable()
     auto *error = dialog.findChild<QLabel *>(QStringLiteral("aggregateErrorLabel"));
     QVERIFY(error);
     QVERIFY(error->text().contains(QStringLiteral("Failed to create")));
-    QCOMPARE(next->text(), QStringLiteral("Retry"));
+    QCOMPARE(next->text(), QStringLiteral("重试"));
     const int callsBeforeRetry = runner.calls.size();
     QTest::mouseClick(next, Qt::LeftButton);
     QCOMPARE(runner.calls.size(), callsBeforeRetry);
-    QCOMPARE(next->text(), QStringLiteral("Retry"));
+    QCOMPARE(next->text(), QStringLiteral("重试"));
 }
 
 void TestOnboardingDialog::successChangesPrimaryActionToFinish()
@@ -258,7 +327,7 @@ void TestOnboardingDialog::successChangesPrimaryActionToFinish()
     model.finish(true);
     finishSuccessfulCommands(runner);
 
-    QCOMPARE(next->text(), QStringLiteral("Finish"));
+    QCOMPARE(next->text(), QStringLiteral("完成并打开设置"));
     QVERIFY(next->isEnabled());
     QTest::mouseClick(next, Qt::LeftButton);
     QCOMPARE(finishedSpy.count(), 1);
@@ -300,8 +369,35 @@ void TestOnboardingDialog::incompleteWorkResumesOnFinalPage()
     dialog.showForIncompleteSetup();
     QCOMPARE(dialog.currentPage(), 3);
     QCOMPARE(button(dialog, "nextButton")->text(),
-             QStringLiteral("Preparing..."));
+             QStringLiteral("准备中…"));
     QCOMPARE(model.starts, 1);
+}
+
+void TestOnboardingDialog::failedSetupReopensOnFinalPageWithRetry()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    {
+        OnboardingDialog firstDialog(&controller);
+        firstDialog.showForIncompleteSetup();
+        auto *next = button(firstDialog, "nextButton");
+        for (int i = 0; i < 4; ++i) {
+            QTest::mouseClick(next, Qt::LeftButton);
+        }
+        model.finish(false, QStringLiteral("下载失败"));
+        finishSuccessfulCommands(runner);
+        QVERIFY(!controller.isRunning());
+        QCOMPARE(controller.itemState(SetupItem::Model), SetupItemState::Failed);
+    }
+
+    OnboardingDialog reopenedDialog(&controller);
+    reopenedDialog.showForIncompleteSetup();
+    QCOMPARE(reopenedDialog.currentPage(), 3);
+    QCOMPARE(button(reopenedDialog, "nextButton")->text(),
+             QStringLiteral("重试"));
 }
 
 void TestOnboardingDialog::replayStartsAtFirstPageAndCompletedSetupDoesNotRerun()
@@ -320,7 +416,7 @@ void TestOnboardingDialog::replayStartsAtFirstPageAndCompletedSetupDoesNotRerun(
     for (int i = 0; i < 3; ++i) {
         QTest::mouseClick(next, Qt::LeftButton);
     }
-    QCOMPARE(next->text(), QStringLiteral("Finish"));
+    QCOMPARE(next->text(), QStringLiteral("完成并打开设置"));
     QTest::mouseClick(next, Qt::LeftButton);
     QCOMPARE(model.starts, 0);
     QVERIFY(runner.calls.isEmpty());
