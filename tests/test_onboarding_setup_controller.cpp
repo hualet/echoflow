@@ -13,6 +13,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <stdexcept>
+
 class FakeModelSource final : public ModelSetupSource {
     Q_OBJECT
 public:
@@ -83,7 +85,10 @@ private slots:
     void modelAdapterMapsRetainedDownloadingSnapshot();
     void modelAdapterStartsDefaultModel_data();
     void modelAdapterStartsDefaultModel();
+    void modelAdapterRefreshesMirrorBeforeEachStart();
+    void modelAdapterRejectsEmptyDependencies();
     void modelAdapterFiltersCoordinatorSignals();
+    void modelAdapterObservationIsIdempotentAndSwitchable();
 };
 
 static void finishSuccessfulCommands(FakeCommandRunner &runner)
@@ -478,6 +483,48 @@ void TestOnboardingSetupController::modelAdapterStartsDefaultModel()
     QCOMPARE(startedBaseUrl, expectedBaseUrl);
 }
 
+void TestOnboardingSetupController::modelAdapterRefreshesMirrorBeforeEachStart()
+{
+    QString mirror = QStringLiteral("hf-mirror");
+    QStringList baseUrls;
+    ModelSetupAdapter adapter(
+        QStringLiteral("/unused"), [&mirror] { return mirror; },
+        [](const QString &) { return echoflow::DownloadSnapshot{}; },
+        [&baseUrls](const echoflow::ModelEntry &, const QString &,
+                    const QString &baseUrl) { baseUrls.append(baseUrl); });
+
+    adapter.startDownload();
+    mirror = QStringLiteral("official");
+    adapter.startDownload();
+
+    QCOMPARE(baseUrls,
+             QStringList({QStringLiteral("https://hf-mirror.com"),
+                          QStringLiteral("https://huggingface.co")}));
+}
+
+void TestOnboardingSetupController::modelAdapterRejectsEmptyDependencies()
+{
+    const ModelSetupAdapter::MirrorProvider mirror =
+        [] { return QStringLiteral("official"); };
+    const ModelSetupAdapter::SnapshotProvider snapshot =
+        [](const QString &) { return echoflow::DownloadSnapshot{}; };
+    const ModelSetupAdapter::StartDownload start =
+        [](const echoflow::ModelEntry &, const QString &, const QString &) {};
+
+    QVERIFY_EXCEPTION_THROWN(
+        ModelSetupAdapter(QStringLiteral("/unused"),
+                          ModelSetupAdapter::MirrorProvider{}, snapshot, start),
+        std::invalid_argument);
+    QVERIFY_EXCEPTION_THROWN(
+        ModelSetupAdapter(QStringLiteral("/unused"), mirror,
+                          ModelSetupAdapter::SnapshotProvider{}, start),
+        std::invalid_argument);
+    QVERIFY_EXCEPTION_THROWN(
+        ModelSetupAdapter(QStringLiteral("/unused"), mirror, snapshot,
+                          ModelSetupAdapter::StartDownload{}),
+        std::invalid_argument);
+}
+
 void TestOnboardingSetupController::modelAdapterFiltersCoordinatorSignals()
 {
     ModelSetupAdapter adapter(QStringLiteral("/unused"), QStringLiteral("official"),
@@ -514,6 +561,29 @@ void TestOnboardingSetupController::modelAdapterFiltersCoordinatorSignals()
     QVERIFY(finishedSpy.at(0).at(1).toString().isEmpty());
     QCOMPARE(finishedSpy.at(1).at(0).toBool(), false);
     QCOMPARE(finishedSpy.at(1).at(1).toString(), QStringLiteral("network error"));
+}
+
+void TestOnboardingSetupController::modelAdapterObservationIsIdempotentAndSwitchable()
+{
+    ModelSetupAdapter adapter(QStringLiteral("/unused"), QStringLiteral("official"),
+                              [](const QString &) { return echoflow::DownloadSnapshot{}; },
+                              [](const echoflow::ModelEntry &, const QString &,
+                                 const QString &) {});
+    auto *coordinator = echoflow::ModelDownloadCoordinator::instance();
+    QSignalSpy progressSpy(&adapter, &ModelSetupSource::progress);
+
+    adapter.observeCoordinator(coordinator);
+    adapter.observeCoordinator(coordinator);
+    emit coordinator->progress(QStringLiteral("qwen3-asr-0.6b"), 1, 3, {});
+    QCOMPARE(progressSpy.count(), 1);
+
+    adapter.observeCoordinator(nullptr);
+    emit coordinator->progress(QStringLiteral("qwen3-asr-0.6b"), 2, 3, {});
+    QCOMPARE(progressSpy.count(), 1);
+
+    adapter.observeCoordinator(coordinator);
+    emit coordinator->progress(QStringLiteral("qwen3-asr-0.6b"), 3, 3, {});
+    QCOMPARE(progressSpy.count(), 2);
 }
 
 QTEST_GUILESS_MAIN(TestOnboardingSetupController)

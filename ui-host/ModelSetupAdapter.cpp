@@ -6,6 +6,7 @@
 #include <QDir>
 
 #include <filesystem>
+#include <stdexcept>
 #include <utility>
 
 namespace {
@@ -24,22 +25,44 @@ QString defaultModelId()
 
 }  // namespace
 
-ModelSetupAdapter::ModelSetupAdapter(QString configDir, QString mirror,
+ModelSetupAdapter::ModelSetupAdapter(QString configDir,
+                                     MirrorProvider mirrorProvider,
                                      SnapshotProvider snapshotProvider,
                                      StartDownload startDownload,
                                      QObject *parent)
     : ModelSetupSource(parent),
       configDir_(std::move(configDir)),
-      mirror_(std::move(mirror)),
+      mirrorProvider_(std::move(mirrorProvider)),
       snapshotProvider_(std::move(snapshotProvider)),
       startDownload_(std::move(startDownload))
 {
+    if (!mirrorProvider_) {
+        throw std::invalid_argument("mirror provider is required");
+    }
+    if (!snapshotProvider_) {
+        throw std::invalid_argument("snapshot provider is required");
+    }
+    if (!startDownload_) {
+        throw std::invalid_argument("start download callback is required");
+    }
 }
 
 ModelSetupAdapter::ModelSetupAdapter(QString configDir, QString mirror,
+                                     SnapshotProvider snapshotProvider,
+                                     StartDownload startDownload,
                                      QObject *parent)
     : ModelSetupAdapter(
-          std::move(configDir), std::move(mirror),
+          std::move(configDir),
+          [mirror = std::move(mirror)] { return mirror; },
+          std::move(snapshotProvider), std::move(startDownload), parent)
+{
+}
+
+ModelSetupAdapter::ModelSetupAdapter(QString configDir,
+                                     MirrorProvider mirrorProvider,
+                                     QObject *parent)
+    : ModelSetupAdapter(
+          std::move(configDir), std::move(mirrorProvider),
           [coordinator = QPointer<echoflow::ModelDownloadCoordinator>(
                echoflow::ModelDownloadCoordinator::instance())](const QString &id) {
               return coordinator ? coordinator->snapshot(id)
@@ -58,6 +81,13 @@ ModelSetupAdapter::ModelSetupAdapter(QString configDir, QString mirror,
     observeCoordinator(echoflow::ModelDownloadCoordinator::instance());
 }
 
+ModelSetupAdapter::ModelSetupAdapter(QString configDir, QString mirror,
+                                     QObject *parent)
+    : ModelSetupAdapter(std::move(configDir),
+                        [mirror = std::move(mirror)] { return mirror; }, parent)
+{
+}
+
 bool ModelSetupAdapter::modelPresent() const
 {
     const QString dir = QDir(configDir_).filePath(defaultModelId());
@@ -74,7 +104,7 @@ bool ModelSetupAdapter::downloadRunning() const
 void ModelSetupAdapter::startDownload()
 {
     const QString dir = QDir(configDir_).filePath(defaultModelId());
-    const QString baseUrl = mirror_ == QStringLiteral("official")
+    const QString baseUrl = mirrorProvider_() == QStringLiteral("official")
                                 ? QStringLiteral("https://huggingface.co")
                                 : QStringLiteral("https://hf-mirror.com");
     startDownload_(defaultModel(), dir, baseUrl);

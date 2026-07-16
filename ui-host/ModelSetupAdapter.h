@@ -13,15 +13,22 @@
 class ModelSetupAdapter final : public ModelSetupSource {
     Q_OBJECT
 public:
+    using MirrorProvider = std::function<QString()>;
     using SnapshotProvider =
         std::function<echoflow::DownloadSnapshot(const QString &)>;
     using StartDownload =
         std::function<void(const echoflow::ModelEntry &, const QString &,
                            const QString &)>;
 
+    ModelSetupAdapter(QString configDir, MirrorProvider mirrorProvider,
+                      SnapshotProvider snapshotProvider,
+                      StartDownload startDownload,
+                      QObject *parent = nullptr);
     ModelSetupAdapter(QString configDir, QString mirror,
                       SnapshotProvider snapshotProvider,
                       StartDownload startDownload,
+                      QObject *parent = nullptr);
+    ModelSetupAdapter(QString configDir, MirrorProvider mirrorProvider,
                       QObject *parent = nullptr);
     ModelSetupAdapter(QString configDir, QString mirror,
                       QObject *parent = nullptr);
@@ -40,7 +47,7 @@ private slots:
 
 private:
     QString configDir_;
-    QString mirror_;
+    MirrorProvider mirrorProvider_;
     SnapshotProvider snapshotProvider_;
     StartDownload startDownload_;
     QPointer<echoflow::ModelDownloadCoordinator> coordinator_;
