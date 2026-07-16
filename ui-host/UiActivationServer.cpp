@@ -28,6 +28,7 @@ constexpr int kAcquireAttempts = 6;
 constexpr int kClientIdleTimeoutMs = 250;
 constexpr qsizetype kMaximumRequestBuffer = 4096;
 constexpr char kActivationRequest[] = "ACTIVATE\n";
+constexpr char kActivationAcknowledgement[] = "ACK\n";
 
 struct SocketIdentity {
     dev_t device = 0;
@@ -316,7 +317,56 @@ UiActivationServer::Result UiActivationServer::acquire(bool requestActivation,
                 return Result::Failed;
             }
         }
-        return Result::ActivatedExisting;
+
+        QByteArray acknowledgement;
+        while (true) {
+            const qint64 readLimit = kMaximumRequestBuffer + 1 -
+                                     acknowledgement.size();
+            acknowledgement.append(socket.read(readLimit));
+            if (acknowledgement.size() > kMaximumRequestBuffer ||
+                socket.bytesAvailable() > 0) {
+                if (error) {
+                    *error = QStringLiteral(
+                                 "Activation ACK protocol response from %1 exceeded %2 bytes")
+                                 .arg(socketPath_)
+                                 .arg(kMaximumRequestBuffer);
+                }
+                return Result::Failed;
+            }
+
+            const qsizetype newline = acknowledgement.indexOf('\n');
+            if (newline >= 0) {
+                if (acknowledgement.left(newline) == QByteArrayLiteral("ACK")) {
+                    return Result::ActivatedExisting;
+                }
+                if (error) {
+                    *error = QStringLiteral(
+                                 "Activation ACK protocol mismatch from %1: expected ACK")
+                                 .arg(socketPath_);
+                }
+                return Result::Failed;
+            }
+            if (socket.state() == QLocalSocket::UnconnectedState) {
+                if (error) {
+                    *error = QStringLiteral(
+                                 "Activation ACK protocol failed for %1: peer closed without ACK")
+                                 .arg(socketPath_);
+                }
+                return Result::Failed;
+            }
+
+            const int acknowledgementTimeout = remainingTime();
+            if (acknowledgementTimeout <= 0) {
+                if (error) {
+                    *error = QStringLiteral(
+                                 "Activation ACK protocol failed for %1: "
+                                 "timed out waiting for ACK; peer may use an older protocol")
+                                 .arg(socketPath_);
+                }
+                return Result::Failed;
+            }
+            socket.waitForReadyRead(acknowledgementTimeout);
+        }
     };
 
     for (int attempt = 0; attempt < kAcquireAttempts; ++attempt) {
@@ -431,7 +481,7 @@ void UiActivationServer::acceptPendingConnections()
         QTimer *idleTimer = new QTimer(socket);
         idleTimer->setSingleShot(true);
         idleTimer->setInterval(kClientIdleTimeoutMs);
-        clients_.insert(socket, {QByteArray(), idleTimer});
+        clients_.insert(socket, {QByteArray(), idleTimer, 0});
         connect(idleTimer, &QTimer::timeout, this, [this, socket] {
             clients_.remove(socket);
             socket->abort();
@@ -439,6 +489,9 @@ void UiActivationServer::acceptPendingConnections()
         });
         connect(socket, &QLocalSocket::readyRead, this,
                 [this, socket] { readSocket(socket); });
+        connect(socket, &QLocalSocket::bytesWritten, this,
+                [this, socket] { finishAcknowledgements(socket); },
+                Qt::QueuedConnection);
         connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
             clients_.remove(socket);
             socket->deleteLater();
@@ -450,6 +503,19 @@ void UiActivationServer::acceptPendingConnections()
     }
 }
 
+void UiActivationServer::finishAcknowledgements(QLocalSocket *socket)
+{
+    auto it = clients_.find(socket);
+    if (it == clients_.end() || socket->bytesToWrite() > 0) {
+        return;
+    }
+
+    const int completed = std::exchange(it.value().pendingAcknowledgements, 0);
+    for (int i = 0; i < completed; ++i) {
+        emit activateRequested();
+    }
+}
+
 void UiActivationServer::readSocket(QLocalSocket *socket)
 {
     auto it = clients_.find(socket);
@@ -457,8 +523,11 @@ void UiActivationServer::readSocket(QLocalSocket *socket)
         return;
     }
 
-    it.value().buffer.append(socket->readAll());
-    if (it.value().buffer.size() > kMaximumRequestBuffer) {
+    const qint64 readLimit = kMaximumRequestBuffer + 1 -
+                             it.value().buffer.size();
+    it.value().buffer.append(socket->read(readLimit));
+    if (it.value().buffer.size() > kMaximumRequestBuffer ||
+        socket->bytesAvailable() > 0) {
         clients_.erase(it);
         socket->abort();
         socket->deleteLater();
@@ -472,7 +541,18 @@ void UiActivationServer::readSocket(QLocalSocket *socket)
         const QByteArray line = buffer.left(newline);
         buffer.remove(0, newline + 1);
         if (line == QByteArrayLiteral("ACTIVATE")) {
-            emit activateRequested();
+            ++it.value().pendingAcknowledgements;
+            const QByteArray acknowledgement(kActivationAcknowledgement);
+            if (socket->write(acknowledgement) != acknowledgement.size()) {
+                clients_.erase(it);
+                socket->abort();
+                socket->deleteLater();
+                return;
+            }
+            socket->flush();
+            QMetaObject::invokeMethod(
+                this, [this, socket] { finishAcknowledgements(socket); },
+                Qt::QueuedConnection);
         }
     }
 }

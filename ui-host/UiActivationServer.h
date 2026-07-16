@@ -35,9 +35,11 @@ private:
     struct ClientState {
         QByteArray buffer;
         QTimer *idleTimer = nullptr;
+        int pendingAcknowledgements = 0;
     };
 
     void acceptPendingConnections();
+    void finishAcknowledgements(QLocalSocket *socket);
     void readSocket(QLocalSocket *socket);
 
     QString socketPath_;

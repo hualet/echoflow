@@ -7,10 +7,12 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QLocalServer>
 #include <QLocalSocket>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QTimer>
 
 #include <fcntl.h>
 #include <sys/file.h>
@@ -25,6 +27,28 @@
 #include <cstring>
 #include <thread>
 
+namespace {
+
+struct ActivationAttempt {
+    UiActivationServer::Result result = UiActivationServer::Result::Failed;
+    QString error;
+    qint64 durationMs = 0;
+};
+
+QThread *startActivationAttempt(const QString &path, bool requestActivation,
+                                ActivationAttempt *attempt)
+{
+    return QThread::create([path, requestActivation, attempt] {
+        UiActivationServer secondary(path);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        attempt->result = secondary.acquire(requestActivation, &attempt->error);
+        attempt->durationMs = elapsed.elapsed();
+    });
+}
+
+} // namespace
+
 class TestUiActivationServer : public QObject {
     Q_OBJECT
 
@@ -32,6 +56,11 @@ private slots:
     void firstInstanceBecomesPrimary();
     void secondInstanceRequestsActivation();
     void secondInstanceCanSkipActivation();
+    void rejectsLegacyPeerWithoutAcknowledgement();
+    void rejectsBadOrClosedAcknowledgement_data();
+    void rejectsBadOrClosedAcknowledgement();
+    void acceptsPartialAcknowledgement();
+    void contactOnlyAcceptsLegacyPeerWithoutAcknowledgement();
     void recoversStaleFilesystemSocket();
     void preservesRegularFileAtSocketPath();
     void preservesSymlinkAtSocketPath();
@@ -71,11 +100,16 @@ void TestUiActivationServer::secondInstanceRequestsActivation()
     QCOMPARE(primary.acquire(false), UiActivationServer::Result::Primary);
     QSignalSpy activationSpy(&primary, &UiActivationServer::activateRequested);
 
-    UiActivationServer secondary(path);
-    QString error;
-    QCOMPARE(secondary.acquire(true, &error),
-             UiActivationServer::Result::ActivatedExisting);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
+    ActivationAttempt attempt;
+    QThread *secondary = startActivationAttempt(path, true, &attempt);
+    QSignalSpy finishedSpy(secondary, &QThread::finished);
+    secondary->start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
+    QVERIFY(secondary->wait(100));
+    delete secondary;
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
+    QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
     QTRY_COMPARE(activationSpy.count(), 1);
 }
 
@@ -94,6 +128,160 @@ void TestUiActivationServer::secondInstanceCanSkipActivation()
              UiActivationServer::Result::ActivatedExisting);
     QTest::qWait(50);
     QCOMPARE(activationSpy.count(), 0);
+}
+
+void TestUiActivationServer::rejectsLegacyPeerWithoutAcknowledgement()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    QLocalServer legacy;
+    legacy.setSocketOptions(QLocalServer::UserAccessOption);
+    QVERIFY(legacy.listen(path));
+    const QByteArray encodedPath = QFile::encodeName(path);
+    struct stat before {};
+    QCOMPARE(::lstat(encodedPath.constData(), &before), 0);
+    connect(&legacy, &QLocalServer::newConnection, &legacy, [&legacy] {
+        while (legacy.hasPendingConnections()) {
+            QLocalSocket *peer = legacy.nextPendingConnection();
+            QObject::connect(peer, &QLocalSocket::readyRead, peer,
+                             [peer] { peer->readAll(); });
+        }
+    });
+
+    ActivationAttempt attempt;
+    QThread *secondary = startActivationAttempt(path, true, &attempt);
+    QSignalSpy finishedSpy(secondary, &QThread::finished);
+    secondary->start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
+    QVERIFY(secondary->wait(100));
+    delete secondary;
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::Failed);
+    QVERIFY2(attempt.error.contains(QStringLiteral("ACK"), Qt::CaseInsensitive) ||
+                 attempt.error.contains(QStringLiteral("protocol"), Qt::CaseInsensitive),
+             qPrintable(attempt.error));
+    QVERIFY(attempt.durationMs >= 900);
+    QVERIFY(attempt.durationMs < 1500);
+    struct stat after {};
+    QCOMPARE(::lstat(encodedPath.constData(), &after), 0);
+    QCOMPARE(after.st_dev, before.st_dev);
+    QCOMPARE(after.st_ino, before.st_ino);
+    QVERIFY(legacy.isListening());
+}
+
+void TestUiActivationServer::rejectsBadOrClosedAcknowledgement_data()
+{
+    QTest::addColumn<QByteArray>("reply");
+    QTest::addColumn<bool>("closeWithoutReply");
+
+    QTest::newRow("bad-ack") << QByteArray("NOPE\n") << false;
+    QTest::newRow("closed") << QByteArray() << true;
+}
+
+void TestUiActivationServer::rejectsBadOrClosedAcknowledgement()
+{
+    QFETCH(QByteArray, reply);
+    QFETCH(bool, closeWithoutReply);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    QLocalServer fakePeer;
+    fakePeer.setSocketOptions(QLocalServer::UserAccessOption);
+    QVERIFY(fakePeer.listen(path));
+    const QByteArray encodedPath = QFile::encodeName(path);
+    struct stat before {};
+    QCOMPARE(::lstat(encodedPath.constData(), &before), 0);
+    connect(&fakePeer, &QLocalServer::newConnection, &fakePeer,
+            [&fakePeer, reply, closeWithoutReply] {
+        while (fakePeer.hasPendingConnections()) {
+            QLocalSocket *peer = fakePeer.nextPendingConnection();
+            QObject::connect(peer, &QLocalSocket::readyRead, peer,
+                             [peer, reply, closeWithoutReply] {
+                peer->readAll();
+                if (closeWithoutReply) {
+                    peer->abort();
+                    return;
+                }
+                peer->write(reply);
+                peer->flush();
+            });
+        }
+    });
+
+    ActivationAttempt attempt;
+    QThread *secondary = startActivationAttempt(path, true, &attempt);
+    QSignalSpy finishedSpy(secondary, &QThread::finished);
+    secondary->start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
+    QVERIFY(secondary->wait(100));
+    delete secondary;
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::Failed);
+    QVERIFY2(attempt.error.contains(QStringLiteral("ACK"), Qt::CaseInsensitive) ||
+                 attempt.error.contains(QStringLiteral("protocol"), Qt::CaseInsensitive),
+             qPrintable(attempt.error));
+    struct stat after {};
+    QCOMPARE(::lstat(encodedPath.constData(), &after), 0);
+    QCOMPARE(after.st_dev, before.st_dev);
+    QCOMPARE(after.st_ino, before.st_ino);
+    QVERIFY(fakePeer.isListening());
+}
+
+void TestUiActivationServer::acceptsPartialAcknowledgement()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    QLocalServer fakePeer;
+    fakePeer.setSocketOptions(QLocalServer::UserAccessOption);
+    QVERIFY(fakePeer.listen(path));
+    connect(&fakePeer, &QLocalServer::newConnection, &fakePeer, [&fakePeer] {
+        while (fakePeer.hasPendingConnections()) {
+            QLocalSocket *peer = fakePeer.nextPendingConnection();
+            QObject::connect(peer, &QLocalSocket::readyRead, peer, [peer] {
+                peer->readAll();
+                peer->write("A");
+                peer->flush();
+                QTimer::singleShot(10, peer, [peer] {
+                    peer->write("CK\n");
+                    peer->flush();
+                });
+            });
+        }
+    });
+
+    ActivationAttempt attempt;
+    QThread *secondary = startActivationAttempt(path, true, &attempt);
+    QSignalSpy finishedSpy(secondary, &QThread::finished);
+    secondary->start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
+    QVERIFY(secondary->wait(100));
+    delete secondary;
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
+    QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
+}
+
+void TestUiActivationServer::contactOnlyAcceptsLegacyPeerWithoutAcknowledgement()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    QLocalServer legacy;
+    legacy.setSocketOptions(QLocalServer::UserAccessOption);
+    QVERIFY(legacy.listen(path));
+
+    ActivationAttempt attempt;
+    QThread *secondary = startActivationAttempt(path, false, &attempt);
+    QSignalSpy finishedSpy(secondary, &QThread::finished);
+    secondary->start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 500);
+    QVERIFY(secondary->wait(100));
+    delete secondary;
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
+    QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
 }
 
 void TestUiActivationServer::recoversStaleFilesystemSocket()
