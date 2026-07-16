@@ -9,7 +9,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_AUTOMOC ON)
 
-    find_package(Qt6 REQUIRED COMPONENTS Core Network Test)
+    find_package(Qt6 REQUIRED COMPONENTS Core Network Test Widgets)
+    find_package(Dtk6 COMPONENTS Widget Gui REQUIRED)
     enable_testing()
 
     add_executable(test_onboarding_state
@@ -44,10 +45,25 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         Qt6::Core Qt6::Network Qt6::Test)
     add_test(NAME test_onboarding_setup_controller
         COMMAND test_onboarding_setup_controller)
+
+    add_executable(test_onboarding_dialog
+        test_onboarding_dialog.cpp
+        ../ui-host/OnboardingDialog.cpp
+        ../ui-host/OnboardingSetupController.cpp
+        ../ui-host/SetupCommandRunner.cpp
+        ../ui-host/OnboardingState.cpp)
+    target_include_directories(test_onboarding_dialog PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_onboarding_dialog PRIVATE
+        Qt6::Core Qt6::Test Qt6::Widgets Dtk6::Widget Dtk6::Gui)
+    add_test(NAME test_onboarding_dialog COMMAND test_onboarding_dialog)
+    set_tests_properties(test_onboarding_dialog PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     return()
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Network Test)
+find_package(Qt6 REQUIRED COMPONENTS Network Test Widgets)
+find_package(Dtk6 COMPONENTS Widget Gui REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 qt_standard_project_setup()
 
@@ -115,6 +131,21 @@ target_link_libraries(test_onboarding_setup_controller PRIVATE
 echoflow_enable_dead_strip(test_onboarding_setup_controller)
 add_test(NAME test_onboarding_setup_controller
     COMMAND test_onboarding_setup_controller)
+
+add_executable(test_onboarding_dialog
+    test_onboarding_dialog.cpp
+    ../ui-host/OnboardingDialog.cpp
+    ../ui-host/OnboardingSetupController.cpp
+    ../ui-host/SetupCommandRunner.cpp
+    ../ui-host/OnboardingState.cpp)
+target_include_directories(test_onboarding_dialog PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_onboarding_dialog PRIVATE
+    Qt6::Core Qt6::Test Qt6::Widgets Dtk6::Widget Dtk6::Gui)
+echoflow_enable_dead_strip(test_onboarding_dialog)
+add_test(NAME test_onboarding_dialog COMMAND test_onboarding_dialog)
+set_tests_properties(test_onboarding_dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 target_include_directories(test_benchmark_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 target_sources(test_benchmark_manifest PRIVATE benchmarks/BenchmarkManifest.cpp)
