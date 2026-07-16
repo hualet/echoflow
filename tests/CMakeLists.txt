@@ -31,13 +31,17 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(test_onboarding_setup_controller
         test_onboarding_setup_controller.cpp
+        ../ui-host/ModelSetupAdapter.cpp
+        ../ui-host/ModelDownloadCoordinator.cpp
+        ../ui-host/ModelDownloader.cpp
         ../ui-host/OnboardingSetupController.cpp
         ../ui-host/SetupCommandRunner.cpp
         ../ui-host/OnboardingState.cpp)
     target_include_directories(test_onboarding_setup_controller PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host
+        ${CMAKE_CURRENT_SOURCE_DIR}/../service)
     target_link_libraries(test_onboarding_setup_controller PRIVATE
-        Qt6::Core Qt6::Test)
+        Qt6::Core Qt6::Network Qt6::Test)
     add_test(NAME test_onboarding_setup_controller
         COMMAND test_onboarding_setup_controller)
     return()
@@ -97,13 +101,17 @@ add_test(NAME test_ui_activation_server COMMAND test_ui_activation_server)
 
 add_executable(test_onboarding_setup_controller
     test_onboarding_setup_controller.cpp
+    ../ui-host/ModelSetupAdapter.cpp
+    ../ui-host/ModelDownloadCoordinator.cpp
+    ../ui-host/ModelDownloader.cpp
     ../ui-host/OnboardingSetupController.cpp
     ../ui-host/SetupCommandRunner.cpp
     ../ui-host/OnboardingState.cpp)
 target_include_directories(test_onboarding_setup_controller PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host
+    ${CMAKE_CURRENT_SOURCE_DIR}/../service)
 target_link_libraries(test_onboarding_setup_controller PRIVATE
-    Qt6::Core Qt6::Test)
+    Qt6::Core Qt6::Network Qt6::Test)
 echoflow_enable_dead_strip(test_onboarding_setup_controller)
 add_test(NAME test_onboarding_setup_controller
     COMMAND test_onboarding_setup_controller)

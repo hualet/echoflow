@@ -3,6 +3,8 @@
 
 #include "OnboardingSetupController.h"
 #include "OnboardingState.h"
+#include "ModelDownloadCoordinator.h"
+#include "ModelSetupAdapter.h"
 #include "SetupCommandRunner.h"
 
 #include <QDir>
@@ -76,6 +78,12 @@ private slots:
     void processRunnerReportsNonzeroAndStdout();
     void processRunnerReportsFailedStart();
     void processRunnerRejectsDuplicateId();
+    void modelAdapterDetectsPresentModel();
+    void modelAdapterDetectsMissingModel();
+    void modelAdapterMapsRetainedDownloadingSnapshot();
+    void modelAdapterStartsDefaultModel_data();
+    void modelAdapterStartsDefaultModel();
+    void modelAdapterFiltersCoordinatorSignals();
 };
 
 static void finishSuccessfulCommands(FakeCommandRunner &runner)
@@ -374,6 +382,138 @@ void TestOnboardingSetupController::processRunnerRejectsDuplicateId()
     QCOMPARE(spy.at(0).at(1).toBool(), false);
     QVERIFY(spy.at(0).at(2).toString().contains(QStringLiteral("already running")));
     QCOMPARE(spy.at(1).at(1).toBool(), true);
+}
+
+void TestOnboardingSetupController::modelAdapterDetectsPresentModel()
+{
+    QTemporaryDir dir;
+    const QString modelDir = dir.filePath(QStringLiteral("qwen3-asr-0.6b"));
+    QVERIFY(QDir().mkpath(modelDir));
+    QFile modelFile(modelDir + QStringLiteral("/qwen3-asr-0.6b-q4_k.gguf"));
+    QVERIFY(modelFile.open(QIODevice::WriteOnly));
+    modelFile.close();
+
+    ModelSetupAdapter adapter(dir.path(), QStringLiteral("official"),
+                              [](const QString &) { return echoflow::DownloadSnapshot{}; },
+                              [](const echoflow::ModelEntry &, const QString &,
+                                 const QString &) {});
+
+    QVERIFY(adapter.modelPresent());
+}
+
+void TestOnboardingSetupController::modelAdapterDetectsMissingModel()
+{
+    QTemporaryDir dir;
+    ModelSetupAdapter adapter(dir.path(), QStringLiteral("official"),
+                              [](const QString &) { return echoflow::DownloadSnapshot{}; },
+                              [](const echoflow::ModelEntry &, const QString &,
+                                 const QString &) {});
+
+    QVERIFY(!adapter.modelPresent());
+}
+
+void TestOnboardingSetupController::modelAdapterMapsRetainedDownloadingSnapshot()
+{
+    QString requestedId;
+    ModelSetupAdapter adapter(QStringLiteral("/unused"), QStringLiteral("official"),
+                              [&requestedId](const QString &id) {
+                                  requestedId = id;
+                                  echoflow::DownloadSnapshot snapshot;
+                                  snapshot.state = echoflow::DownloadState::Downloading;
+                                  return snapshot;
+                              },
+                              [](const echoflow::ModelEntry &, const QString &,
+                                 const QString &) {});
+
+    QVERIFY(adapter.downloadRunning());
+    QCOMPARE(requestedId, QStringLiteral("qwen3-asr-0.6b"));
+}
+
+void TestOnboardingSetupController::modelAdapterStartsDefaultModel_data()
+{
+    QTest::addColumn<QString>("mirror");
+    QTest::addColumn<QString>("expectedBaseUrl");
+
+    QTest::newRow("official") << QStringLiteral("official")
+                              << QStringLiteral("https://huggingface.co");
+    QTest::newRow("hf-mirror") << QStringLiteral("hf-mirror")
+                               << QStringLiteral("https://hf-mirror.com");
+    QTest::newRow("default-empty") << QString()
+                                   << QStringLiteral("https://hf-mirror.com");
+}
+
+void TestOnboardingSetupController::modelAdapterStartsDefaultModel()
+{
+    QFETCH(QString, mirror);
+    QFETCH(QString, expectedBaseUrl);
+    QTemporaryDir dir;
+    int starts = 0;
+    echoflow::ModelEntry startedEntry;
+    QString startedDir;
+    QString startedBaseUrl;
+    ModelSetupAdapter adapter(
+        dir.path(), mirror,
+        [](const QString &) { return echoflow::DownloadSnapshot{}; },
+        [&](const echoflow::ModelEntry &entry, const QString &targetDir,
+            const QString &baseUrl) {
+            ++starts;
+            startedEntry = entry;
+            startedDir = targetDir;
+            startedBaseUrl = baseUrl;
+        });
+
+    adapter.startDownload();
+
+    QCOMPARE(starts, 1);
+    QCOMPARE(QString::fromStdString(startedEntry.id),
+             QStringLiteral("qwen3-asr-0.6b"));
+    QCOMPARE(QString::fromStdString(startedEntry.repo),
+             QStringLiteral("cstr/qwen3-asr-0.6b-GGUF"));
+    QCOMPARE(QString::fromStdString(startedEntry.displayName),
+             QStringLiteral("Qwen3-ASR-0.6B (Q4_K GGUF)"));
+    QCOMPARE(startedEntry.files.size(), std::size_t(1));
+    QCOMPARE(QString::fromStdString(startedEntry.files.front()),
+             QStringLiteral("qwen3-asr-0.6b-q4_k.gguf"));
+    QCOMPARE(startedDir, dir.filePath(QStringLiteral("qwen3-asr-0.6b")));
+    QCOMPARE(startedBaseUrl, expectedBaseUrl);
+}
+
+void TestOnboardingSetupController::modelAdapterFiltersCoordinatorSignals()
+{
+    ModelSetupAdapter adapter(QStringLiteral("/unused"), QStringLiteral("official"),
+                              [](const QString &) { return echoflow::DownloadSnapshot{}; },
+                              [](const echoflow::ModelEntry &, const QString &,
+                                 const QString &) {});
+    auto *coordinator = echoflow::ModelDownloadCoordinator::instance();
+    adapter.observeCoordinator(coordinator);
+    QSignalSpy progressSpy(&adapter, &ModelSetupSource::progress);
+    QSignalSpy finishedSpy(&adapter, &ModelSetupSource::finished);
+
+    emit coordinator->progress(QStringLiteral("qwen3-asr-1.7b"), 1, 10,
+                               QStringLiteral("other.gguf"));
+    emit coordinator->stateChanged(QStringLiteral("qwen3-asr-1.7b"),
+                                   echoflow::DownloadState::Failed,
+                                   QStringLiteral("other failed"));
+    emit coordinator->progress(QStringLiteral("qwen3-asr-0.6b"), 4, 10,
+                               QStringLiteral("default.gguf"));
+    emit coordinator->stateChanged(QStringLiteral("qwen3-asr-0.6b"),
+                                   echoflow::DownloadState::Downloading, {});
+    emit coordinator->stateChanged(QStringLiteral("qwen3-asr-0.6b"),
+                                   echoflow::DownloadState::Idle, {});
+    emit coordinator->stateChanged(QStringLiteral("qwen3-asr-0.6b"),
+                                   echoflow::DownloadState::Succeeded, {});
+    emit coordinator->stateChanged(QStringLiteral("qwen3-asr-0.6b"),
+                                   echoflow::DownloadState::Failed,
+                                   QStringLiteral("network error"));
+
+    QCOMPARE(progressSpy.count(), 1);
+    QCOMPARE(progressSpy.first().at(0).toLongLong(), 4);
+    QCOMPARE(progressSpy.first().at(1).toLongLong(), 10);
+    QCOMPARE(finishedSpy.count(), 2);
+    QCOMPARE(finishedSpy.at(0).at(0).toBool(), true);
+    QVERIFY(finishedSpy.at(0).at(1).toString().isEmpty());
+    QCOMPARE(finishedSpy.at(1).at(0).toBool(), false);
+    QCOMPARE(finishedSpy.at(1).at(1).toString(), QStringLiteral("network error"));
 }
 
 QTEST_GUILESS_MAIN(TestOnboardingSetupController)
