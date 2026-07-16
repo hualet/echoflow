@@ -22,12 +22,20 @@ add_executable(echoflow-ui
     ModelDownloader.cpp
     ModelDownloadCoordinator.cpp
     ModelRowWidget.cpp
+    UiActivationServer.cpp
+    OnboardingState.cpp
+    SetupCommandRunner.cpp
+    ModelSetupAdapter.cpp
+    OnboardingSetupController.cpp
+    OnboardingDialog.cpp
     icons.qrc
     settings.qrc
     qml.qrc
 )
 
-target_include_directories(echoflow-ui PRIVATE ${CMAKE_SOURCE_DIR}/service)
+target_include_directories(echoflow-ui PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../service
+)
 
 target_link_libraries(echoflow-ui
     PRIVATE

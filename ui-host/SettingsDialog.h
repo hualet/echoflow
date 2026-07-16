@@ -17,6 +17,9 @@ class SettingsDialog : public Dtk::Widget::DSettingsDialog {
     Q_OBJECT
 public:
     explicit SettingsDialog(Dtk::Core::DSettings *settings, QWidget *parent = nullptr);
+
+signals:
+    void usageGuideRequested();
 };
 
 } // namespace echoflow

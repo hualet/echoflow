@@ -33,6 +33,23 @@ assert_absent() {
   fi
 }
 
+assert_before() {
+  local file="$1"
+  local first="$2"
+  local second="$3"
+  local description="$4"
+  local first_line second_line
+  first_line="$(grep -nF -m1 -- "$first" "$file" | cut -d: -f1)"
+  second_line="$(grep -nF -m1 -- "$second" "$file" | cut -d: -f1)"
+  if [[ -n "$first_line" && -n "$second_line" && "$first_line" -lt "$second_line" ]]; then
+    echo "ok   - $description"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - $description ($first must appear before $second in $file)"
+    fail=$((fail + 1))
+  fi
+}
+
 assert_absent "$ROOT/install-user.sh" "uv venv" "install-user.sh has no uv venv"
 assert_absent "$ROOT/install-user.sh" "uv pip" "install-user.sh has no uv pip"
 assert_absent "$ROOT/install-user.sh" "llama" "install-user.sh has no llama"
@@ -80,6 +97,12 @@ assert_script_absent() {
 assert_script_absent
 
 assert_contains "$ROOT/ui-host/settings-schema.json" "modeldownload" "settings schema has modeldownload widget type"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "getting_started"' "settings schema has Getting started group"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"name": "开始使用"' "settings schema names Getting started group"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "usage_guide"' "settings schema has Usage guide option"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"name": "使用引导"' "settings schema names Usage guide option"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"type": "guide"' "settings schema uses guide widget type"
+assert_before "$ROOT/ui-host/settings-schema.json" '"key": "getting_started"' '"key": "basic"' "Getting started precedes Basic settings"
 assert_contains "$ROOT/ui-host/settings-schema.json" "download_0.6b" "settings schema has 0.6B download row key"
 assert_contains "$ROOT/ui-host/settings-schema.json" "download_1.7b" "settings schema has 1.7B download row key"
 assert_contains "$ROOT/ui-host/settings-schema.json" "Qwen3-ASR-0.6B" "settings schema lists 0.6B model row"
@@ -88,6 +111,11 @@ assert_contains "$ROOT/ui-host/settings-schema.json" "hf-mirror" "settings schem
 assert_absent "$ROOT/ui-host/settings-schema.json" "model_dir" "settings schema has no model_dir option"
 assert_absent "$ROOT/install-user.sh" "model_dir" "install-user.sh writes no model_dir"
 assert_contains "$ROOT/ui-host/SettingsDialog.cpp" "modeldownload" "SettingsDialog registers modeldownload factory"
+assert_contains "$ROOT/ui-host/SettingsDialog.cpp" 'registerWidget(QStringLiteral("guide")' "SettingsDialog registers guide factory"
+assert_contains "$ROOT/ui-host/SettingsDialog.cpp" 'setObjectName(QStringLiteral("usageGuideButton"))' "Usage guide button has stable object name"
+assert_contains "$ROOT/ui-host/SettingsDialog.cpp" 'emit usageGuideRequested()' "Usage guide button emits request signal"
+assert_contains "$ROOT/ui-host/SettingsDialog.h" 'void usageGuideRequested();' "SettingsDialog exposes Usage guide request signal"
+assert_before "$ROOT/ui-host/SettingsDialog.cpp" 'registerWidget(QStringLiteral("guide")' 'updateSettings(settings)' "guide factory is registered before settings rows are built"
 assert_contains "$ROOT/service/ModelCatalog.h" "cstr/qwen3-asr-1.7b-GGUF" "ModelCatalog knows the 1.7B GGUF repo"
 
 assert_absent "$ROOT/ui-host/settings-schema.json" "asr_runner" "settings schema drops asr_runner"
@@ -128,9 +156,31 @@ assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.width + 16" "tooltip has 
 assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.height + 16" "tooltip has no vertical blur margin"
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
+for source in UiActivationServer.cpp OnboardingState.cpp SetupCommandRunner.cpp ModelSetupAdapter.cpp OnboardingSetupController.cpp OnboardingDialog.cpp; do
+  assert_contains "$ROOT/ui-host/CMakeLists.txt" "$source" "ui-host builds $source"
+done
+assert_contains "$ROOT/ui-host/CMakeLists.txt" '${CMAKE_CURRENT_LIST_DIR}/../service' "standalone ui-host resolves service includes from its own directory"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
 assert_contains "$ROOT/ui-host/main.cpp" ":/icons/echoflow.svg" "tray icon uses EchoFlow logo resource"
 assert_absent "$ROOT/ui-host/main.cpp" "SP_ComputerIcon" "tray icon no longer uses generic computer icon"
+assert_contains "$ROOT/ui-host/main.cpp" 'QStringLiteral("activate")' "ui-host accepts explicit activation option"
+assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer activationServer(defaultUiLockPath())' "ui-host uses activation-aware instance server"
+assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer::Result::ActivatedExisting' "secondary activation exits through existing instance"
+assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer::Result::Failed' "instance acquisition failure is handled"
+assert_absent "$ROOT/ui-host/main.cpp" 'acquireUiInstanceServer' "legacy inline instance acquisition is removed"
+assert_contains "$ROOT/ui-host/main.cpp" 'bool pendingActivation' "early activation is queued until UI readiness"
+assert_contains "$ROOT/ui-host/main.cpp" 'OnboardingState onboardingState' "onboarding state has process lifetime"
+assert_contains "$ROOT/ui-host/main.cpp" 'QProcessSetupCommandRunner setupCommandRunner' "setup command runner has process lifetime"
+assert_contains "$ROOT/ui-host/main.cpp" 'ModelSetupAdapter modelSetupAdapter' "model adapter has process lifetime"
+assert_contains "$ROOT/ui-host/main.cpp" 'OnboardingSetupController onboardingController' "setup controller has process lifetime"
+assert_contains "$ROOT/ui-host/main.cpp" 'ModelDownloadCoordinator::instance()' "onboarding observes process-lifetime download coordinator"
+assert_contains "$ROOT/ui-host/main.cpp" 'auto showOnboarding = ' "ui-host shares lazy onboarding entry point"
+assert_contains "$ROOT/ui-host/main.cpp" 'usageGuideRequested' "settings Usage guide opens onboarding"
+assert_contains "$ROOT/ui-host/main.cpp" 'finishedAndSettingsRequested' "onboarding completion opens settings"
+assert_contains "$ROOT/ui-host/main.cpp" 'QObject::tr("使用引导")' "tray exposes Usage guide action"
+assert_before "$ROOT/ui-host/main.cpp" 'QObject::tr("使用引导")' 'QObject::tr("设置")' "tray Usage guide precedes Settings"
+assert_before "$ROOT/ui-host/main.cpp" 'QObject::tr("设置")' 'trayMenu.addSeparator()' "tray separator follows Settings"
+assert_before "$ROOT/ui-host/main.cpp" 'trayMenu.addSeparator()' 'QObject::tr("退出")' "tray Quit follows separator"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "ModelDownloadCoordinator" "ModelRowWidget talks to the coordinator"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "onCoordinatorStateChanged" "ModelRowWidget handles coordinator state changes"
 assert_contains "$ROOT/ui-host/ModelRowWidget.cpp" "snapshot(modelId())" "ModelRowWidget reads the coordinator snapshot"

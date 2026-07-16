@@ -306,6 +306,7 @@ QWidget *OnboardingDialog::createSetupPage()
         &modelErrorLabel_);
     modelProgressBar_ = new QProgressBar(page);
     modelProgressBar_->setObjectName(QStringLiteral("modelProgressBar"));
+    modelProgressBar_->setAccessibleName(QStringLiteral("语音模型下载进度"));
     modelProgressBar_->setTextVisible(false);
     modelProgressBar_->hide();
     modelProgressLabel_ = wrappedLabel({}, page);

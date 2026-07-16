@@ -7,6 +7,7 @@
 #include "ModelRowWidget.h"
 
 #include <QLabel>
+#include <QPushButton>
 
 #include <DSettings>
 #include <DSettingsOption>
@@ -44,6 +45,17 @@ SettingsDialog::SettingsDialog(Dtk::Core::DSettings *settings, QWidget *parent)
     // and the right-hand download widget — DTK does not render the option
     // `name` as a label for custom-registered widget types.
     auto* factory = widgetFactory();
+    factory->registerWidget(QStringLiteral("guide"),
+        [this](QObject*) -> QPair<QWidget*, QWidget*> {
+            auto* name = new QLabel(QStringLiteral("使用引导"));
+            name->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            auto* button = new QPushButton(QStringLiteral("打开"));
+            button->setObjectName(QStringLiteral("usageGuideButton"));
+            button->setAccessibleName(QStringLiteral("打开使用引导"));
+            connect(button, &QPushButton::clicked, this,
+                    [this] { emit usageGuideRequested(); });
+            return {name, button};
+        });
     factory->registerWidget(QStringLiteral("modeldownload"),
         [](QObject* obj) -> QPair<QWidget*, QWidget*> {
             auto* opt = qobject_cast<Dtk::Core::DSettingsOption*>(obj);

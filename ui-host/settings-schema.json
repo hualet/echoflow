@@ -1,6 +1,24 @@
 {
   "groups": [
     {
+      "key": "getting_started",
+      "name": "开始使用",
+      "groups": [
+        {
+          "key": "guide",
+          "name": "开始使用",
+          "options": [
+            {
+              "key": "usage_guide",
+              "name": "使用引导",
+              "type": "guide",
+              "default": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
       "key": "basic",
       "name": "基础设置",
       "groups": [

@@ -189,6 +189,7 @@ void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
              QStringLiteral("backButton"), QStringLiteral("nextButton"),
              QStringLiteral("pageIndicator"),
              QStringLiteral("modelStatusLabel"),
+             QStringLiteral("modelProgressBar"),
              QStringLiteral("serviceStatusLabel"),
              QStringLiteral("fcitxStatusLabel")}) {
         auto *widget = dialog.findChild<QWidget *>(objectName);

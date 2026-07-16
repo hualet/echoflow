@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <sys/socket.h>
@@ -23,10 +24,9 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QLocalServer>
-#include <QLocalSocket>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QProcess>
@@ -35,13 +35,23 @@
 #include <QStandardPaths>
 #include <QString>
 #include <QSystemTrayIcon>
+#include <QTimer>
 #include <QUrl>
 
+#include <DSettings>
+#include <DSettingsOption>
 #include <DGuiApplicationHelper>
 #include <DPalette>
 
 #include "EchoFlowSettings.h"
+#include "ModelDownloadCoordinator.h"
+#include "ModelSetupAdapter.h"
+#include "OnboardingDialog.h"
+#include "OnboardingSetupController.h"
+#include "OnboardingState.h"
 #include "SettingsDialog.h"
+#include "SetupCommandRunner.h"
+#include "UiActivationServer.h"
 
 namespace {
 
@@ -67,22 +77,6 @@ bool setDtkSingleInstance(const QString &key) {
 void logDuplicateInstanceExit() {
     qInfo("echoflow-ui is already running; exiting duplicate instance");
     std::fprintf(stderr, "echoflow-ui is already running; exiting duplicate instance\n");
-}
-
-bool acquireUiInstanceServer(QLocalServer *server, const QString &path) {
-    server->setSocketOptions(QLocalServer::UserAccessOption);
-    if (server->listen(path)) {
-        return true;
-    }
-
-    QLocalSocket socket;
-    socket.connectToServer(path);
-    if (socket.waitForConnected(100)) {
-        return false;
-    }
-
-    QLocalServer::removeServer(path);
-    return server->listen(path);
 }
 
 bool isUsableRuntimeDirectory(const std::string &path) {
@@ -378,29 +372,57 @@ int main(int argc, char **argv) {
     app.setOrganizationName(QStringLiteral("echoflow"));
     app.setQuitOnLastWindowClosed(false);
 
-    QLocalServer uiInstanceServer;
-    if (!acquireUiInstanceServer(&uiInstanceServer, defaultUiLockPath())) {
-        logDuplicateInstanceExit();
-        return 0;
-    }
-
-    if (!setDtkSingleInstance(QStringLiteral("echoflow-ui"))) {
-        logDuplicateInstanceExit();
-        return 0;
-    }
+    const QIcon appIcon(QStringLiteral(":/icons/echoflow.svg"));
+    app.setWindowIcon(appIcon);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("EchoFlow QML tooltip host"));
     parser.addHelpOption();
 
+    QCommandLineOption activateOption(
+        QStringLiteral("activate"),
+        QStringLiteral("Open onboarding or settings in the running UI host"));
     QCommandLineOption qmlOption(QStringLiteral("qml"), QStringLiteral("QML file path"), QStringLiteral("path"),
                                  defaultQmlPath());
     QCommandLineOption configOption(
         QStringLiteral("config"), QStringLiteral("Path to echoflow.conf"),
         QStringLiteral("path"), defaultConfigPath());
+    parser.addOption(activateOption);
     parser.addOption(qmlOption);
     parser.addOption(configOption);
     parser.process(app);
+
+    bool pendingActivation = parser.isSet(activateOption);
+    bool uiReady = false;
+    std::function<void()> activationHandler;
+    UiActivationServer activationServer(defaultUiLockPath());
+    QObject::connect(&activationServer, &UiActivationServer::activateRequested,
+                     &app, [&] {
+        if (uiReady && activationHandler) {
+            activationHandler();
+        } else {
+            pendingActivation = true;
+        }
+    });
+
+    QString activationError;
+    const UiActivationServer::Result activationResult =
+        activationServer.acquire(pendingActivation, &activationError);
+    if (activationResult == UiActivationServer::Result::ActivatedExisting) {
+        return 0;
+    }
+    if (activationResult == UiActivationServer::Result::Failed) {
+        qCritical("failed to acquire EchoFlow UI activation endpoint %s: %s",
+                  qPrintable(defaultUiLockPath()), qPrintable(activationError));
+        return 1;
+    }
+
+    // UiActivationServer is the authoritative instance endpoint. Keep DTK's
+    // guard as a secondary safety check only after this process is primary.
+    if (!setDtkSingleInstance(QStringLiteral("echoflow-ui"))) {
+        logDuplicateInstanceExit();
+        return 0;
+    }
 
     const QString configPath = parser.value(configOption);
     if (!echoflow::EchoFlowSettings::instance()->init(configPath)) {
@@ -431,11 +453,10 @@ int main(int argc, char **argv) {
     }
 
     QMenu trayMenu;
+    QAction *guideAction = trayMenu.addAction(QObject::tr("使用引导"));
     QAction *settingsAction = trayMenu.addAction(QObject::tr("设置"));
+    trayMenu.addSeparator();
     QAction *quitAction = trayMenu.addAction(QObject::tr("退出"));
-
-    const QIcon appIcon(QStringLiteral(":/icons/echoflow.svg"));
-    app.setWindowIcon(appIcon);
 
     QSystemTrayIcon trayIcon;
     trayIcon.setContextMenu(&trayMenu);
@@ -443,13 +464,35 @@ int main(int argc, char **argv) {
     trayIcon.setToolTip(QStringLiteral("EchoFlow"));
     trayIcon.show();
 
-    echoflow::SettingsDialog *settingsDialog = nullptr;
+    OnboardingState onboardingState;
+    QProcessSetupCommandRunner setupCommandRunner;
+    const QString configDir = QFileInfo(configPath).absolutePath();
+    ModelSetupAdapter modelSetupAdapter(
+        configDir,
+        [] {
+            auto *settings = echoflow::EchoFlowSettings::instance()->dsettings();
+            if (!settings) {
+                return QStringLiteral("hf-mirror");
+            }
+            auto option = settings->option(QStringLiteral("basic.model.mirror"));
+            const QString mirror = option ? option->value().toString() : QString();
+            return mirror.isEmpty() ? QStringLiteral("hf-mirror") : mirror;
+        });
+    modelSetupAdapter.observeCoordinator(
+        echoflow::ModelDownloadCoordinator::instance());
+    OnboardingSetupController onboardingController(
+        &modelSetupAdapter, &setupCommandRunner, &onboardingState);
+
+    QPointer<echoflow::SettingsDialog> settingsDialog;
+    QPointer<OnboardingDialog> onboardingDialog;
     auto openSettings = [&]() {
         if (!settingsDialog) {
             settingsDialog = new echoflow::SettingsDialog(
                 echoflow::EchoFlowSettings::instance()->dsettings());
             settingsDialog->setAttribute(Qt::WA_DeleteOnClose);
-            QObject::connect(settingsDialog, &QObject::destroyed, [&]() {
+            QObject::connect(settingsDialog, &echoflow::SettingsDialog::usageGuideRequested,
+                             guideAction, &QAction::trigger);
+            QObject::connect(settingsDialog, &QObject::destroyed, &app, [&]() {
                 echoflow::EchoFlowSettings::instance()->sync();
                 restartServiceAfterSettingsChange();
                 settingsDialog = nullptr;
@@ -461,8 +504,46 @@ int main(int argc, char **argv) {
         settingsDialog->activateWindow();
     };
 
+    auto showOnboarding = [&](bool replay) {
+        if (!onboardingDialog) {
+            onboardingDialog = new OnboardingDialog(&onboardingController);
+            onboardingDialog->setWindowIcon(appIcon);
+            onboardingDialog->setAttribute(Qt::WA_DeleteOnClose);
+            QObject::connect(
+                onboardingDialog,
+                &OnboardingDialog::finishedAndSettingsRequested,
+                &app, [&] {
+                    if (onboardingDialog) {
+                        onboardingDialog->close();
+                    }
+                    openSettings();
+                });
+        }
+        if (replay) {
+            onboardingDialog->showForReplay();
+        } else {
+            onboardingDialog->showForIncompleteSetup();
+        }
+    };
+
+    activationHandler = [&] {
+        if (onboardingState.isComplete()) {
+            openSettings();
+        } else {
+            showOnboarding(false);
+        }
+    };
+
+    QObject::connect(guideAction, &QAction::triggered, &app,
+                     [&] { showOnboarding(true); });
     QObject::connect(settingsAction, &QAction::triggered, openSettings);
     QObject::connect(quitAction, &QAction::triggered, &app, &QApplication::quit);
+
+    uiReady = true;
+    if (pendingActivation) {
+        pendingActivation = false;
+        QTimer::singleShot(0, &app, activationHandler);
+    }
 
     return app.exec();
 }
