@@ -483,6 +483,7 @@ int main(int argc, char **argv) {
     OnboardingSetupController onboardingController(
         &modelSetupAdapter, &setupCommandRunner, &onboardingState);
 
+    bool shuttingDown = false;
     QPointer<echoflow::SettingsDialog> settingsDialog;
     QPointer<OnboardingDialog> onboardingDialog;
     auto openSettings = [&]() {
@@ -494,7 +495,9 @@ int main(int argc, char **argv) {
                              guideAction, &QAction::trigger);
             QObject::connect(settingsDialog, &QObject::destroyed, &app, [&]() {
                 echoflow::EchoFlowSettings::instance()->sync();
-                restartServiceAfterSettingsChange();
+                if (!shuttingDown) {
+                    restartServiceAfterSettingsChange();
+                }
                 settingsDialog = nullptr;
             });
         }
@@ -538,6 +541,13 @@ int main(int argc, char **argv) {
                      [&] { showOnboarding(true); });
     QObject::connect(settingsAction, &QAction::triggered, openSettings);
     QObject::connect(quitAction, &QAction::triggered, &app, &QApplication::quit);
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [&] {
+        shuttingDown = true;
+        delete settingsDialog.data();
+        settingsDialog = nullptr;
+        delete onboardingDialog.data();
+        onboardingDialog = nullptr;
+    });
 
     uiReady = true;
     if (pendingActivation) {
