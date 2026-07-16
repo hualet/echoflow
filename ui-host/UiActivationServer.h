@@ -36,6 +36,8 @@ private:
         QByteArray buffer;
         QTimer *idleTimer = nullptr;
         int pendingAcknowledgements = 0;
+        bool closingAfterAcknowledgement = false;
+        bool acknowledgementFailed = false;
     };
 
     void acceptPendingConnections();

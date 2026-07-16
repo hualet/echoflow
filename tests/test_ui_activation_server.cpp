@@ -35,6 +35,32 @@ struct ActivationAttempt {
     qint64 durationMs = 0;
 };
 
+class ScopedThread {
+public:
+    explicit ScopedThread(QThread *thread)
+        : thread_(thread)
+    {
+    }
+
+    ~ScopedThread()
+    {
+        if (thread_) {
+            thread_->wait();
+            delete thread_;
+        }
+    }
+
+    QThread *get() const { return thread_; }
+    void start() { thread_->start(); }
+    bool wait(unsigned long timeoutMs) { return thread_->wait(timeoutMs); }
+
+    ScopedThread(const ScopedThread &) = delete;
+    ScopedThread &operator=(const ScopedThread &) = delete;
+
+private:
+    QThread *thread_ = nullptr;
+};
+
 QThread *startActivationAttempt(const QString &path, bool requestActivation,
                                 ActivationAttempt *attempt)
 {
@@ -61,6 +87,7 @@ private slots:
     void rejectsBadOrClosedAcknowledgement();
     void acceptsPartialAcknowledgement();
     void contactOnlyAcceptsLegacyPeerWithoutAcknowledgement();
+    void closedRequesterDoesNotActivatePrimary();
     void recoversStaleFilesystemSocket();
     void preservesRegularFileAtSocketPath();
     void preservesSymlinkAtSocketPath();
@@ -101,12 +128,11 @@ void TestUiActivationServer::secondInstanceRequestsActivation()
     QSignalSpy activationSpy(&primary, &UiActivationServer::activateRequested);
 
     ActivationAttempt attempt;
-    QThread *secondary = startActivationAttempt(path, true, &attempt);
-    QSignalSpy finishedSpy(secondary, &QThread::finished);
-    secondary->start();
+    ScopedThread secondary(startActivationAttempt(path, true, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
-    QVERIFY(secondary->wait(100));
-    delete secondary;
+    QVERIFY(secondary.wait(100));
 
     QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
     QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
@@ -150,12 +176,11 @@ void TestUiActivationServer::rejectsLegacyPeerWithoutAcknowledgement()
     });
 
     ActivationAttempt attempt;
-    QThread *secondary = startActivationAttempt(path, true, &attempt);
-    QSignalSpy finishedSpy(secondary, &QThread::finished);
-    secondary->start();
+    ScopedThread secondary(startActivationAttempt(path, true, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
-    QVERIFY(secondary->wait(100));
-    delete secondary;
+    QVERIFY(secondary.wait(100));
 
     QCOMPARE(attempt.result, UiActivationServer::Result::Failed);
     QVERIFY2(attempt.error.contains(QStringLiteral("ACK"), Qt::CaseInsensitive) ||
@@ -173,17 +198,23 @@ void TestUiActivationServer::rejectsLegacyPeerWithoutAcknowledgement()
 void TestUiActivationServer::rejectsBadOrClosedAcknowledgement_data()
 {
     QTest::addColumn<QByteArray>("reply");
+    QTest::addColumn<QByteArray>("delayedReply");
     QTest::addColumn<bool>("closeWithoutReply");
 
-    QTest::newRow("bad-ack") << QByteArray("NOPE\n") << false;
+    QTest::newRow("bad-ack")
+        << QByteArray("NOPE\n") << QByteArray() << false;
     QTest::newRow("ack-with-trailing-garbage")
-        << QByteArray("ACK\nNOPE") << false;
-    QTest::newRow("closed") << QByteArray() << true;
+        << QByteArray("ACK\nNOPE") << QByteArray() << false;
+    QTest::newRow("ack-with-delayed-trailing-garbage")
+        << QByteArray("ACK\n") << QByteArray("NOPE") << false;
+    QTest::newRow("closed")
+        << QByteArray() << QByteArray() << true;
 }
 
 void TestUiActivationServer::rejectsBadOrClosedAcknowledgement()
 {
     QFETCH(QByteArray, reply);
+    QFETCH(QByteArray, delayedReply);
     QFETCH(bool, closeWithoutReply);
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -195,11 +226,11 @@ void TestUiActivationServer::rejectsBadOrClosedAcknowledgement()
     struct stat before {};
     QCOMPARE(::lstat(encodedPath.constData(), &before), 0);
     connect(&fakePeer, &QLocalServer::newConnection, &fakePeer,
-            [&fakePeer, reply, closeWithoutReply] {
+            [&fakePeer, reply, delayedReply, closeWithoutReply] {
         while (fakePeer.hasPendingConnections()) {
             QLocalSocket *peer = fakePeer.nextPendingConnection();
             QObject::connect(peer, &QLocalSocket::readyRead, peer,
-                             [peer, reply, closeWithoutReply] {
+                             [peer, reply, delayedReply, closeWithoutReply] {
                 peer->readAll();
                 if (closeWithoutReply) {
                     peer->abort();
@@ -207,17 +238,25 @@ void TestUiActivationServer::rejectsBadOrClosedAcknowledgement()
                 }
                 peer->write(reply);
                 peer->flush();
+                if (!delayedReply.isEmpty()) {
+                    QTimer::singleShot(10, peer, [peer, delayedReply] {
+                        peer->write(delayedReply);
+                        peer->flush();
+                        peer->disconnectFromServer();
+                    });
+                } else {
+                    peer->disconnectFromServer();
+                }
             });
         }
     });
 
     ActivationAttempt attempt;
-    QThread *secondary = startActivationAttempt(path, true, &attempt);
-    QSignalSpy finishedSpy(secondary, &QThread::finished);
-    secondary->start();
+    ScopedThread secondary(startActivationAttempt(path, true, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
-    QVERIFY(secondary->wait(100));
-    delete secondary;
+    QVERIFY(secondary.wait(100));
 
     QCOMPARE(attempt.result, UiActivationServer::Result::Failed);
     QVERIFY2(attempt.error.contains(QStringLiteral("ACK"), Qt::CaseInsensitive) ||
@@ -248,18 +287,18 @@ void TestUiActivationServer::acceptsPartialAcknowledgement()
                 QTimer::singleShot(10, peer, [peer] {
                     peer->write("CK\n");
                     peer->flush();
+                    peer->disconnectFromServer();
                 });
             });
         }
     });
 
     ActivationAttempt attempt;
-    QThread *secondary = startActivationAttempt(path, true, &attempt);
-    QSignalSpy finishedSpy(secondary, &QThread::finished);
-    secondary->start();
+    ScopedThread secondary(startActivationAttempt(path, true, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
-    QVERIFY(secondary->wait(100));
-    delete secondary;
+    QVERIFY(secondary.wait(100));
 
     QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
     QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
@@ -275,15 +314,34 @@ void TestUiActivationServer::contactOnlyAcceptsLegacyPeerWithoutAcknowledgement(
     QVERIFY(legacy.listen(path));
 
     ActivationAttempt attempt;
-    QThread *secondary = startActivationAttempt(path, false, &attempt);
-    QSignalSpy finishedSpy(secondary, &QThread::finished);
-    secondary->start();
+    ScopedThread secondary(startActivationAttempt(path, false, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 500);
-    QVERIFY(secondary->wait(100));
-    delete secondary;
+    QVERIFY(secondary.wait(100));
 
     QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
     QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
+}
+
+void TestUiActivationServer::closedRequesterDoesNotActivatePrimary()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    UiActivationServer primary(path);
+    QCOMPARE(primary.acquire(false), UiActivationServer::Result::Primary);
+    QSignalSpy activationSpy(&primary, &UiActivationServer::activateRequested);
+
+    QLocalSocket client;
+    client.connectToServer(path);
+    QVERIFY(client.waitForConnected(1000));
+    QCOMPARE(client.write("ACTIVATE\n"), qint64(9));
+    QVERIFY(client.waitForBytesWritten(1000));
+    client.abort();
+
+    QTest::qWait(100);
+    QCOMPARE(activationSpy.count(), 0);
 }
 
 void TestUiActivationServer::recoversStaleFilesystemSocket()
@@ -439,7 +497,7 @@ void TestUiActivationServer::acquisitionLockHonorsTotalDeadline()
     std::atomic<bool> releaseLock {false};
     std::atomic<int> helperError {0};
 
-    QThread *helper = QThread::create([&] {
+    ScopedThread helper(QThread::create([&] {
         const int fd = ::open(encodedLockPath.constData(),
                               O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
         if (fd < 0 || ::flock(fd, LOCK_EX) != 0) {
@@ -456,8 +514,8 @@ void TestUiActivationServer::acquisitionLockHonorsTotalDeadline()
         }
         ::flock(fd, LOCK_UN);
         ::close(fd);
-    });
-    helper->start();
+    }));
+    helper.start();
     while (!lockReady.load()) {
         std::this_thread::yield();
     }
@@ -470,8 +528,7 @@ void TestUiActivationServer::acquisitionLockHonorsTotalDeadline()
     const qint64 durationMs = elapsed.elapsed();
 
     releaseLock.store(true);
-    QVERIFY(helper->wait(3000));
-    delete helper;
+    QVERIFY(helper.wait(3000));
 
     QCOMPARE(helperError.load(), 0);
     QCOMPARE(result, UiActivationServer::Result::Failed);
@@ -507,18 +564,16 @@ void TestUiActivationServer::concurrentAcquisitionHasOnePrimary()
         }
     };
 
-    QThread *first = QThread::create([&] { acquire(0); });
-    QThread *second = QThread::create([&] { acquire(1); });
-    first->start();
-    second->start();
+    ScopedThread first(QThread::create([&] { acquire(0); }));
+    ScopedThread second(QThread::create([&] { acquire(1); }));
+    first.start();
+    second.start();
     while (ready.load() < 2) {
         std::this_thread::yield();
     }
     start.store(true);
-    QVERIFY(first->wait(3000));
-    QVERIFY(second->wait(3000));
-    delete first;
-    delete second;
+    QVERIFY(first.wait(3000));
+    QVERIFY(second.wait(3000));
 
     QCOMPARE(static_cast<int>(std::count(results.cbegin(), results.cend(),
                                          UiActivationServer::Result::Primary)),
