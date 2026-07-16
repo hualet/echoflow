@@ -10,6 +10,7 @@
 #include <QString>
 
 class QLocalSocket;
+class QTimer;
 
 class UiActivationServer : public QObject {
     Q_OBJECT
@@ -22,6 +23,7 @@ public:
     };
 
     explicit UiActivationServer(QString socketPath, QObject *parent = nullptr);
+    ~UiActivationServer() override;
 
     Result acquire(bool requestActivation, QString *error = nullptr);
 
@@ -29,10 +31,18 @@ signals:
     void activateRequested();
 
 private:
+    struct ClientState {
+        QByteArray buffer;
+        QTimer *idleTimer = nullptr;
+    };
+
     void acceptPendingConnections();
     void readSocket(QLocalSocket *socket);
 
     QString socketPath_;
-    QHash<QLocalSocket *, QByteArray> buffers_;
+    QHash<QLocalSocket *, ClientState> clients_;
     QLocalServer server_;
+    quint64 socketDevice_ = 0;
+    quint64 socketInode_ = 0;
+    bool ownsSocketPath_ = false;
 };
