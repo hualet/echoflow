@@ -5,8 +5,9 @@
 
 #include "OnboardingState.h"
 
-#include <QFile>
+#include <QDir>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 
 class TestOnboardingState : public QObject {
@@ -18,6 +19,7 @@ private slots:
     void currentVersionIsComplete();
     void recordsCurrentVersion();
     void reportsWriteFailure();
+    void defaultPathUsesConfigLocation();
 };
 
 void TestOnboardingState::absentFileIsIncomplete()
@@ -80,16 +82,28 @@ void TestOnboardingState::reportsWriteFailure()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
-    const QString blockingPath = dir.filePath(QStringLiteral("not-a-directory"));
-    QFile blockingFile(blockingPath);
-    QVERIFY(blockingFile.open(QIODevice::WriteOnly));
-    blockingFile.close();
+    const QString statePath = dir.filePath(QStringLiteral("state-as-directory"));
+    QVERIFY(QDir().mkpath(statePath));
 
-    OnboardingState state(blockingPath + QStringLiteral("/ui-state.ini"));
+    OnboardingState state(statePath);
     QString error;
     QVERIFY(!state.markComplete(&error));
-    QVERIFY(!error.isEmpty());
+    QVERIFY2(error.contains(statePath), qPrintable(error));
+    QVERIFY2(error.contains(QStringLiteral("AccessError")), qPrintable(error));
     QVERIFY(!state.isComplete());
+}
+
+void TestOnboardingState::defaultPathUsesConfigLocation()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    const QString configLocation =
+        QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+
+    QCOMPARE(OnboardingState::defaultPath(),
+             configLocation + QStringLiteral("/echoflow/ui-state.ini"));
+    QVERIFY(OnboardingState::defaultPath().endsWith(
+        QStringLiteral("/echoflow/ui-state.ini")));
+    QStandardPaths::setTestModeEnabled(false);
 }
 
 QTEST_GUILESS_MAIN(TestOnboardingState)

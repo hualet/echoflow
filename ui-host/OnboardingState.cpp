@@ -14,6 +14,19 @@ namespace {
 
 constexpr auto kVersionKey = "onboarding/version";
 
+QString settingsStatusName(QSettings::Status status)
+{
+    switch (status) {
+    case QSettings::NoError:
+        return QStringLiteral("NoError");
+    case QSettings::AccessError:
+        return QStringLiteral("AccessError");
+    case QSettings::FormatError:
+        return QStringLiteral("FormatError");
+    }
+    return QStringLiteral("UnknownError");
+}
+
 } // namespace
 
 OnboardingState::OnboardingState(QString path)
@@ -48,7 +61,8 @@ bool OnboardingState::markComplete(QString *error)
     settings.sync();
     if (settings.status() != QSettings::NoError) {
         if (error) {
-            *error = QStringLiteral("Failed to write onboarding state: %1").arg(path_);
+            *error = QStringLiteral("Failed to write onboarding state %1 (%2)")
+                         .arg(path_, settingsStatusName(settings.status()));
         }
         return false;
     }
