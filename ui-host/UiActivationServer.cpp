@@ -336,7 +336,7 @@ UiActivationServer::Result UiActivationServer::acquire(bool requestActivation,
 
             const qsizetype newline = acknowledgement.indexOf('\n');
             if (newline >= 0) {
-                if (acknowledgement.left(newline) == QByteArrayLiteral("ACK")) {
+                if (acknowledgement == QByteArray(kActivationAcknowledgement)) {
                     return Result::ActivatedExisting;
                 }
                 if (error) {

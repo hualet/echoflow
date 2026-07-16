@@ -176,6 +176,8 @@ void TestUiActivationServer::rejectsBadOrClosedAcknowledgement_data()
     QTest::addColumn<bool>("closeWithoutReply");
 
     QTest::newRow("bad-ack") << QByteArray("NOPE\n") << false;
+    QTest::newRow("ack-with-trailing-garbage")
+        << QByteArray("ACK\nNOPE") << false;
     QTest::newRow("closed") << QByteArray() << true;
 }
 
