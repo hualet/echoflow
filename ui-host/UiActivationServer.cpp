@@ -68,6 +68,11 @@ PathInspection inspectSocketPath(const QString &socketPath)
                     .arg(parentPath)
                     .arg(::getuid())};
     }
+    if ((parent.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
+        return {PathState::Protected, {},
+                QStringLiteral("Socket parent %1 must not be group/world-writable")
+                    .arg(parentPath)};
+    }
     if (::access(encodedParent.constData(), W_OK | X_OK) != 0) {
         return {PathState::Protected, {},
                 QStringLiteral("Socket parent %1 is not removable by uid %2: %3")

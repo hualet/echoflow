@@ -5,12 +5,15 @@
 
 #include "UiActivationServer.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QLocalSocket>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QThread>
 
+#include <fcntl.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -33,6 +36,8 @@ private slots:
     void preservesRegularFileAtSocketPath();
     void preservesSymlinkAtSocketPath();
     void preservesSocketOnPermissionDenied();
+    void rejectsWorldWritableParentAndPreservesSocket();
+    void acquisitionLockHonorsTotalDeadline();
     void concurrentAcquisitionHasOnePrimary();
     void buffersPartialLinesAndIgnoresUnknownInput();
     void disconnectsOversizedFragmentedRequest();
@@ -194,6 +199,96 @@ void TestUiActivationServer::preservesSocketOnPermissionDenied()
     QCOMPARE(after.st_ino, before.st_ino);
     QCOMPARE(::close(fd), 0);
     QCOMPARE(::unlink(encodedPath.constData()), 0);
+}
+
+void TestUiActivationServer::rejectsWorldWritableParentAndPreservesSocket()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString unsafeParent = dir.filePath(QStringLiteral("unsafe"));
+    QVERIFY(QDir().mkpath(unsafeParent));
+    const QByteArray encodedParent = QFile::encodeName(unsafeParent);
+    QCOMPARE(::chmod(encodedParent.constData(), 0777), 0);
+
+    const QString path = unsafeParent + QStringLiteral("/ui.sock");
+    const QByteArray encodedPath = QFile::encodeName(path);
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    QVERIFY(fd >= 0);
+    sockaddr_un address {};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, encodedPath.constData(),
+                static_cast<size_t>(encodedPath.size() + 1));
+    QCOMPARE(::bind(fd, reinterpret_cast<const sockaddr *>(&address),
+                    sizeof(address)), 0);
+    QCOMPARE(::close(fd), 0);
+
+    struct stat before {};
+    QCOMPARE(::lstat(encodedPath.constData(), &before), 0);
+    UiActivationServer server(path);
+    QString error;
+    QCOMPARE(server.acquire(false, &error), UiActivationServer::Result::Failed);
+    QVERIFY2(error.contains(QStringLiteral("writable"), Qt::CaseInsensitive),
+             qPrintable(error));
+
+    struct stat after {};
+    QCOMPARE(::lstat(encodedPath.constData(), &after), 0);
+    QCOMPARE(after.st_dev, before.st_dev);
+    QCOMPARE(after.st_ino, before.st_ino);
+    QCOMPARE(::unlink(encodedPath.constData()), 0);
+    QCOMPARE(::chmod(encodedParent.constData(), 0700), 0);
+}
+
+void TestUiActivationServer::acquisitionLockHonorsTotalDeadline()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    const QByteArray encodedLockPath =
+        QFile::encodeName(path + QStringLiteral(".lock"));
+    std::atomic<bool> lockReady {false};
+    std::atomic<bool> releaseLock {false};
+    std::atomic<int> helperError {0};
+
+    QThread *helper = QThread::create([&] {
+        const int fd = ::open(encodedLockPath.constData(),
+                              O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0 || ::flock(fd, LOCK_EX) != 0) {
+            helperError.store(errno);
+            if (fd >= 0) {
+                ::close(fd);
+            }
+            lockReady.store(true);
+            return;
+        }
+        lockReady.store(true);
+        while (!releaseLock.load()) {
+            std::this_thread::yield();
+        }
+        ::flock(fd, LOCK_UN);
+        ::close(fd);
+    });
+    helper->start();
+    while (!lockReady.load()) {
+        std::this_thread::yield();
+    }
+
+    UiActivationServer server(path);
+    QString error;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const UiActivationServer::Result result = server.acquire(false, &error);
+    const qint64 durationMs = elapsed.elapsed();
+
+    releaseLock.store(true);
+    QVERIFY(helper->wait(3000));
+    delete helper;
+
+    QCOMPARE(helperError.load(), 0);
+    QCOMPARE(result, UiActivationServer::Result::Failed);
+    QVERIFY2(error.contains(QStringLiteral("Timed out")), qPrintable(error));
+    QVERIFY(durationMs >= 900);
+    QVERIFY2(durationMs < 1500,
+             qPrintable(QStringLiteral("acquire took %1 ms").arg(durationMs)));
 }
 
 void TestUiActivationServer::concurrentAcquisitionHasOnePrimary()

@@ -18,6 +18,7 @@ class UiActivationServer : public QObject {
 public:
     enum class Result {
         Primary,
+        // An existing instance was contacted; an activation payload is optional.
         ActivatedExisting,
         Failed,
     };
