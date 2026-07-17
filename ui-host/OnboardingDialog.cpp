@@ -206,8 +206,8 @@ int OnboardingDialog::currentPage() const
 
 void OnboardingDialog::showForIncompleteSetup()
 {
-    const bool resumeSetup = controller_->hasStarted()
-        || controller_->isRunning() || hasFailure(controller_);
+    const bool resumeSetup =
+        controller_->hasStarted() || hasFailure(controller_);
     setCurrentPage(resumeSetup ? 3 : 0);
     renderSetup();
     show();

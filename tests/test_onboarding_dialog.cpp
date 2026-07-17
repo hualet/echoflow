@@ -101,7 +101,7 @@ private slots:
     void aggregateFailureIsVisibleAndRetryable();
     void successChangesPrimaryActionToFinish();
     void closeDoesNotCompleteSetup();
-    void readOnlyReconstructionDoesNotCountAsStarted();
+    void readOnlyProbesStartAtIntroAndQueuedSetupResumes();
     void incompleteWorkResumesOnFinalPage();
     void failedSetupReopensOnFinalPageWithRetry();
     void replayStartsAtFirstPageAndCompletedSetupDoesNotRerun();
@@ -377,7 +377,7 @@ void TestOnboardingDialog::closeDoesNotCompleteSetup()
     QVERIFY(!state.isComplete());
 }
 
-void TestOnboardingDialog::readOnlyReconstructionDoesNotCountAsStarted()
+void TestOnboardingDialog::readOnlyProbesStartAtIntroAndQueuedSetupResumes()
 {
     QTemporaryDir dir;
     OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
@@ -387,14 +387,26 @@ void TestOnboardingDialog::readOnlyReconstructionDoesNotCountAsStarted()
     OnboardingDialog dialog(&controller);
 
     dialog.showForIncompleteSetup();
-    QCOMPARE(dialog.currentPage(), 3);
-    QVERIFY(!controller.hasStarted());
-    dialog.close();
-
-    finishInitialNotReady(runner);
-    dialog.showForIncompleteSetup();
     QCOMPARE(dialog.currentPage(), 0);
     QVERIFY(!controller.hasStarted());
+    auto *next = button(dialog, "nextButton");
+    for (int i = 0; i < 3; ++i) {
+        QTest::mouseClick(next, Qt::LeftButton);
+    }
+    QCOMPARE(dialog.currentPage(), 3);
+    QCOMPARE(next->text(), QStringLiteral("准备中…"));
+    QVERIFY(!next->isEnabled());
+
+    controller.start();
+    QVERIFY(controller.hasStarted());
+    QCOMPARE(model.starts, 0);
+    dialog.close();
+
+    OnboardingDialog reopenedDialog(&controller);
+    reopenedDialog.showForIncompleteSetup();
+    QCOMPARE(reopenedDialog.currentPage(), 3);
+    QCOMPARE(button(reopenedDialog, "nextButton")->text(),
+             QStringLiteral("准备中…"));
 }
 
 void TestOnboardingDialog::incompleteWorkResumesOnFinalPage()
