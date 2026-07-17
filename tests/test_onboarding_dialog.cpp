@@ -170,6 +170,8 @@ void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
          QStringLiteral("按右 Ctrl 键开始说话")},
         {QStringLiteral("settingsHeading"), QStringLiteral("从托盘打开设置")},
         {QStringLiteral("setupHeading"), QStringLiteral("准备开始使用")},
+        {QStringLiteral("introDescriptionLabel"),
+         QStringLiteral("语音识别在本机离线运行；首次使用需要联网下载模型。录音不会离开你的设备。")},
         {QStringLiteral("shortcutDescriptionLabel"),
          QStringLiteral("第一次按下右 Ctrl 键开始录音，第二次按下停止录音。")},
         {QStringLiteral("shortcutTranscriptLabel"),

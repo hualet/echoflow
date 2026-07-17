@@ -228,7 +228,7 @@ QWidget *OnboardingDialog::createIntroPage()
 {
     return informationPage(
         QStringLiteral("离线、安全、流畅"), QStringLiteral("introHeading"),
-        QStringLiteral("EchoFlow 的语音识别完全在本机运行，无需联网，录音不会离开你的设备。"),
+        QStringLiteral("语音识别在本机离线运行；首次使用需要联网下载模型。录音不会离开你的设备。"),
         QStringLiteral("introDescriptionLabel"),
         {{QStringLiteral("离线使用，保护隐私。"),
           QStringLiteral("introPrivacyLabel")},
