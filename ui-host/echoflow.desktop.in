@@ -1,10 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Hualet Wang
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [Desktop Entry]
 Type=Application
 Name=EchoFlow
 Name[zh_CN]=EchoFlow 语音输入
 Comment=Offline voice input for Fcitx5
 Comment[zh_CN]=离线、安全、流畅的语音输入
-Exec=echoflow-ui --activate
+Exec="@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui" --activate
 Icon=echoflow
 Terminal=false
 Categories=Utility;Accessibility;

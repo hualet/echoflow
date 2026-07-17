@@ -178,7 +178,9 @@ assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Name=EchoFlow' "desktop ent
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Name[zh_CN]=EchoFlow 语音输入' "desktop entry has Chinese name"
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Comment=Offline voice input for Fcitx5' "desktop entry has English comment"
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Comment[zh_CN]=离线、安全、流畅的语音输入' "desktop entry has Chinese comment"
-assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Exec=echoflow-ui --activate' "desktop entry activates EchoFlow UI"
+assert_contains "$ROOT/ui-host/echoflow.desktop.in" '# SPDX-FileCopyrightText: 2026 Hualet Wang' "desktop entry has copyright header"
+assert_contains "$ROOT/ui-host/echoflow.desktop.in" '# SPDX-License-Identifier: GPL-3.0-or-later' "desktop entry has license header"
+assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Exec="@CMAKE_INSTALL_FULL_BINDIR@/echoflow-ui" --activate' "desktop entry activates the configured EchoFlow UI"
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Icon=echoflow' "desktop entry uses installed EchoFlow icon"
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Terminal=false' "desktop entry does not open a terminal"
 assert_contains "$ROOT/ui-host/echoflow.desktop.in" 'Categories=Utility;Accessibility;' "desktop entry has utility and accessibility categories"
@@ -235,6 +237,8 @@ assert_contains "$ROOT/debian/control" "fcitx5" "debian package depends on fcitx
 assert_contains "$ROOT/fcitx-addon/echoflow.conf.in" "Library=libechoflow" "Fcitx addon loads the packaged module filename"
 assert_contains "$ROOT/install-user.sh" "command -v fcitx5" "user install detects Fcitx before reloading"
 assert_contains "$ROOT/uninstall-user.sh" "command -v fcitx5" "user uninstall detects Fcitx before reloading"
+assert_contains "$ROOT/uninstall-user.sh" '$PREFIX/share/applications/echoflow.desktop' "user uninstall removes desktop entry"
+assert_contains "$ROOT/uninstall-user.sh" '$PREFIX/share/icons/hicolor/scalable/apps/echoflow.svg' "user uninstall removes app icon"
 assert_contains "$ROOT/debian/control" "pipewire-bin" "debian package depends on PipeWire tools"
 assert_contains "$ROOT/debian/rules" "dh $@" "debian rules delegates to debhelper"
 assert_contains "$ROOT/debian/rules" 'override_dh_auto_configure:' "Debian overrides CMake configuration"
@@ -246,6 +250,20 @@ assert_contains "$ROOT/.github/workflows/deb.yml" "dpkg-buildpackage -us -uc -b"
 assert_contains "$ROOT/.github/workflows/deb.yml" "softprops/action-gh-release" "deb workflow publishes release assets"
 assert_contains "$ROOT/AGENTS.md" "scripts/check-release-performance.py" "version bump instructions require a benchmark"
 assert_contains "$ROOT/AGENTS.md" "release-only commit" "version bump instructions require isolated release metadata"
+
+if bash "$ROOT/tests/spec/test_onboarding_install.sh"; then
+  pass=$((pass + 1))
+else
+  echo "FAIL - executable install and uninstall behavior"
+  fail=$((fail + 1))
+fi
+
+if bash "$ROOT/tests/spec/test_ui_host_install.sh"; then
+  pass=$((pass + 1))
+else
+  echo "FAIL - standalone UI configure, build, and DESTDIR install"
+  fail=$((fail + 1))
+fi
 
 echo "---"
 echo "spec: $pass passed, $fail failed"

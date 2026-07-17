@@ -16,6 +16,8 @@ rm -f "$PREFIX/bin/echoflow-service"
 rm -f "$PREFIX/bin/echoflow-ui"
 rm -f "$PREFIX/lib/fcitx5/libechoflow.so"
 rm -f "$PREFIX/lib/x86_64-linux-gnu/fcitx5/libechoflow.so"
+rm -f "$PREFIX/share/applications/echoflow.desktop"
+rm -f "$PREFIX/share/icons/hicolor/scalable/apps/echoflow.svg"
 
 if command -v fcitx5 >/dev/null 2>&1; then
   fcitx5 -rd || echo "Warning: restart Fcitx manually: fcitx5 -rd" >&2
