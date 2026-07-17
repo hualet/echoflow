@@ -46,6 +46,7 @@ jobs:
             libdtk6core-dev \
             libdtk6gui-dev \
             libdtk6core-bin \
+            desktop-file-utils \
             libfcitx5core-dev \
             libopenblas-dev \
             pipewire-bin
