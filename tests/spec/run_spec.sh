@@ -231,21 +231,13 @@ fi
 assert_contains "$ROOT/debian/control" "Package: echoflow" "debian control defines echoflow package"
 assert_contains "$ROOT/debian/control" "debhelper-compat (= 13)" "debian control uses debhelper compat 13"
 assert_contains "$ROOT/debian/control" "desktop-file-utils" "debian build dependencies provide desktop-file-validate"
-if [[ -x "$ROOT/debian/postinst" ]]; then
-  echo "ok   - Debian postinst exists and is executable"
+if [[ ! -e "$ROOT/debian/postinst" ]]; then
+  echo "ok   - Debian uses debhelper-generated user-service maintainer scripts"
   pass=$((pass + 1))
 else
-  echo "FAIL - Debian postinst must exist and be executable"
+  echo "FAIL - manual Debian postinst would duplicate debhelper user-service restart"
   fail=$((fail + 1))
 fi
-assert_contains "$ROOT/debian/postinst" '#DEBHELPER#' "Debian postinst retains debhelper token"
-assert_contains "$ROOT/debian/postinst" 'configure|abort-upgrade|abort-deconfigure|abort-remove)' "Debian postinst guards supported package actions"
-assert_contains "$ROOT/debian/postinst" '[ -z "${DPKG_ROOT:-}" ]' "Debian postinst avoids host actions under DPKG_ROOT"
-assert_contains "$ROOT/debian/postinst" '[ -d /run/systemd/system ]' "Debian postinst checks for systemd"
-assert_contains "$ROOT/debian/postinst" 'deb-systemd-invoke --user daemon-reload' "Debian postinst reloads user managers"
-assert_contains "$ROOT/debian/postinst" 'deb-systemd-invoke --user restart echoflow.service echoflow-ui.service' "Debian postinst restarts both user services"
-assert_contains "$ROOT/debian/postinst" 'daemon-reload >/dev/null 2>&1 || true' "Debian postinst reload is best effort"
-assert_contains "$ROOT/debian/postinst" 'echoflow-ui.service >/dev/null 2>&1 || true' "Debian postinst restart is best effort"
 assert_contains "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7)" "debian control keeps DTK widget dependency at minor version"
 assert_absent "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7." "debian control does not pin DTK widget dependency to patch/build"
 assert_contains "$ROOT/debian/shlibs.local" "libdtk6widget 6 libdtk6widget (>= 6.7)" "debian shlibs keeps DTK widget runtime dependency at minor version"
@@ -258,6 +250,16 @@ assert_contains "$ROOT/uninstall-user.sh" '$PREFIX/share/applications/echoflow.d
 assert_contains "$ROOT/uninstall-user.sh" '$PREFIX/share/icons/hicolor/scalable/apps/echoflow.svg' "user uninstall removes app icon"
 assert_contains "$ROOT/debian/control" "pipewire-bin" "debian package depends on PipeWire tools"
 assert_contains "$ROOT/debian/rules" "dh $@" "debian rules delegates to debhelper"
+assert_contains "$ROOT/CMakeLists.txt" '"${CMAKE_BINARY_DIR}/systemd/user/echoflow.service"' "CMake installs the service user unit for debhelper"
+assert_contains "$ROOT/CMakeLists.txt" '"${CMAKE_BINARY_DIR}/systemd/user/echoflow-ui.service"' "CMake installs the UI user unit for debhelper"
+dh_sequence="$(cd "$ROOT" && dh binary --no-act 2>&1)"
+if grep -qF 'dh_installsystemduser' <<< "$dh_sequence"; then
+  echo "ok   - standard debhelper sequence handles systemd user units"
+  pass=$((pass + 1))
+else
+  echo "FAIL - standard debhelper sequence missing dh_installsystemduser"
+  fail=$((fail + 1))
+fi
 assert_contains "$ROOT/debian/rules" 'override_dh_auto_configure:' "Debian overrides CMake configuration"
 assert_contains "$ROOT/debian/rules" '-- -DECHOFLOW_CPU_TARGET=x86-64-v3' "Debian selects deterministic CPU target"
 assert_contains "$ROOT/debian/source/format" "3.0 (native)" "debian source format is native"
@@ -281,13 +283,6 @@ if bash "$ROOT/tests/spec/test_ui_host_install.sh"; then
   pass=$((pass + 1))
 else
   echo "FAIL - standalone UI configure, build, and DESTDIR install"
-  fail=$((fail + 1))
-fi
-
-if bash "$ROOT/tests/spec/test_debian_postinst.sh"; then
-  pass=$((pass + 1))
-else
-  echo "FAIL - Debian postinst user-service restart behavior"
   fail=$((fail + 1))
 fi
 
