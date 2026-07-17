@@ -231,6 +231,21 @@ fi
 assert_contains "$ROOT/debian/control" "Package: echoflow" "debian control defines echoflow package"
 assert_contains "$ROOT/debian/control" "debhelper-compat (= 13)" "debian control uses debhelper compat 13"
 assert_contains "$ROOT/debian/control" "desktop-file-utils" "debian build dependencies provide desktop-file-validate"
+if [[ -x "$ROOT/debian/postinst" ]]; then
+  echo "ok   - Debian postinst exists and is executable"
+  pass=$((pass + 1))
+else
+  echo "FAIL - Debian postinst must exist and be executable"
+  fail=$((fail + 1))
+fi
+assert_contains "$ROOT/debian/postinst" '#DEBHELPER#' "Debian postinst retains debhelper token"
+assert_contains "$ROOT/debian/postinst" 'configure|abort-upgrade|abort-deconfigure|abort-remove)' "Debian postinst guards supported package actions"
+assert_contains "$ROOT/debian/postinst" '[ -z "${DPKG_ROOT:-}" ]' "Debian postinst avoids host actions under DPKG_ROOT"
+assert_contains "$ROOT/debian/postinst" '[ -d /run/systemd/system ]' "Debian postinst checks for systemd"
+assert_contains "$ROOT/debian/postinst" 'deb-systemd-invoke --user daemon-reload' "Debian postinst reloads user managers"
+assert_contains "$ROOT/debian/postinst" 'deb-systemd-invoke --user restart echoflow.service echoflow-ui.service' "Debian postinst restarts both user services"
+assert_contains "$ROOT/debian/postinst" 'daemon-reload >/dev/null 2>&1 || true' "Debian postinst reload is best effort"
+assert_contains "$ROOT/debian/postinst" 'echoflow-ui.service >/dev/null 2>&1 || true' "Debian postinst restart is best effort"
 assert_contains "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7)" "debian control keeps DTK widget dependency at minor version"
 assert_absent "$ROOT/debian/control" "libdtk6widget-dev (>= 6.7." "debian control does not pin DTK widget dependency to patch/build"
 assert_contains "$ROOT/debian/shlibs.local" "libdtk6widget 6 libdtk6widget (>= 6.7)" "debian shlibs keeps DTK widget runtime dependency at minor version"
@@ -266,6 +281,13 @@ if bash "$ROOT/tests/spec/test_ui_host_install.sh"; then
   pass=$((pass + 1))
 else
   echo "FAIL - standalone UI configure, build, and DESTDIR install"
+  fail=$((fail + 1))
+fi
+
+if bash "$ROOT/tests/spec/test_debian_postinst.sh"; then
+  pass=$((pass + 1))
+else
+  echo "FAIL - Debian postinst user-service restart behavior"
   fail=$((fail + 1))
 fi
 
