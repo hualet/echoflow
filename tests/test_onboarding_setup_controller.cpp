@@ -8,7 +8,9 @@
 #include "SetupCommandRunner.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -71,6 +73,12 @@ private slots:
     void duplicateStartIsIgnoredWhileRunning();
     void reconstructsPresentAndRunningModel();
     void completedStateStartsReadyWithoutWork();
+    void reconstructionPreservesReadyItemsWithoutMutation();
+    void reconstructionLeavesNotReadyItemsPending();
+    void startRunsOnlyMissingReconstructedItems();
+    void startPreservesRunningModelAndLaunchesOtherItems();
+    void startDuringReconstructionIsQueued();
+    void reconstructionTimeoutIsRecoverable();
     void canceledDownloadIsFailure();
     void persistenceFailureIsAggregateFailure();
     void commandsAndProbesAreExact();
@@ -80,6 +88,7 @@ private slots:
     void processRunnerReportsNonzeroAndStdout();
     void processRunnerReportsFailedStart();
     void processRunnerRejectsDuplicateId();
+    void processRunnerTimesOutAndReusesId();
     void modelAdapterDetectsPresentModel();
     void modelAdapterDetectsMissingModel();
     void modelAdapterMapsRetainedDownloadingSnapshot();
@@ -100,6 +109,15 @@ static void finishSuccessfulCommands(FakeCommandRunner &runner)
     runner.finish(QStringLiteral("service-check"), true);
 }
 
+static void finishInitialNotReady(FakeCommandRunner &runner)
+{
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), false,
+                  QStringLiteral("disabled"));
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("inactive"));
+    runner.calls.clear();
+}
+
 void TestOnboardingSetupController::allSuccessWritesCompletion()
 {
     QTemporaryDir dir;
@@ -109,6 +127,7 @@ void TestOnboardingSetupController::allSuccessWritesCompletion()
     OnboardingSetupController controller(&model, &runner, &state);
     QSignalSpy completeSpy(&controller, &OnboardingSetupController::setupComplete);
 
+    finishInitialNotReady(runner);
     controller.start();
     model.finish(true);
     finishSuccessfulCommands(runner);
@@ -126,6 +145,7 @@ void TestOnboardingSetupController::partialFailureDoesNotComplete()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
 
+    finishInitialNotReady(runner);
     controller.start();
     model.finish(true);
     runner.finish(QStringLiteral("ui-autostart"), true);
@@ -150,6 +170,7 @@ void TestOnboardingSetupController::retryRunsOnlyFailedItems()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
 
+    finishInitialNotReady(runner);
     controller.start();
     model.finish(true);
     runner.finish(QStringLiteral("ui-autostart"), true);
@@ -175,6 +196,7 @@ void TestOnboardingSetupController::duplicateStartIsIgnoredWhileRunning()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
 
+    finishInitialNotReady(runner);
     controller.start();
     controller.start();
 
@@ -192,17 +214,17 @@ void TestOnboardingSetupController::reconstructsPresentAndRunningModel()
     presentModel.present = true;
     FakeCommandRunner firstRunner;
     OnboardingSetupController first(&presentModel, &firstRunner, &state);
-    first.start();
     QCOMPARE(first.itemState(SetupItem::Model), SetupItemState::Succeeded);
     QCOMPARE(presentModel.starts, 0);
+    QVERIFY(!first.hasStarted());
 
     FakeModelSource runningModel;
     runningModel.running = true;
     FakeCommandRunner secondRunner;
     OnboardingSetupController second(&runningModel, &secondRunner, &state);
-    second.start();
     QCOMPARE(second.itemState(SetupItem::Model), SetupItemState::Running);
     QCOMPARE(runningModel.starts, 0);
+    QVERIFY(!second.hasStarted());
 }
 
 void TestOnboardingSetupController::completedStateStartsReadyWithoutWork()
@@ -215,6 +237,7 @@ void TestOnboardingSetupController::completedStateStartsReadyWithoutWork()
     OnboardingSetupController controller(&model, &runner, &state);
 
     QVERIFY(controller.isComplete());
+    QVERIFY(runner.calls.isEmpty());
     for (SetupItem item : {SetupItem::Model, SetupItem::UiAutostart,
                            SetupItem::Service, SetupItem::Fcitx}) {
         QCOMPARE(controller.itemState(item), SetupItemState::Succeeded);
@@ -225,6 +248,152 @@ void TestOnboardingSetupController::completedStateStartsReadyWithoutWork()
     QVERIFY(runner.calls.isEmpty());
 }
 
+void TestOnboardingSetupController::reconstructionPreservesReadyItemsWithoutMutation()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+
+    QCOMPARE(runner.calls.size(), 2);
+    QCOMPARE(runner.calls.at(0).id, QStringLiteral("ui-autostart-initial-check"));
+    QCOMPARE(runner.calls.at(0).program, QStringLiteral("systemctl"));
+    QCOMPARE(runner.calls.at(0).arguments,
+             QStringList({QStringLiteral("--user"), QStringLiteral("is-enabled"),
+                          QStringLiteral("echoflow-ui.service")}));
+    QCOMPARE(runner.calls.at(1).id, QStringLiteral("service-initial-check"));
+    QCOMPARE(runner.calls.at(1).program, QStringLiteral("systemctl"));
+    QCOMPARE(runner.calls.at(1).arguments,
+             QStringList({QStringLiteral("--user"), QStringLiteral("is-active"),
+                          QStringLiteral("echoflow.service")}));
+    QVERIFY(!controller.hasStarted());
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), true);
+    runner.finish(QStringLiteral("service-initial-check"), true);
+    QCOMPARE(controller.itemState(SetupItem::UiAutostart),
+             SetupItemState::Succeeded);
+    QCOMPARE(controller.itemState(SetupItem::Service), SetupItemState::Succeeded);
+
+    runner.calls.clear();
+    controller.start();
+
+    QCOMPARE(model.starts, 1);
+    QCOMPARE(runner.calls.size(), 1);
+    QCOMPARE(runner.calls.first().id, QStringLiteral("fcitx"));
+}
+
+void TestOnboardingSetupController::reconstructionLeavesNotReadyItemsPending()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), false,
+                  QStringLiteral("disabled"));
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("inactive"));
+
+    QCOMPARE(controller.itemState(SetupItem::UiAutostart), SetupItemState::Pending);
+    QCOMPARE(controller.itemState(SetupItem::Service), SetupItemState::Pending);
+    QVERIFY(controller.itemError(SetupItem::UiAutostart).isEmpty());
+    QVERIFY(controller.itemError(SetupItem::Service).isEmpty());
+    QVERIFY(controller.aggregateError().isEmpty());
+    QVERIFY(!controller.hasStarted());
+}
+
+void TestOnboardingSetupController::startRunsOnlyMissingReconstructedItems()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    model.present = true;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), true);
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("inactive"));
+    runner.calls.clear();
+
+    controller.start();
+
+    QCOMPARE(model.starts, 0);
+    QCOMPARE(runner.calls.size(), 2);
+    QCOMPARE(runner.calls.at(0).id, QStringLiteral("service"));
+    QCOMPARE(runner.calls.at(1).id, QStringLiteral("fcitx"));
+}
+
+void TestOnboardingSetupController::startPreservesRunningModelAndLaunchesOtherItems()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    model.running = true;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
+
+    controller.start();
+
+    QCOMPARE(model.starts, 0);
+    QCOMPARE(controller.itemState(SetupItem::Model), SetupItemState::Running);
+    QCOMPARE(runner.calls.size(), 3);
+    QCOMPARE(runner.calls.at(0).id, QStringLiteral("ui-autostart"));
+    QCOMPARE(runner.calls.at(1).id, QStringLiteral("service"));
+    QCOMPARE(runner.calls.at(2).id, QStringLiteral("fcitx"));
+}
+
+void TestOnboardingSetupController::startDuringReconstructionIsQueued()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+
+    controller.start();
+    QVERIFY(controller.hasStarted());
+    QCOMPARE(runner.calls.size(), 2);
+    QCOMPARE(model.starts, 0);
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), true);
+    QCOMPARE(runner.calls.size(), 2);
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("inactive"));
+
+    QCOMPARE(model.starts, 1);
+    QCOMPARE(runner.calls.size(), 4);
+    QCOMPARE(runner.calls.at(2).id, QStringLiteral("service"));
+    QCOMPARE(runner.calls.at(3).id, QStringLiteral("fcitx"));
+}
+
+void TestOnboardingSetupController::reconstructionTimeoutIsRecoverable()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    model.present = true;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), false,
+                  QStringLiteral("systemctl timed out after 50 ms"));
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("systemctl failed to start"));
+
+    QCOMPARE(controller.itemState(SetupItem::UiAutostart), SetupItemState::Pending);
+    QCOMPARE(controller.itemState(SetupItem::Service), SetupItemState::Pending);
+    QVERIFY(controller.itemError(SetupItem::UiAutostart).isEmpty());
+    QVERIFY(controller.itemError(SetupItem::Service).isEmpty());
+    runner.calls.clear();
+
+    controller.start();
+
+    QCOMPARE(runner.calls.size(), 3);
+    QCOMPARE(runner.calls.at(0).id, QStringLiteral("ui-autostart"));
+    QCOMPARE(runner.calls.at(1).id, QStringLiteral("service"));
+    QCOMPARE(runner.calls.at(2).id, QStringLiteral("fcitx"));
+}
+
 void TestOnboardingSetupController::canceledDownloadIsFailure()
 {
     QTemporaryDir dir;
@@ -233,6 +402,7 @@ void TestOnboardingSetupController::canceledDownloadIsFailure()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
 
+    finishInitialNotReady(runner);
     controller.start();
     model.finish(false, QStringLiteral("Download canceled"));
 
@@ -255,6 +425,7 @@ void TestOnboardingSetupController::persistenceFailureIsAggregateFailure()
     QSignalSpy failedSpy(&controller, &OnboardingSetupController::setupFailed);
     QSignalSpy completeSpy(&controller, &OnboardingSetupController::setupComplete);
 
+    finishInitialNotReady(runner);
     controller.start();
     model.finish(true);
     finishSuccessfulCommands(runner);
@@ -274,6 +445,7 @@ void TestOnboardingSetupController::commandsAndProbesAreExact()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     controller.start();
 
     QCOMPARE(runner.calls.at(0).id, QStringLiteral("ui-autostart"));
@@ -320,6 +492,7 @@ void TestOnboardingSetupController::reportsModelProgress()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
     QSignalSpy progressSpy(&controller, &OnboardingSetupController::progressChanged);
+    finishInitialNotReady(runner);
     controller.start();
 
     model.reportProgress(12, 40);
@@ -387,6 +560,34 @@ void TestOnboardingSetupController::processRunnerRejectsDuplicateId()
     QCOMPARE(spy.at(0).at(1).toBool(), false);
     QVERIFY(spy.at(0).at(2).toString().contains(QStringLiteral("already running")));
     QCOMPARE(spy.at(1).at(1).toBool(), true);
+}
+
+void TestOnboardingSetupController::processRunnerTimesOutAndReusesId()
+{
+    QTest::failOnWarning(QRegularExpression(
+        QStringLiteral("QProcess: Destroyed while process.*running")));
+    QProcessSetupCommandRunner runner(50);
+    QSignalSpy spy(&runner, &SetupCommandRunner::finished);
+    QElapsedTimer elapsed;
+    elapsed.start();
+
+    runner.run(QStringLiteral("slow"), QStringLiteral("/bin/sh"),
+               {QStringLiteral("-c"),
+                QStringLiteral("trap '' TERM; sleep 5")});
+
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 1000);
+    QVERIFY(elapsed.elapsed() < 1000);
+    QCOMPARE(spy.first().at(0).toString(), QStringLiteral("slow"));
+    QCOMPARE(spy.first().at(1).toBool(), false);
+    QVERIFY(spy.first().at(2).toString().contains(
+        QStringLiteral("timed out after 50 ms")));
+
+    runner.run(QStringLiteral("slow"), QStringLiteral("/bin/sh"),
+               {QStringLiteral("-c"), QStringLiteral("exit 0")});
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 1000);
+    QCOMPARE(spy.at(1).at(1).toBool(), true);
+    QTest::qWait(100);
+    QCOMPARE(spy.count(), 2);
 }
 
 void TestOnboardingSetupController::modelAdapterDetectsPresentModel()

@@ -61,6 +61,8 @@ signals:
 
 private:
     static std::size_t indexOf(SetupItem item);
+    void beginReconstruction();
+    void launchPendingSetup();
     void startItem(SetupItem item);
     void setItemState(SetupItem item, SetupItemState state,
                       const QString &error = {});
@@ -78,6 +80,8 @@ private:
     qint64 progressTotal_ = 0;
     bool complete_ = false;
     bool started_ = false;
+    bool startRequested_ = false;
+    int initialProbesRemaining_ = 0;
     QString aggregateError_;
 };
 

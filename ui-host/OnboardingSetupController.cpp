@@ -17,10 +17,6 @@ OnboardingSetupController::OnboardingSetupController(ModelSetupSource *model,
     , state_(state)
 {
     itemStates_.fill(SetupItemState::Pending);
-    if (state_->isComplete()) {
-        itemStates_.fill(SetupItemState::Succeeded);
-        complete_ = true;
-    }
 
     connect(model_, &ModelSetupSource::progress, this,
             [this](qint64 done, qint64 total) {
@@ -40,6 +36,13 @@ OnboardingSetupController::OnboardingSetupController(ModelSetupSource *model,
     });
     connect(runner_, &SetupCommandRunner::finished, this,
             &OnboardingSetupController::handleCommandFinished);
+
+    if (state_->isComplete()) {
+        itemStates_.fill(SetupItemState::Succeeded);
+        complete_ = true;
+        return;
+    }
+    beginReconstruction();
 }
 
 SetupItemState OnboardingSetupController::itemState(SetupItem item) const
@@ -87,18 +90,34 @@ QString OnboardingSetupController::aggregateError() const
 
 void OnboardingSetupController::start()
 {
-    if (isRunning()) {
+    if (complete_) {
         return;
     }
+    const bool wasStarted = started_;
     started_ = true;
+    if (initialProbesRemaining_ > 0) {
+        startRequested_ = true;
+        return;
+    }
+    if (wasStarted && isRunning()) {
+        return;
+    }
     if (!aggregateError_.isEmpty()) {
         aggregateError_.clear();
         emit aggregateErrorChanged({});
     }
 
+    launchPendingSetup();
+}
+
+void OnboardingSetupController::launchPendingSetup()
+{
+    startRequested_ = false;
+
     for (SetupItem item : {SetupItem::Model, SetupItem::UiAutostart,
                            SetupItem::Service, SetupItem::Fcitx}) {
-        if (itemState(item) != SetupItemState::Succeeded) {
+        if (itemState(item) == SetupItemState::Pending
+            || itemState(item) == SetupItemState::Failed) {
             startItem(item);
         }
     }
@@ -131,6 +150,27 @@ void OnboardingSetupController::retryFailed()
 std::size_t OnboardingSetupController::indexOf(SetupItem item)
 {
     return static_cast<std::size_t>(item);
+}
+
+void OnboardingSetupController::beginReconstruction()
+{
+    if (model_->modelPresent()) {
+        itemStates_[indexOf(SetupItem::Model)] = SetupItemState::Succeeded;
+    } else if (model_->downloadRunning()) {
+        itemStates_[indexOf(SetupItem::Model)] = SetupItemState::Running;
+    }
+
+    itemStates_[indexOf(SetupItem::UiAutostart)] = SetupItemState::Running;
+    itemStates_[indexOf(SetupItem::Service)] = SetupItemState::Running;
+    initialProbesRemaining_ = 2;
+    runner_->run(QStringLiteral("ui-autostart-initial-check"),
+                 QStringLiteral("systemctl"),
+                 {QStringLiteral("--user"), QStringLiteral("is-enabled"),
+                  QStringLiteral("echoflow-ui.service")});
+    runner_->run(QStringLiteral("service-initial-check"),
+                 QStringLiteral("systemctl"),
+                 {QStringLiteral("--user"), QStringLiteral("is-active"),
+                  QStringLiteral("echoflow.service")});
 }
 
 void OnboardingSetupController::startItem(SetupItem item)
@@ -183,7 +223,23 @@ void OnboardingSetupController::handleCommandFinished(const QString &id,
                                                       const QString &error)
 {
     SetupItem item;
-    if (id == QStringLiteral("ui-autostart")) {
+    if (id == QStringLiteral("ui-autostart-initial-check")
+        || id == QStringLiteral("service-initial-check")) {
+        item = id == QStringLiteral("ui-autostart-initial-check")
+            ? SetupItem::UiAutostart
+            : SetupItem::Service;
+        if (initialProbesRemaining_ <= 0
+            || itemState(item) != SetupItemState::Running) {
+            return;
+        }
+        setItemState(item, ok ? SetupItemState::Succeeded
+                              : SetupItemState::Pending);
+        --initialProbesRemaining_;
+        if (initialProbesRemaining_ == 0 && startRequested_) {
+            launchPendingSetup();
+        }
+        return;
+    } else if (id == QStringLiteral("ui-autostart")) {
         item = SetupItem::UiAutostart;
         if (itemState(item) != SetupItemState::Running) {
             return;

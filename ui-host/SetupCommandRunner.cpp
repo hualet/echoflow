@@ -4,6 +4,26 @@
 #include "SetupCommandRunner.h"
 
 #include <QProcess>
+#include <QTimer>
+
+namespace {
+
+constexpr int kDefaultTimeoutMs = 10000;
+constexpr int kTerminateGraceMs = 50;
+
+} // namespace
+
+QProcessSetupCommandRunner::QProcessSetupCommandRunner(QObject *parent)
+    : QProcessSetupCommandRunner(kDefaultTimeoutMs, parent)
+{
+}
+
+QProcessSetupCommandRunner::QProcessSetupCommandRunner(int timeoutMs,
+                                                       QObject *parent)
+    : SetupCommandRunner(parent)
+    , timeoutMs_(qMax(1, timeoutMs))
+{
+}
 
 void QProcessSetupCommandRunner::run(const QString &id, const QString &program,
                                      const QStringList &arguments)
@@ -15,7 +35,23 @@ void QProcessSetupCommandRunner::run(const QString &id, const QString &program,
     }
 
     auto *process = new QProcess(this);
-    processes_.insert(id, process);
+    auto *deadline = new QTimer(process);
+    deadline->setSingleShot(true);
+    processes_.insert(id, {process, deadline});
+
+    connect(deadline, &QTimer::timeout, this, [this, id, process] {
+        auto command = processes_.find(id);
+        if (command == processes_.end() || command->process != process) {
+            return;
+        }
+        command->timedOut = true;
+        process->terminate();
+        QTimer::singleShot(kTerminateGraceMs, process, [process] {
+            if (process->state() != QProcess::NotRunning) {
+                process->kill();
+            }
+        });
+    });
 
     connect(process, &QProcess::errorOccurred, this,
             [this, id, program, process](QProcess::ProcessError error) {
@@ -32,6 +68,17 @@ void QProcessSetupCommandRunner::run(const QString &id, const QString &program,
     connect(process,
             qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, id, program, process](int exitCode, QProcess::ExitStatus status) {
+        const auto command = processes_.constFind(id);
+        if (command == processes_.cend() || command->process != process) {
+            return;
+        }
+        if (command->timedOut) {
+            finishProcess(id, process, false,
+                          QStringLiteral("%1 timed out after %2 ms")
+                              .arg(program)
+                              .arg(timeoutMs_));
+            return;
+        }
         QString detail = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
         if (status == QProcess::NormalExit && exitCode == 0) {
             finishProcess(id, process, true, {});
@@ -49,16 +96,19 @@ void QProcessSetupCommandRunner::run(const QString &id, const QString &program,
     });
 
     process->start(program, arguments);
+    deadline->start(timeoutMs_);
 }
 
 void QProcessSetupCommandRunner::finishProcess(const QString &id,
                                                QProcess *process, bool ok,
                                                const QString &error)
 {
-    if (processes_.value(id) != process) {
+    auto command = processes_.find(id);
+    if (command == processes_.end() || command->process != process) {
         return;
     }
-    processes_.remove(id);
+    command->deadline->stop();
+    processes_.erase(command);
     emit finished(id, ok, error);
     process->deleteLater();
 }

@@ -9,6 +9,7 @@
 #include <QStringList>
 
 class QProcess;
+class QTimer;
 
 class SetupCommandRunner : public QObject {
     Q_OBJECT
@@ -25,14 +26,23 @@ signals:
 class QProcessSetupCommandRunner final : public SetupCommandRunner {
     Q_OBJECT
 public:
-    using SetupCommandRunner::SetupCommandRunner;
+    explicit QProcessSetupCommandRunner(QObject *parent = nullptr);
+    explicit QProcessSetupCommandRunner(int timeoutMs,
+                                        QObject *parent = nullptr);
 
     void run(const QString &id, const QString &program,
              const QStringList &arguments) override;
 
 private:
+    struct RunningCommand {
+        QProcess *process;
+        QTimer *deadline;
+        bool timedOut = false;
+    };
+
     void finishProcess(const QString &id, QProcess *process, bool ok,
                        const QString &error);
 
-    QHash<QString, QProcess *> processes_;
+    int timeoutMs_;
+    QHash<QString, RunningCommand> processes_;
 };

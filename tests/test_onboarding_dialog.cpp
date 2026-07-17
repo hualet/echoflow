@@ -74,6 +74,15 @@ static void finishSuccessfulCommands(FakeCommandRunner &runner)
     runner.finish(QStringLiteral("service-check"), true);
 }
 
+static void finishInitialNotReady(FakeCommandRunner &runner)
+{
+    runner.finish(QStringLiteral("ui-autostart-initial-check"), false,
+                  QStringLiteral("disabled"));
+    runner.finish(QStringLiteral("service-initial-check"), false,
+                  QStringLiteral("inactive"));
+    runner.calls.clear();
+}
+
 static QPushButton *button(OnboardingDialog &dialog, const char *name)
 {
     auto *result = dialog.findChild<QPushButton *>(QString::fromLatin1(name));
@@ -92,6 +101,7 @@ private slots:
     void aggregateFailureIsVisibleAndRetryable();
     void successChangesPrimaryActionToFinish();
     void closeDoesNotCompleteSetup();
+    void readOnlyReconstructionDoesNotCountAsStarted();
     void incompleteWorkResumesOnFinalPage();
     void failedSetupReopensOnFinalPageWithRetry();
     void replayStartsAtFirstPageAndCompletedSetupDoesNotRerun();
@@ -104,6 +114,7 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
 
     auto *pages = dialog.findChild<QStackedWidget *>(QStringLiteral("pages"));
@@ -149,6 +160,7 @@ void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
 
     QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
@@ -207,6 +219,7 @@ void TestOnboardingDialog::startRunsSetupAndDisablesPrimaryAction()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     dialog.showForIncompleteSetup();
     auto *next = button(dialog, "nextButton");
@@ -229,6 +242,7 @@ void TestOnboardingDialog::rendersDeterminateAndIndeterminateModelProgress()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     dialog.showForIncompleteSetup();
     auto *next = button(dialog, "nextButton");
@@ -259,6 +273,7 @@ void TestOnboardingDialog::failureShowsErrorAndRetriesFailedWork()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     dialog.showForIncompleteSetup();
     auto *next = button(dialog, "nextButton");
@@ -292,6 +307,7 @@ void TestOnboardingDialog::aggregateFailureIsVisibleAndRetryable()
     model.present = true;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     dialog.showForIncompleteSetup();
     auto *next = button(dialog, "nextButton");
@@ -317,6 +333,7 @@ void TestOnboardingDialog::successChangesPrimaryActionToFinish()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     QSignalSpy finishedSpy(&dialog,
                            &OnboardingDialog::finishedAndSettingsRequested);
@@ -341,6 +358,7 @@ void TestOnboardingDialog::closeDoesNotCompleteSetup()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
     dialog.showForIncompleteSetup();
 
@@ -357,6 +375,26 @@ void TestOnboardingDialog::closeDoesNotCompleteSetup()
     QVERIFY(!state.isComplete());
 }
 
+void TestOnboardingDialog::readOnlyReconstructionDoesNotCountAsStarted()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    OnboardingDialog dialog(&controller);
+
+    dialog.showForIncompleteSetup();
+    QCOMPARE(dialog.currentPage(), 3);
+    QVERIFY(!controller.hasStarted());
+    dialog.close();
+
+    finishInitialNotReady(runner);
+    dialog.showForIncompleteSetup();
+    QCOMPARE(dialog.currentPage(), 0);
+    QVERIFY(!controller.hasStarted());
+}
+
 void TestOnboardingDialog::incompleteWorkResumesOnFinalPage()
 {
     QTemporaryDir dir;
@@ -365,6 +403,7 @@ void TestOnboardingDialog::incompleteWorkResumesOnFinalPage()
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
     controller.start();
+    finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
 
     dialog.showForIncompleteSetup();
@@ -381,6 +420,7 @@ void TestOnboardingDialog::failedSetupReopensOnFinalPageWithRetry()
     FakeModelSource model;
     FakeCommandRunner runner;
     OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
     {
         OnboardingDialog firstDialog(&controller);
         firstDialog.showForIncompleteSetup();
