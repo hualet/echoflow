@@ -99,13 +99,12 @@ install -m 0644 "$BUILD_DIR/systemd/user/echoflow.service" "$SYSTEMD_USER_DIR/ec
 install -m 0644 "$BUILD_DIR/systemd/user/echoflow-ui.service" "$SYSTEMD_USER_DIR/echoflow-ui.service"
 
 systemctl --user daemon-reload
+systemctl --user enable echoflow.service echoflow-ui.service
 if [[ "$START_SERVICES" == "1" ]]; then
-  systemctl --user enable --now echoflow.service echoflow-ui.service
+  systemctl --user restart echoflow.service echoflow-ui.service
   if command -v fcitx5 >/dev/null 2>&1; then
     fcitx5 -rd || echo "Warning: restart Fcitx manually: fcitx5 -rd" >&2
   fi
-else
-  systemctl --user enable echoflow.service echoflow-ui.service
 fi
 
 echo "EchoFlow installed."

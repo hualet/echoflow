@@ -50,4 +50,13 @@ target_link_libraries(echoflow-ui
         Dtk6::Gui
 )
 
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/echoflow.desktop.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/echoflow.desktop"
+    @ONLY)
+
 install(TARGETS echoflow-ui RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/echoflow.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/icons/echoflow.svg"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")

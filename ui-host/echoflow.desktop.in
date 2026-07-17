@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=EchoFlow
+Name[zh_CN]=EchoFlow 语音输入
+Comment=Offline voice input for Fcitx5
+Comment[zh_CN]=离线、安全、流畅的语音输入
+Exec=echoflow-ui --activate
+Icon=echoflow
+Terminal=false
+Categories=Utility;Accessibility;
+StartupNotify=true
