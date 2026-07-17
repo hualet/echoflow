@@ -161,7 +161,7 @@ assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.width + 16" "tooltip has 
 assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "capsule.height + 16" "tooltip has no vertical blur margin"
 
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "ModelDownloadCoordinator.cpp" "ui-host builds ModelDownloadCoordinator"
-for source in UiActivationServer.cpp OnboardingState.cpp SetupCommandRunner.cpp ModelSetupAdapter.cpp OnboardingSetupController.cpp OnboardingDialog.cpp; do
+for source in UiActivationServer.cpp UiActivationHost.cpp OnboardingState.cpp SetupCommandRunner.cpp ModelSetupAdapter.cpp OnboardingSetupController.cpp OnboardingDialog.cpp; do
   assert_contains "$ROOT/ui-host/CMakeLists.txt" "$source" "ui-host builds $source"
 done
 assert_contains "$ROOT/ui-host/CMakeLists.txt" '${CMAKE_CURRENT_LIST_DIR}/../service' "standalone ui-host resolves service includes from its own directory"
@@ -189,11 +189,12 @@ assert_absent "$ROOT/ui-host/echoflow.desktop.in" "$ROOT" "desktop entry has no 
 assert_contains "$ROOT/ui-host/main.cpp" ":/icons/echoflow.svg" "tray icon uses EchoFlow logo resource"
 assert_absent "$ROOT/ui-host/main.cpp" "SP_ComputerIcon" "tray icon no longer uses generic computer icon"
 assert_contains "$ROOT/ui-host/main.cpp" 'QStringLiteral("activate")' "ui-host accepts explicit activation option"
-assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer activationServer(defaultUiLockPath())' "ui-host uses activation-aware instance server"
+assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationHost activationHost(defaultUiLockPath())' "ui-host uses threaded activation host"
 assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer::Result::ActivatedExisting' "secondary activation exits through existing instance"
 assert_contains "$ROOT/ui-host/main.cpp" 'UiActivationServer::Result::Failed' "instance acquisition failure is handled"
 assert_absent "$ROOT/ui-host/main.cpp" 'acquireUiInstanceServer' "legacy inline instance acquisition is removed"
 assert_contains "$ROOT/ui-host/main.cpp" 'bool pendingActivation' "early activation is queued until UI readiness"
+assert_contains "$ROOT/ui-host/main.cpp" 'activationHost.acquire(pendingActivation' "startup activation is routed through the threaded host"
 assert_contains "$ROOT/ui-host/main.cpp" 'OnboardingState onboardingState' "onboarding state has process lifetime"
 assert_contains "$ROOT/ui-host/main.cpp" 'QProcessSetupCommandRunner setupCommandRunner' "setup command runner has process lifetime"
 assert_contains "$ROOT/ui-host/main.cpp" 'ModelSetupAdapter modelSetupAdapter' "model adapter has process lifetime"

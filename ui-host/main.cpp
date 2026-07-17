@@ -51,7 +51,7 @@
 #include "OnboardingState.h"
 #include "SettingsDialog.h"
 #include "SetupCommandRunner.h"
-#include "UiActivationServer.h"
+#include "UiActivationHost.h"
 
 namespace {
 
@@ -395,8 +395,8 @@ int main(int argc, char **argv) {
     bool pendingActivation = parser.isSet(activateOption);
     bool uiReady = false;
     std::function<void()> activationHandler;
-    UiActivationServer activationServer(defaultUiLockPath());
-    QObject::connect(&activationServer, &UiActivationServer::activateRequested,
+    UiActivationHost activationHost(defaultUiLockPath());
+    QObject::connect(&activationHost, &UiActivationHost::activateRequested,
                      &app, [&] {
         if (uiReady && activationHandler) {
             activationHandler();
@@ -407,7 +407,7 @@ int main(int argc, char **argv) {
 
     QString activationError;
     const UiActivationServer::Result activationResult =
-        activationServer.acquire(pendingActivation, &activationError);
+        activationHost.acquire(pendingActivation, &activationError);
     if (activationResult == UiActivationServer::Result::ActivatedExisting) {
         return 0;
     }
@@ -417,7 +417,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // UiActivationServer is the authoritative instance endpoint. Keep DTK's
+    // UiActivationHost is the authoritative instance endpoint. Keep DTK's
     // guard as a secondary safety check only after this process is primary.
     if (!setDtkSingleInstance(QStringLiteral("echoflow-ui"))) {
         logDuplicateInstanceExit();

@@ -30,6 +30,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         Qt6::Core Qt6::Network Qt6::Test)
     add_test(NAME test_ui_activation_server COMMAND test_ui_activation_server)
 
+    add_executable(test_ui_activation_host
+        test_ui_activation_host.cpp
+        ../ui-host/UiActivationHost.cpp
+        ../ui-host/UiActivationServer.cpp)
+    target_include_directories(test_ui_activation_host PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_ui_activation_host PRIVATE
+        Qt6::Core Qt6::Network Qt6::Test)
+    add_test(NAME test_ui_activation_host COMMAND test_ui_activation_host)
+
     add_executable(test_onboarding_setup_controller
         test_onboarding_setup_controller.cpp
         ../ui-host/ModelSetupAdapter.cpp
@@ -114,6 +124,17 @@ target_link_libraries(test_ui_activation_server PRIVATE
     Qt6::Core Qt6::Network Qt6::Test)
 echoflow_enable_dead_strip(test_ui_activation_server)
 add_test(NAME test_ui_activation_server COMMAND test_ui_activation_server)
+
+add_executable(test_ui_activation_host
+    test_ui_activation_host.cpp
+    ../ui-host/UiActivationHost.cpp
+    ../ui-host/UiActivationServer.cpp)
+target_include_directories(test_ui_activation_host PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_ui_activation_host PRIVATE
+    Qt6::Core Qt6::Network Qt6::Test)
+echoflow_enable_dead_strip(test_ui_activation_host)
+add_test(NAME test_ui_activation_host COMMAND test_ui_activation_host)
 
 add_executable(test_onboarding_setup_controller
     test_onboarding_setup_controller.cpp

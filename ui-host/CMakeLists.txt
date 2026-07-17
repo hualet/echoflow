@@ -23,6 +23,7 @@ add_executable(echoflow-ui
     ModelDownloadCoordinator.cpp
     ModelRowWidget.cpp
     UiActivationServer.cpp
+    UiActivationHost.cpp
     OnboardingState.cpp
     SetupCommandRunner.cpp
     ModelSetupAdapter.cpp
