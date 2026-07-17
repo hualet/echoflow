@@ -25,6 +25,7 @@
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <thread>
 
 namespace {
@@ -86,8 +87,11 @@ private slots:
     void rejectsBadOrClosedAcknowledgement_data();
     void rejectsBadOrClosedAcknowledgement();
     void acceptsPartialAcknowledgement();
+    void rejectsBadDoneResponse_data();
+    void rejectsBadDoneResponse();
     void contactOnlyAcceptsLegacyPeerWithoutAcknowledgement();
     void closedRequesterDoesNotActivatePrimary();
+    void badReadyDoesNotActivatePrimary();
     void recoversStaleFilesystemSocket();
     void preservesRegularFileAtSocketPath();
     void preservesSymlinkAtSocketPath();
@@ -95,7 +99,7 @@ private slots:
     void rejectsWorldWritableParentAndPreservesSocket();
     void acquisitionLockHonorsTotalDeadline();
     void concurrentAcquisitionHasOnePrimary();
-    void buffersPartialLinesAndIgnoresUnknownInput();
+    void buffersPartialActivationAndReady();
     void disconnectsOversizedFragmentedRequest();
     void disconnectsIdleIncompleteClient();
 };
@@ -280,15 +284,31 @@ void TestUiActivationServer::acceptsPartialAcknowledgement()
     connect(&fakePeer, &QLocalServer::newConnection, &fakePeer, [&fakePeer] {
         while (fakePeer.hasPendingConnections()) {
             QLocalSocket *peer = fakePeer.nextPendingConnection();
-            QObject::connect(peer, &QLocalSocket::readyRead, peer, [peer] {
-                peer->readAll();
-                peer->write("A");
-                peer->flush();
-                QTimer::singleShot(10, peer, [peer] {
-                    peer->write("CK\n");
+            auto buffer = std::make_shared<QByteArray>();
+            auto awaitingReady = std::make_shared<bool>(false);
+            QObject::connect(peer, &QLocalSocket::readyRead, peer,
+                             [peer, buffer, awaitingReady] {
+                buffer->append(peer->readAll());
+                if (!*awaitingReady && *buffer == QByteArray("ACTIVATE\n")) {
+                    buffer->clear();
+                    *awaitingReady = true;
+                    peer->write("A");
                     peer->flush();
-                    peer->disconnectFromServer();
-                });
+                    QTimer::singleShot(10, peer, [peer] {
+                        peer->write("CK\n");
+                        peer->flush();
+                    });
+                    return;
+                }
+                if (*awaitingReady && *buffer == QByteArray("READY\n")) {
+                    peer->write("DO");
+                    peer->flush();
+                    QTimer::singleShot(10, peer, [peer] {
+                        peer->write("NE\n");
+                        peer->flush();
+                        peer->disconnectFromServer();
+                    });
+                }
             });
         }
     });
@@ -302,6 +322,62 @@ void TestUiActivationServer::acceptsPartialAcknowledgement()
 
     QCOMPARE(attempt.result, UiActivationServer::Result::ActivatedExisting);
     QVERIFY2(attempt.error.isEmpty(), qPrintable(attempt.error));
+}
+
+void TestUiActivationServer::rejectsBadDoneResponse_data()
+{
+    QTest::addColumn<QByteArray>("reply");
+
+    QTest::newRow("bad-done") << QByteArray("NOPE\n");
+    QTest::newRow("done-with-trailing-garbage")
+        << QByteArray("DONE\nNOPE");
+    QTest::newRow("missing-done") << QByteArray();
+}
+
+void TestUiActivationServer::rejectsBadDoneResponse()
+{
+    QFETCH(QByteArray, reply);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    QLocalServer fakePeer;
+    fakePeer.setSocketOptions(QLocalServer::UserAccessOption);
+    QVERIFY(fakePeer.listen(path));
+    connect(&fakePeer, &QLocalServer::newConnection, &fakePeer,
+            [&fakePeer, reply] {
+        while (fakePeer.hasPendingConnections()) {
+            QLocalSocket *peer = fakePeer.nextPendingConnection();
+            auto buffer = std::make_shared<QByteArray>();
+            QObject::connect(peer, &QLocalSocket::readyRead, peer,
+                             [peer, buffer, reply] {
+                buffer->append(peer->readAll());
+                if (*buffer == QByteArray("ACTIVATE\n")) {
+                    buffer->clear();
+                    peer->write("ACK\n");
+                    peer->flush();
+                } else if (*buffer == QByteArray("READY\n")) {
+                    if (!reply.isEmpty()) {
+                        peer->write(reply);
+                        peer->flush();
+                    }
+                    peer->disconnectFromServer();
+                }
+            });
+        }
+    });
+
+    ActivationAttempt attempt;
+    ScopedThread secondary(startActivationAttempt(path, true, &attempt));
+    QSignalSpy finishedSpy(secondary.get(), &QThread::finished);
+    secondary.start();
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1500);
+    QVERIFY(secondary.wait(100));
+
+    QCOMPARE(attempt.result, UiActivationServer::Result::Failed);
+    QVERIFY2(attempt.error.contains(QStringLiteral("DONE"), Qt::CaseInsensitive) ||
+                 attempt.error.contains(QStringLiteral("protocol"), Qt::CaseInsensitive),
+             qPrintable(attempt.error));
+    QVERIFY(fakePeer.isListening());
 }
 
 void TestUiActivationServer::contactOnlyAcceptsLegacyPeerWithoutAcknowledgement()
@@ -338,9 +414,34 @@ void TestUiActivationServer::closedRequesterDoesNotActivatePrimary()
     QVERIFY(client.waitForConnected(1000));
     QCOMPARE(client.write("ACTIVATE\n"), qint64(9));
     QVERIFY(client.waitForBytesWritten(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(client.bytesAvailable() >= 4, 500);
+    QCOMPARE(client.readAll(), QByteArray("ACK\n"));
     client.abort();
 
     QTest::qWait(100);
+    QCOMPARE(activationSpy.count(), 0);
+}
+
+void TestUiActivationServer::badReadyDoesNotActivatePrimary()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("ui.sock"));
+    UiActivationServer primary(path);
+    QCOMPARE(primary.acquire(false), UiActivationServer::Result::Primary);
+    QSignalSpy activationSpy(&primary, &UiActivationServer::activateRequested);
+
+    QLocalSocket client;
+    client.connectToServer(path);
+    QVERIFY(client.waitForConnected(1000));
+    QCOMPARE(client.write("ACTIVATE\n"), qint64(9));
+    QVERIFY(client.waitForBytesWritten(1000));
+    QTRY_VERIFY_WITH_TIMEOUT(client.bytesAvailable() >= 4, 500);
+    QCOMPARE(client.readAll(), QByteArray("ACK\n"));
+    QCOMPARE(client.write("NOPE\n"), qint64(5));
+    QVERIFY(client.waitForBytesWritten(1000));
+
+    QTRY_COMPARE_WITH_TIMEOUT(client.state(), QLocalSocket::UnconnectedState, 500);
     QCOMPARE(activationSpy.count(), 0);
 }
 
@@ -584,7 +685,7 @@ void TestUiActivationServer::concurrentAcquisitionHasOnePrimary()
              1);
 }
 
-void TestUiActivationServer::buffersPartialLinesAndIgnoresUnknownInput()
+void TestUiActivationServer::buffersPartialActivationAndReady()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -602,10 +703,22 @@ void TestUiActivationServer::buffersPartialLinesAndIgnoresUnknownInput()
     QTest::qWait(20);
     QCOMPARE(activationSpy.count(), 0);
 
-    const QByteArray remaining("IVATE\nUNKNOWN\n\nACTIVATE\n");
+    const QByteArray remaining("IVATE\n");
     QCOMPARE(client.write(remaining), qint64(remaining.size()));
     QVERIFY(client.waitForBytesWritten(1000));
-    QTRY_COMPARE(activationSpy.count(), 2);
+    QTRY_VERIFY_WITH_TIMEOUT(client.bytesAvailable() >= 4, 500);
+    QCOMPARE(client.readAll(), QByteArray("ACK\n"));
+    QCOMPARE(activationSpy.count(), 0);
+
+    QCOMPARE(client.write("RE"), qint64(2));
+    QVERIFY(client.waitForBytesWritten(1000));
+    QTest::qWait(20);
+    QCOMPARE(activationSpy.count(), 0);
+    QCOMPARE(client.write("ADY\n"), qint64(4));
+    QVERIFY(client.waitForBytesWritten(1000));
+    QTRY_COMPARE(activationSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(client.state(), QLocalSocket::UnconnectedState, 500);
+    QCOMPARE(client.readAll(), QByteArray("DONE\n"));
 }
 
 void TestUiActivationServer::disconnectsOversizedFragmentedRequest()

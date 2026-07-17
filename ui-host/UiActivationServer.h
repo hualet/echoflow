@@ -32,16 +32,20 @@ signals:
     void activateRequested();
 
 private:
+    enum class ClientPhase {
+        AwaitActivate,
+        AwaitReady,
+        SendingDone,
+    };
+
     struct ClientState {
         QByteArray buffer;
         QTimer *idleTimer = nullptr;
-        int pendingAcknowledgements = 0;
-        bool closingAfterAcknowledgement = false;
-        bool acknowledgementFailed = false;
+        ClientPhase phase = ClientPhase::AwaitActivate;
     };
 
     void acceptPendingConnections();
-    void finishAcknowledgements(QLocalSocket *socket);
+    void finishResponse(QLocalSocket *socket);
     void readSocket(QLocalSocket *socket);
 
     QString socketPath_;
