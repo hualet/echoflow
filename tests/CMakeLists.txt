@@ -58,6 +58,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(test_onboarding_dialog
         test_onboarding_dialog.cpp
+        ../ui-host/onboarding.qrc
         ../ui-host/OnboardingDialog.cpp
         ../ui-host/OnboardingSetupController.cpp
         ../ui-host/SetupCommandRunner.cpp
@@ -155,6 +156,7 @@ add_test(NAME test_onboarding_setup_controller
 
 add_executable(test_onboarding_dialog
     test_onboarding_dialog.cpp
+    ../ui-host/onboarding.qrc
     ../ui-host/OnboardingDialog.cpp
     ../ui-host/OnboardingSetupController.cpp
     ../ui-host/SetupCommandRunner.cpp

@@ -30,6 +30,7 @@ add_executable(echoflow-ui
     OnboardingSetupController.cpp
     OnboardingDialog.cpp
     icons.qrc
+    onboarding.qrc
     settings.qrc
     qml.qrc
 )

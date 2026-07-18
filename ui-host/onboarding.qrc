@@ -1,0 +1,12 @@
+<!--
+SPDX-FileCopyrightText: 2026 Hualet Wang
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<RCC>
+  <qresource prefix="/onboarding">
+    <file alias="intro.png">onboarding/intro.png</file>
+    <file alias="shortcut.png">onboarding/shortcut.png</file>
+    <file alias="settings.png">onboarding/settings.png</file>
+    <file alias="setup.png">onboarding/setup.png</file>
+  </qresource>
+</RCC>

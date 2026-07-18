@@ -50,6 +50,18 @@ assert_before() {
   fi
 }
 
+assert_nonempty() {
+  local file="$1"
+  local description="$2"
+  if [[ -s "$file" ]]; then
+    echo "ok   - $description"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - $description ($file is missing or empty)"
+    fail=$((fail + 1))
+  fi
+}
+
 assert_absent "$ROOT/install-user.sh" "uv venv" "install-user.sh has no uv venv"
 assert_absent "$ROOT/install-user.sh" "uv pip" "install-user.sh has no uv pip"
 assert_absent "$ROOT/install-user.sh" "llama" "install-user.sh has no llama"
@@ -166,6 +178,20 @@ for source in UiActivationServer.cpp UiActivationHost.cpp OnboardingState.cpp Se
 done
 assert_contains "$ROOT/ui-host/CMakeLists.txt" '${CMAKE_CURRENT_LIST_DIR}/../service' "standalone ui-host resolves service includes from its own directory"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
+assert_contains "$ROOT/ui-host/CMakeLists.txt" "onboarding.qrc" "ui-host embeds onboarding illustration resources"
+assert_contains "$ROOT/ui-host/onboarding.qrc" '<qresource prefix="/onboarding">' "onboarding resources use the onboarding prefix"
+for illustration in intro shortcut settings setup; do
+  assert_nonempty "$ROOT/ui-host/onboarding/${illustration}.png" "onboarding ${illustration} illustration is nonempty"
+  assert_contains "$ROOT/ui-host/onboarding.qrc" "<file alias=\"${illustration}.png\">onboarding/${illustration}.png</file>" "onboarding qrc aliases ${illustration}.png"
+done
+onboarding_test_resource_count="$(grep -cF '../ui-host/onboarding.qrc' "$ROOT/tests/CMakeLists.txt")"
+if [[ "$onboarding_test_resource_count" -eq 2 ]]; then
+  echo "ok   - both focused onboarding dialog targets embed onboarding resources"
+  pass=$((pass + 1))
+else
+  echo "FAIL - both focused onboarding dialog targets embed onboarding resources (found $onboarding_test_resource_count references)"
+  fail=$((fail + 1))
+fi
 assert_contains "$ROOT/ui-host/CMakeLists.txt" 'configure_file(' "ui-host configures desktop entry"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" '"${CMAKE_CURRENT_SOURCE_DIR}/echoflow.desktop.in"' "desktop entry source works in standalone builds"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" '"${CMAKE_CURRENT_BINARY_DIR}/echoflow.desktop"' "desktop entry is generated in the current build tree"
