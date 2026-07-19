@@ -95,7 +95,7 @@ class TestOnboardingDialog : public QObject {
 private slots:
     void bundlesIllustrationResources();
     void hasFourPagesAndBoundedNavigation();
-    void usesApprovedChineseCopyAndAccessiblePresentation();
+    void usesApprovedVisualStoryAndAccessibleImages();
     void startRunsSetupAndDisablesPrimaryAction();
     void rendersDeterminateAndIndeterminateModelProgress();
     void failureShowsErrorAndRetriesFailedWork();
@@ -159,7 +159,7 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     QCOMPARE(next->text(), QStringLiteral("下一步"));
 }
 
-void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
+void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
 {
     const QIcon previousIcon = QApplication::windowIcon();
     QPixmap iconPixmap(12, 12);
@@ -177,29 +177,69 @@ void TestOnboardingDialog::usesApprovedChineseCopyAndAccessiblePresentation()
     OnboardingDialog dialog(&controller);
 
     QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
-    const QList<QPair<QString, QString>> copy = {
-        {QStringLiteral("introHeading"), QStringLiteral("离线、安全、流畅")},
-        {QStringLiteral("shortcutHeading"),
-         QStringLiteral("按右 Ctrl 键开始说话")},
-        {QStringLiteral("settingsHeading"), QStringLiteral("从托盘打开设置")},
-        {QStringLiteral("setupHeading"), QStringLiteral("准备开始使用")},
-        {QStringLiteral("introDescriptionLabel"),
-         QStringLiteral("语音识别在本机离线运行；首次使用需要联网下载模型。录音不会离开你的设备。")},
-        {QStringLiteral("shortcutDescriptionLabel"),
-         QStringLiteral("第一次按下右 Ctrl 键开始录音，第二次按下停止录音。")},
-        {QStringLiteral("shortcutTranscriptLabel"),
-         QStringLiteral("识别完成后，文字会自动输入到当前聚焦的文本框。")},
-        {QStringLiteral("settingsOptionsLabel"),
-         QStringLiteral("在设置中选择模型、语言、麦克风和下载镜像。")},
-        {QStringLiteral("settingsReplayLabel"),
-         QStringLiteral("你也可以随时从托盘重播本使用指南。")},
+
+    struct VisualPage {
+        QString illustrationObjectName;
+        QString illustrationAccessibleName;
+        QString headingObjectName;
+        QString heading;
+        QString descriptionObjectName;
+        QString description;
+        QString tagObjectName;
+        QString tag;
     };
-    for (const auto &[objectName, expected] : copy) {
-        auto *label = dialog.findChild<QLabel *>(objectName);
-        QVERIFY2(label, qPrintable(objectName));
-        QCOMPARE(label->text(), expected);
-        QVERIFY(label->wordWrap());
+    const QList<VisualPage> pages = {
+        {QStringLiteral("introIllustration"),
+         QStringLiteral("本机离线语音识别示意图"),
+         QStringLiteral("introHeading"), QStringLiteral("说话，就能输入"),
+         QStringLiteral("introDescriptionLabel"),
+         QStringLiteral("语音识别在本机完成，录音不会离开你的设备。"),
+         QStringLiteral("introTagLabel"),
+         QStringLiteral("离线 · 隐私 · 快速")},
+        {QStringLiteral("shortcutIllustration"),
+         QStringLiteral("右 Ctrl 语音输入快捷键示意图"),
+         QStringLiteral("shortcutHeading"),
+         QStringLiteral("按右 Ctrl，开始说话"),
+         QStringLiteral("shortcutDescriptionLabel"),
+         QStringLiteral("再按一次结束，识别文字会直接进入当前输入框。"),
+         QStringLiteral("shortcutTagLabel"),
+         QStringLiteral("右 Ctrl · 开始 / 结束")},
+        {QStringLiteral("settingsIllustration"),
+         QStringLiteral("托盘与设置入口示意图"),
+         QStringLiteral("settingsHeading"),
+         QStringLiteral("需要调整？都在托盘里"),
+         QStringLiteral("settingsDescriptionLabel"),
+         QStringLiteral("切换模型、语言、麦克风，也可以随时重播这份指引。"),
+         QStringLiteral("settingsTagLabel"),
+         QStringLiteral("托盘 · 设置 · 使用指引")},
+    };
+    for (const VisualPage &page : pages) {
+        auto *illustration = dialog.findChild<QLabel *>(
+            page.illustrationObjectName);
+        QVERIFY2(illustration,
+                 qPrintable(page.illustrationObjectName));
+        QVERIFY2(!illustration->pixmap(Qt::ReturnByValue).isNull(),
+                 qPrintable(page.illustrationObjectName));
+        QCOMPARE(illustration->accessibleName(),
+                 page.illustrationAccessibleName);
+
+        auto *heading = dialog.findChild<QLabel *>(page.headingObjectName);
+        QVERIFY2(heading, qPrintable(page.headingObjectName));
+        QCOMPARE(heading->text(), page.heading);
+
+        auto *description =
+            dialog.findChild<QLabel *>(page.descriptionObjectName);
+        QVERIFY2(description, qPrintable(page.descriptionObjectName));
+        QCOMPARE(description->text(), page.description);
+        QVERIFY(description->wordWrap());
+
+        auto *tag = dialog.findChild<QLabel *>(page.tagObjectName);
+        QVERIFY2(tag, qPrintable(page.tagObjectName));
+        QCOMPARE(tag->text(), page.tag);
+        QVERIFY(tag->wordWrap());
     }
+    QCOMPARE(dialog.minimumWidth(), 680);
+    QVERIFY(dialog.minimumHeight() >= 500);
 
     auto *description =
         dialog.findChild<QLabel *>(QStringLiteral("introDescriptionLabel"));

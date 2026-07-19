@@ -11,8 +11,10 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
@@ -41,26 +43,6 @@ QLabel *pageTitle(const QString &text, QWidget *parent,
     font.setBold(true);
     label->setFont(font);
     return label;
-}
-
-QWidget *informationPage(
-    const QString &title, const QString &titleObjectName, const QString &body,
-    const QString &bodyObjectName,
-    const QList<QPair<QString, QString>> &points)
-{
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(14);
-    layout->addWidget(pageTitle(title, page, titleObjectName));
-    layout->addWidget(wrappedLabel(body, page, bodyObjectName));
-    for (const auto &[point, objectName] : points) {
-        auto *label = wrappedLabel(point, page, objectName);
-        label->setContentsMargins(8, 0, 8, 0);
-        layout->addWidget(label);
-    }
-    layout->addStretch();
-    return page;
 }
 
 QString stateText(SetupItemState state)
@@ -145,7 +127,7 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     setWindowIcon(QApplication::windowIcon());
     setIcon(QApplication::windowIcon());
     setModal(false);
-    setMinimumSize(540, 450);
+    setMinimumSize(680, 500);
     setOnButtonClickedClose(false);
 
     auto *content = new QWidget(this);
@@ -226,37 +208,90 @@ void OnboardingDialog::showForReplay()
 
 QWidget *OnboardingDialog::createIntroPage()
 {
-    return informationPage(
-        QStringLiteral("离线、安全、流畅"), QStringLiteral("introHeading"),
-        QStringLiteral("语音识别在本机离线运行；首次使用需要联网下载模型。录音不会离开你的设备。"),
+    return createVisualPage(
+        QStringLiteral(":/onboarding/intro.png"),
+        QStringLiteral("introIllustration"),
+        QStringLiteral("本机离线语音识别示意图"),
+        QStringLiteral("说话，就能输入"), QStringLiteral("introHeading"),
+        QStringLiteral("语音识别在本机完成，录音不会离开你的设备。"),
         QStringLiteral("introDescriptionLabel"),
-        {{QStringLiteral("离线使用，保护隐私。"),
-          QStringLiteral("introPrivacyLabel")},
-         {QStringLiteral("说完即可快速输入到当前文本框。"),
-          QStringLiteral("introResponsiveLabel")}});
+        QStringLiteral("离线 · 隐私 · 快速"),
+        QStringLiteral("introTagLabel"));
 }
 
 QWidget *OnboardingDialog::createShortcutPage()
 {
-    return informationPage(
-        QStringLiteral("按右 Ctrl 键开始说话"),
+    return createVisualPage(
+        QStringLiteral(":/onboarding/shortcut.png"),
+        QStringLiteral("shortcutIllustration"),
+        QStringLiteral("右 Ctrl 语音输入快捷键示意图"),
+        QStringLiteral("按右 Ctrl，开始说话"),
         QStringLiteral("shortcutHeading"),
-        QStringLiteral("第一次按下右 Ctrl 键开始录音，第二次按下停止录音。"),
+        QStringLiteral("再按一次结束，识别文字会直接进入当前输入框。"),
         QStringLiteral("shortcutDescriptionLabel"),
-        {{QStringLiteral("识别完成后，文字会自动输入到当前聚焦的文本框。"),
-          QStringLiteral("shortcutTranscriptLabel")}});
+        QStringLiteral("右 Ctrl · 开始 / 结束"),
+        QStringLiteral("shortcutTagLabel"));
 }
 
 QWidget *OnboardingDialog::createSettingsPage()
 {
-    return informationPage(
-        QStringLiteral("从托盘打开设置"), QStringLiteral("settingsHeading"),
-        QStringLiteral("通过系统托盘可以随时打开 EchoFlow 设置。"),
+    return createVisualPage(
+        QStringLiteral(":/onboarding/settings.png"),
+        QStringLiteral("settingsIllustration"),
+        QStringLiteral("托盘与设置入口示意图"),
+        QStringLiteral("需要调整？都在托盘里"),
+        QStringLiteral("settingsHeading"),
+        QStringLiteral("切换模型、语言、麦克风，也可以随时重播这份指引。"),
         QStringLiteral("settingsDescriptionLabel"),
-        {{QStringLiteral("在设置中选择模型、语言、麦克风和下载镜像。"),
-          QStringLiteral("settingsOptionsLabel")},
-         {QStringLiteral("你也可以随时从托盘重播本使用指南。"),
-          QStringLiteral("settingsReplayLabel")}});
+        QStringLiteral("托盘 · 设置 · 使用指引"),
+        QStringLiteral("settingsTagLabel"));
+}
+
+QWidget *OnboardingDialog::createVisualPage(
+    const QString &illustrationPath, const QString &illustrationObjectName,
+    const QString &illustrationAccessibleName, const QString &heading,
+    const QString &headingObjectName, const QString &description,
+    const QString &descriptionObjectName, const QString &tag,
+    const QString &tagObjectName)
+{
+    auto *page = new QWidget;
+    auto *layout = new QHBoxLayout(page);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(24);
+    layout->addWidget(createIllustration(
+                          illustrationPath, illustrationObjectName,
+                          illustrationAccessibleName, page),
+                      45);
+
+    auto *copy = new QVBoxLayout;
+    copy->setSpacing(14);
+    copy->addStretch();
+    copy->addWidget(pageTitle(heading, page, headingObjectName));
+    copy->addWidget(wrappedLabel(description, page, descriptionObjectName));
+    copy->addWidget(wrappedLabel(tag, page, tagObjectName));
+    copy->addStretch();
+    layout->addLayout(copy, 55);
+    return page;
+}
+
+QLabel *OnboardingDialog::createIllustration(
+    const QString &resourcePath, const QString &objectName,
+    const QString &accessibleName, QWidget *parent)
+{
+    auto *illustration = new QLabel(parent);
+    illustration->setObjectName(objectName);
+    illustration->setAccessibleName(accessibleName);
+    illustration->setAlignment(Qt::AlignCenter);
+    illustration->setMinimumSize(260, 300);
+    illustration->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    const QPixmap source(resourcePath);
+    if (!source.isNull()) {
+        illustration->setPixmap(source.scaled(
+            QSize(260, 300), Qt::KeepAspectRatio,
+            Qt::SmoothTransformation));
+    }
+    return illustration;
 }
 
 QWidget *OnboardingDialog::createSetupPage()

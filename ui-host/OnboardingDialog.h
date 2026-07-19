@@ -9,6 +9,7 @@ class QLabel;
 class QProgressBar;
 class QPushButton;
 class QStackedWidget;
+class QString;
 class QWidget;
 class OnboardingSetupController;
 
@@ -31,6 +32,19 @@ private:
     QWidget *createIntroPage();
     QWidget *createShortcutPage();
     QWidget *createSettingsPage();
+    QWidget *createVisualPage(const QString &illustrationPath,
+                              const QString &illustrationObjectName,
+                              const QString &illustrationAccessibleName,
+                              const QString &heading,
+                              const QString &headingObjectName,
+                              const QString &description,
+                              const QString &descriptionObjectName,
+                              const QString &tag,
+                              const QString &tagObjectName);
+    QLabel *createIllustration(const QString &resourcePath,
+                               const QString &objectName,
+                               const QString &accessibleName,
+                               QWidget *parent);
     QWidget *createSetupPage();
     void setCurrentPage(int page);
     void handlePrimaryAction();
