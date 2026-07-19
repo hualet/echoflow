@@ -28,6 +28,7 @@ add_executable(echoflow-ui
     SetupCommandRunner.cpp
     ModelSetupAdapter.cpp
     OnboardingSetupController.cpp
+    OnboardingIllustration.cpp
     OnboardingDialog.cpp
     icons.qrc
     onboarding.qrc

@@ -3,6 +3,7 @@
 
 #include "OnboardingDialog.h"
 
+#include "OnboardingIllustration.h"
 #include "OnboardingSetupController.h"
 
 #include <QApplication>
@@ -11,8 +12,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPainter>
 #include <QPalette>
-#include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -22,6 +23,24 @@
 #include <algorithm>
 
 namespace {
+
+class SemanticTagLabel final : public QLabel {
+public:
+    using QLabel::QLabel;
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        {
+            QPainter painter(this);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(palette().brush(backgroundRole()));
+            painter.drawRoundedRect(rect(), 10, 10);
+        }
+        QLabel::paintEvent(event);
+    }
+};
 
 QLabel *wrappedLabel(const QString &text, QWidget *parent,
                      const QString &objectName = {})
@@ -270,15 +289,18 @@ QWidget *OnboardingDialog::createVisualPage(
     copy->addWidget(pageTitle(heading, page, headingObjectName));
     copy->addWidget(wrappedLabel(description, page, descriptionObjectName));
     if (!tag.isEmpty()) {
-        auto *tagLabel = wrappedLabel(tag, page, tagObjectName);
+        auto *tagLabel = new SemanticTagLabel(tag, page);
+        tagLabel->setObjectName(tagObjectName);
+        tagLabel->setWordWrap(true);
+        tagLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         tagLabel->setProperty("semanticTag", true);
+        tagLabel->setProperty("cornerRadius", 10);
         tagLabel->setBackgroundRole(QPalette::AlternateBase);
         tagLabel->setForegroundRole(QPalette::Text);
         tagLabel->setContentsMargins(10, 4, 10, 4);
-        tagLabel->setStyleSheet(QStringLiteral(
-            "QLabel { background-color: palette(alternate-base); "
-            "color: palette(text); border-radius: 10px; }"));
-        copy->addWidget(tagLabel);
+        tagLabel->setSizePolicy(QSizePolicy::Maximum,
+                                QSizePolicy::Preferred);
+        copy->addWidget(tagLabel, 0, Qt::AlignLeft);
     }
     copy->addStretch();
     layout->addLayout(copy, 55);
@@ -289,19 +311,9 @@ QLabel *OnboardingDialog::createIllustration(
     const QString &resourcePath, const QString &objectName,
     const QString &accessibleName, QWidget *parent)
 {
-    auto *illustration = new QLabel(parent);
+    auto *illustration = new OnboardingIllustration(
+        resourcePath, accessibleName, parent);
     illustration->setObjectName(objectName);
-    illustration->setAccessibleName(accessibleName);
-    illustration->setAlignment(Qt::AlignCenter);
-    illustration->setMinimumSize(260, 300);
-    illustration->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-    const QPixmap source(resourcePath);
-    if (!source.isNull()) {
-        illustration->setPixmap(source.scaled(
-            QSize(260, 300), Qt::KeepAspectRatio,
-            Qt::SmoothTransformation));
-    }
     return illustration;
 }
 

@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "OnboardingDialog.h"
+#include "OnboardingIllustration.h"
 #include "OnboardingSetupController.h"
 #include "OnboardingState.h"
 #include "SetupCommandRunner.h"
 
 #include <QFile>
+#include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLayout>
 #include <QPalette>
 #include <QPixmap>
 #include <QProgressBar>
@@ -94,6 +97,7 @@ class TestOnboardingDialog : public QObject {
     Q_OBJECT
 private slots:
     void bundlesIllustrationResources();
+    void illustrationPreservesSourceAndCollapsesMissingResource();
     void hasFourPagesAndBoundedNavigation();
     void usesApprovedVisualStoryAndAccessibleImages();
     void startRunsSetupAndDisablesPrimaryAction();
@@ -118,6 +122,37 @@ void TestOnboardingDialog::bundlesIllustrationResources()
         const QPixmap illustration(path);
         QVERIFY2(!illustration.isNull(), qPrintable(path));
     }
+}
+
+void TestOnboardingDialog::illustrationPreservesSourceAndCollapsesMissingResource()
+{
+    OnboardingIllustration valid(QStringLiteral(":/onboarding/intro.png"),
+                                 QStringLiteral("本机离线语音识别示意图"));
+    QVERIFY(!valid.pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(valid.pixmap(Qt::ReturnByValue).size(), QSize(768, 768));
+    valid.resize(140, 210);
+    QApplication::processEvents();
+    QCOMPARE(valid.pixmap(Qt::ReturnByValue).size(), QSize(768, 768));
+
+    QWidget page;
+    auto *layout = new QHBoxLayout(&page);
+    auto *missing = new OnboardingIllustration(
+        QStringLiteral(":/onboarding/does-not-exist.png"),
+        QStringLiteral("不应暴露的替代文本"), &page);
+    auto *copy = new QLabel(QStringLiteral("原生说明文字"), &page);
+    layout->addWidget(missing);
+    layout->addWidget(copy);
+    page.show();
+    QApplication::processEvents();
+
+    QVERIFY(missing->pixmap(Qt::ReturnByValue).isNull());
+    QVERIFY(missing->isHidden());
+    QVERIFY(missing->accessibleName().isEmpty());
+    QCOMPARE(missing->minimumSize(), QSize(0, 0));
+    QCOMPARE(missing->minimumSizeHint(), QSize(0, 0));
+    QCOMPARE(missing->sizePolicy().horizontalPolicy(), QSizePolicy::Ignored);
+    QCOMPARE(missing->sizePolicy().verticalPolicy(), QSizePolicy::Ignored);
+    QVERIFY(copy->isVisibleTo(&page));
 }
 
 void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
@@ -175,6 +210,9 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     OnboardingSetupController controller(&model, &runner, &state);
     finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
+    dialog.resize(dialog.minimumSize());
+    dialog.show();
+    QApplication::processEvents();
 
     QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
 
@@ -220,6 +258,12 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
                  qPrintable(page.illustrationObjectName));
         QVERIFY2(!illustration->pixmap(Qt::ReturnByValue).isNull(),
                  qPrintable(page.illustrationObjectName));
+        QCOMPARE(illustration->pixmap(Qt::ReturnByValue).size(),
+                 QSize(768, 768));
+        illustration->resize(180, 220);
+        QApplication::processEvents();
+        QCOMPARE(illustration->pixmap(Qt::ReturnByValue).size(),
+                 QSize(768, 768));
         QCOMPARE(illustration->accessibleName(),
                  page.illustrationAccessibleName);
 
@@ -241,10 +285,15 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QCOMPARE(tag->backgroundRole(), QPalette::AlternateBase);
         QCOMPARE(tag->foregroundRole(), QPalette::Text);
         QCOMPARE(tag->contentsMargins(), QMargins(10, 4, 10, 4));
-        QVERIFY(tag->styleSheet().contains(
-            QStringLiteral("palette(alternate-base)")));
-        QVERIFY(tag->styleSheet().contains(QStringLiteral("palette(text)")));
-        QVERIFY(tag->styleSheet().contains(QStringLiteral("border-radius")));
+        QCOMPARE(tag->property("cornerRadius").toInt(), 10);
+        QCOMPARE(tag->sizePolicy().horizontalPolicy(), QSizePolicy::Maximum);
+        QCOMPARE(tag->sizePolicy().verticalPolicy(), QSizePolicy::Preferred);
+        auto *copyLayout = tag->parentWidget()->layout()->itemAt(1)->layout();
+        QVERIFY(copyLayout);
+        const int tagIndex = copyLayout->indexOf(tag);
+        QVERIFY(tagIndex >= 0);
+        QCOMPARE(copyLayout->itemAt(tagIndex)->alignment(), Qt::AlignLeft);
+        QVERIFY(tag->width() <= tag->sizeHint().width());
     }
     QCOMPARE(dialog.minimumWidth(), 680);
     QVERIFY(dialog.minimumHeight() >= 500);
@@ -255,10 +304,20 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QVERIFY(description->wordWrap());
     QPalette palette = dialog.palette();
     palette.setColor(QPalette::WindowText, QColor(12, 34, 56));
+    palette.setColor(QPalette::AlternateBase, QColor(23, 45, 67));
+    palette.setColor(QPalette::Text, QColor(78, 90, 12));
     dialog.setPalette(palette);
     QApplication::processEvents();
     QCOMPARE(description->palette().color(QPalette::WindowText),
              palette.color(QPalette::WindowText));
+    for (const VisualPage &page : pages) {
+        auto *tag = dialog.findChild<QLabel *>(page.tagObjectName);
+        QVERIFY(tag);
+        QCOMPARE(tag->palette().color(tag->backgroundRole()),
+                 palette.color(QPalette::AlternateBase));
+        QCOMPARE(tag->palette().color(tag->foregroundRole()),
+                 palette.color(QPalette::Text));
+    }
 
     for (const QString &objectName : {
              QStringLiteral("backButton"), QStringLiteral("nextButton"),
