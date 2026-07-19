@@ -2,7 +2,8 @@
 SPDX-FileCopyrightText: 2026 Hualet Wang
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
-<RCC>
+<!DOCTYPE RCC>
+<RCC version="1.0">
   <qresource prefix="/onboarding">
     <file alias="intro.png">onboarding/intro.png</file>
     <file alias="shortcut.png">onboarding/shortcut.png</file>

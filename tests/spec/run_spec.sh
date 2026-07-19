@@ -50,14 +50,28 @@ assert_before() {
   fi
 }
 
-assert_nonempty() {
+assert_png_asset() {
   local file="$1"
   local description="$2"
+  local dimensions=""
   if [[ -s "$file" ]]; then
+    dimensions="$(python3 - "$file" <<'PY'
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as png:
+    signature = png.read(24)
+if signature[:8] != b"\x89PNG\r\n\x1a\n" or signature[12:16] != b"IHDR":
+    raise SystemExit("not a PNG with an IHDR header")
+print(*struct.unpack(">II", signature[16:24]))
+PY
+)"
+  fi
+  if [[ "$dimensions" == "768 768" ]]; then
     echo "ok   - $description"
     pass=$((pass + 1))
   else
-    echo "FAIL - $description ($file is missing or empty)"
+    echo "FAIL - $description ($file is missing, empty, or ${dimensions:-unreadable})"
     fail=$((fail + 1))
   fi
 }
@@ -179,17 +193,26 @@ done
 assert_contains "$ROOT/ui-host/CMakeLists.txt" '${CMAKE_CURRENT_LIST_DIR}/../service' "standalone ui-host resolves service includes from its own directory"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "icons.qrc" "ui-host embeds app icon resources"
 assert_contains "$ROOT/ui-host/CMakeLists.txt" "onboarding.qrc" "ui-host embeds onboarding illustration resources"
-assert_contains "$ROOT/ui-host/onboarding.qrc" '<qresource prefix="/onboarding">' "onboarding resources use the onboarding prefix"
+if grep -qF '<!DOCTYPE RCC>' "$ROOT/ui-host/onboarding.qrc" \
+    && grep -qF '<RCC version="1.0">' "$ROOT/ui-host/onboarding.qrc" \
+    && grep -qF '<qresource prefix="/onboarding">' "$ROOT/ui-host/onboarding.qrc"; then
+  echo "ok   - onboarding resources use the canonical RCC format and prefix"
+  pass=$((pass + 1))
+else
+  echo "FAIL - onboarding resources use the canonical RCC format and prefix"
+  fail=$((fail + 1))
+fi
 for illustration in intro shortcut settings setup; do
-  assert_nonempty "$ROOT/ui-host/onboarding/${illustration}.png" "onboarding ${illustration} illustration is nonempty"
+  assert_png_asset "$ROOT/ui-host/onboarding/${illustration}.png" "onboarding ${illustration} illustration exists on the shared 768px canvas"
   assert_contains "$ROOT/ui-host/onboarding.qrc" "<file alias=\"${illustration}.png\">onboarding/${illustration}.png</file>" "onboarding qrc aliases ${illustration}.png"
 done
 onboarding_test_resource_count="$(grep -cF '../ui-host/onboarding.qrc' "$ROOT/tests/CMakeLists.txt")"
-if [[ "$onboarding_test_resource_count" -eq 2 ]]; then
-  echo "ok   - both focused onboarding dialog targets embed onboarding resources"
+onboarding_test_autorcc_count="$(grep -cF 'set_property(TARGET test_onboarding_dialog PROPERTY AUTORCC ON)' "$ROOT/tests/CMakeLists.txt")"
+if [[ "$onboarding_test_resource_count" -eq 2 && "$onboarding_test_autorcc_count" -eq 2 ]]; then
+  echo "ok   - both focused onboarding dialog targets compile onboarding resources"
   pass=$((pass + 1))
 else
-  echo "FAIL - both focused onboarding dialog targets embed onboarding resources (found $onboarding_test_resource_count references)"
+  echo "FAIL - both focused onboarding dialog targets compile onboarding resources (found $onboarding_test_resource_count references and $onboarding_test_autorcc_count AUTORCC settings)"
   fail=$((fail + 1))
 fi
 assert_contains "$ROOT/ui-host/CMakeLists.txt" 'configure_file(' "ui-host configures desktop entry"

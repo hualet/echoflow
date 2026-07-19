@@ -63,6 +63,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         ../ui-host/OnboardingSetupController.cpp
         ../ui-host/SetupCommandRunner.cpp
         ../ui-host/OnboardingState.cpp)
+    set_property(TARGET test_onboarding_dialog PROPERTY AUTORCC ON)
     target_include_directories(test_onboarding_dialog PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
     target_link_libraries(test_onboarding_dialog PRIVATE
@@ -161,6 +162,7 @@ add_executable(test_onboarding_dialog
     ../ui-host/OnboardingSetupController.cpp
     ../ui-host/SetupCommandRunner.cpp
     ../ui-host/OnboardingState.cpp)
+set_property(TARGET test_onboarding_dialog PROPERTY AUTORCC ON)
 target_include_directories(test_onboarding_dialog PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
 target_link_libraries(test_onboarding_dialog PRIVATE

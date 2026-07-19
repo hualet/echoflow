@@ -93,6 +93,7 @@ static QPushButton *button(OnboardingDialog &dialog, const char *name)
 class TestOnboardingDialog : public QObject {
     Q_OBJECT
 private slots:
+    void bundlesIllustrationResources();
     void hasFourPagesAndBoundedNavigation();
     void usesApprovedChineseCopyAndAccessiblePresentation();
     void startRunsSetupAndDisablesPrimaryAction();
@@ -106,6 +107,18 @@ private slots:
     void failedSetupReopensOnFinalPageWithRetry();
     void replayStartsAtFirstPageAndCompletedSetupDoesNotRerun();
 };
+
+void TestOnboardingDialog::bundlesIllustrationResources()
+{
+    for (const QString &path : {
+             QStringLiteral(":/onboarding/intro.png"),
+             QStringLiteral(":/onboarding/shortcut.png"),
+             QStringLiteral(":/onboarding/settings.png"),
+             QStringLiteral(":/onboarding/setup.png")}) {
+        const QPixmap illustration(path);
+        QVERIFY2(!illustration.isNull(), qPrintable(path));
+    }
+}
 
 void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
 {
