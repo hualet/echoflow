@@ -132,7 +132,7 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     , pages_(new QStackedWidget)
     , backButton_(new QPushButton(QStringLiteral("上一步")))
     , nextButton_(new QPushButton(QStringLiteral("下一步")))
-    , pageIndicator_(new QLabel)
+    , pageDotsWidget_(new QWidget)
     , modelStatusLabel_(nullptr)
     , modelErrorLabel_(nullptr)
     , serviceStatusLabel_(nullptr)
@@ -168,16 +168,26 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     auto *navigation = new QHBoxLayout;
     backButton_->setObjectName(QStringLiteral("backButton"));
     nextButton_->setObjectName(QStringLiteral("nextButton"));
-    pageIndicator_->setObjectName(QStringLiteral("pageIndicator"));
+    pageDotsWidget_->setObjectName(QStringLiteral("pageDots"));
     backButton_->setAccessibleName(QStringLiteral("上一个引导页面"));
     nextButton_->setAccessibleName(QStringLiteral("下一个引导页面"));
-    pageIndicator_->setAccessibleName(QStringLiteral("引导页面进度"));
     backButton_->setMinimumHeight(36);
     nextButton_->setMinimumHeight(36);
-    pageIndicator_->setAlignment(Qt::AlignCenter);
+    auto *dotsLayout = new QHBoxLayout(pageDotsWidget_);
+    dotsLayout->setContentsMargins(0, 0, 0, 0);
+    dotsLayout->setSpacing(6);
+    for (int i = 0; i < pages_->count(); ++i) {
+        auto *dot = new QLabel(QStringLiteral("●"), pageDotsWidget_);
+        dot->setObjectName(QStringLiteral("pageDot%1").arg(i + 1));
+        dot->setAlignment(Qt::AlignCenter);
+        dot->setFixedSize(12, 12);
+        dot->setFocusPolicy(Qt::NoFocus);
+        dotsLayout->addWidget(dot);
+        pageDots_.append(dot);
+    }
     navigation->addWidget(backButton_);
     navigation->addStretch();
-    navigation->addWidget(pageIndicator_);
+    navigation->addWidget(pageDotsWidget_);
     navigation->addStretch();
     navigation->addWidget(nextButton_);
     layout->addLayout(navigation);
@@ -323,23 +333,35 @@ QLabel *OnboardingDialog::createIllustration(
 QWidget *OnboardingDialog::createSetupPage()
 {
     auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
+    auto *layout = new QHBoxLayout(page);
     layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(10);
-    layout->addWidget(pageTitle(QStringLiteral("准备开始使用"), page,
-                                QStringLiteral("setupHeading")));
-    layout->addWidget(wrappedLabel(
-        QStringLiteral("下载语音模型，并检查后台服务和 Fcitx 是否就绪。"),
+    layout->setSpacing(20);
+
+    auto *illustration = createIllustration(
+        QStringLiteral(":/onboarding/setup.png"),
+        QStringLiteral("setupIllustration"),
+        QStringLiteral("模型下载与服务准备示意图"), page);
+    illustration->setMaximumSize(210, 260);
+    illustration->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+    layout->addWidget(illustration, 34, Qt::AlignCenter);
+
+    auto *setup = new QVBoxLayout;
+    setup->setSpacing(6);
+    setup->addWidget(pageTitle(QStringLiteral("准备好，就可以开始"), page,
+                               QStringLiteral("setupHeading")));
+    setup->addWidget(wrappedLabel(
+        QStringLiteral("首次下载模型需要联网；服务和 Fcitx 会同步检查。"),
         page, QStringLiteral("setupDescriptionLabel")));
 
-    auto addRow = [layout, page](const QString &name, const QString &statusName,
-                                 const QString &errorName, QLabel **status,
-                                 QLabel **error) {
+    auto addRow = [setup, page](const QString &name,
+                                const QString &statusName,
+                                const QString &errorName, QLabel **status,
+                                QLabel **error) {
         auto *frame = new QFrame(page);
         frame->setFrameShape(QFrame::StyledPanel);
         auto *row = new QVBoxLayout(frame);
-        row->setContentsMargins(12, 8, 12, 8);
-        row->setSpacing(4);
+        row->setContentsMargins(8, 4, 8, 4);
+        row->setSpacing(2);
         auto *heading = new QHBoxLayout;
         auto *nameLabel = new QLabel(name, frame);
         QFont font = nameLabel->font();
@@ -357,7 +379,7 @@ QWidget *OnboardingDialog::createSetupPage()
         (*error)->setAccessibleName(name + QStringLiteral("错误"));
         (*error)->hide();
         row->addWidget(*error);
-        layout->addWidget(frame);
+        setup->addWidget(frame);
         return row;
     };
 
@@ -389,8 +411,9 @@ QWidget *OnboardingDialog::createSetupPage()
     aggregateErrorLabel_->setObjectName(QStringLiteral("aggregateErrorLabel"));
     aggregateErrorLabel_->setAccessibleName(QStringLiteral("准备过程错误"));
     aggregateErrorLabel_->hide();
-    layout->addWidget(aggregateErrorLabel_);
-    layout->addStretch();
+    setup->addWidget(aggregateErrorLabel_);
+    setup->addStretch();
+    layout->addLayout(setup, 66);
     return page;
 }
 
@@ -399,10 +422,16 @@ void OnboardingDialog::setCurrentPage(int page)
     page = std::clamp(page, 0, pages_->count() - 1);
     pages_->setCurrentIndex(page);
     backButton_->setEnabled(page > 0);
-    pageIndicator_->setText(
+    pageDotsWidget_->setAccessibleName(
         QStringLiteral("第 %1 页，共 %2 页")
             .arg(page + 1)
             .arg(pages_->count()));
+    for (int i = 0; i < pageDots_.size(); ++i) {
+        const bool active = i == page;
+        pageDots_.at(i)->setProperty("active", active);
+        pageDots_.at(i)->setForegroundRole(active ? QPalette::Highlight
+                                                   : QPalette::Mid);
+    }
     renderSetup();
 }
 

@@ -228,29 +228,44 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     auto *pages = dialog.findChild<QStackedWidget *>(QStringLiteral("pages"));
     auto *back = button(dialog, "backButton");
     auto *next = button(dialog, "nextButton");
-    auto *indicator = dialog.findChild<QLabel *>(QStringLiteral("pageIndicator"));
+    auto *dots = dialog.findChild<QWidget *>(QStringLiteral("pageDots"));
     QVERIFY(pages);
-    QVERIFY(indicator);
+    QVERIFY(dots);
     QCOMPARE(pages->count(), 4);
+    const QList<QLabel *> dotLabels =
+        dots->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
+    QCOMPARE(dotLabels.size(), 4);
     QCOMPARE(dialog.currentPage(), 0);
     QVERIFY(!back->isEnabled());
     QCOMPARE(back->text(), QStringLiteral("上一步"));
     QCOMPARE(next->text(), QStringLiteral("下一步"));
-    QCOMPARE(indicator->text(), QStringLiteral("第 1 页，共 4 页"));
+    QCOMPARE(dots->accessibleName(), QStringLiteral("第 1 页，共 4 页"));
+    QCOMPARE(dotLabels.at(0)->property("active").toBool(), true);
+    for (int dot = 1; dot < dotLabels.size(); ++dot) {
+        QCOMPARE(dotLabels.at(dot)->property("active").toBool(), false);
+    }
 
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 0);
     next->setFocus();
     QTest::keyClick(next, Qt::Key_Space);
     QCOMPARE(dialog.currentPage(), 1);
+    QCOMPARE(dots->accessibleName(), QStringLiteral("第 2 页，共 4 页"));
+    QCOMPARE(dotLabels.at(1)->property("active").toBool(), true);
     for (int page = 2; page < 4; ++page) {
         QTest::mouseClick(next, Qt::LeftButton);
         QCOMPARE(dialog.currentPage(), page);
+        QCOMPARE(dots->accessibleName(),
+                 QStringLiteral("第 %1 页，共 4 页").arg(page + 1));
+        for (int dot = 0; dot < dotLabels.size(); ++dot) {
+            QCOMPARE(dotLabels.at(dot)->property("active").toBool(),
+                     dot == page);
+        }
     }
     QCOMPARE(next->text(), QStringLiteral("开始使用 EchoFlow"));
-    QCOMPARE(indicator->text(), QStringLiteral("第 4 页，共 4 页"));
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 2);
+    QCOMPARE(dots->accessibleName(), QStringLiteral("第 3 页，共 4 页"));
     QCOMPARE(next->text(), QStringLiteral("下一步"));
 }
 
@@ -355,6 +370,34 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QCOMPARE(copyLayout->itemAt(tagIndex)->alignment(), Qt::AlignLeft);
         QVERIFY(tag->width() <= tag->sizeHint().width());
     }
+
+    auto *setupIllustration =
+        dialog.findChild<QLabel *>(QStringLiteral("setupIllustration"));
+    QVERIFY(setupIllustration);
+    QVERIFY(!setupIllustration->pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(setupIllustration->accessibleName(),
+             QStringLiteral("模型下载与服务准备示意图"));
+    auto *setupHeading =
+        dialog.findChild<QLabel *>(QStringLiteral("setupHeading"));
+    QVERIFY(setupHeading);
+    QCOMPARE(setupHeading->text(), QStringLiteral("准备好，就可以开始"));
+    auto *setupDescription =
+        dialog.findChild<QLabel *>(QStringLiteral("setupDescriptionLabel"));
+    QVERIFY(setupDescription);
+    QCOMPARE(setupDescription->text(),
+             QStringLiteral("首次下载模型需要联网；服务和 Fcitx 会同步检查。"));
+
+    auto *dots = dialog.findChild<QWidget *>(QStringLiteral("pageDots"));
+    QVERIFY(dots);
+    QVERIFY(!dots->accessibleName().isEmpty());
+    const QList<QLabel *> dotLabels =
+        dots->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
+    QCOMPARE(dotLabels.size(), 4);
+    for (int i = 0; i < dotLabels.size(); ++i) {
+        QCOMPARE(dotLabels.at(i)->property("active").toBool(), i == 0);
+        QCOMPARE(dotLabels.at(i)->foregroundRole(),
+                 i == 0 ? QPalette::Highlight : QPalette::Mid);
+    }
     QCOMPARE(dialog.minimumWidth(), 680);
     QVERIFY(dialog.minimumHeight() >= 500);
 
@@ -381,7 +424,7 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
 
     for (const QString &objectName : {
              QStringLiteral("backButton"), QStringLiteral("nextButton"),
-             QStringLiteral("pageIndicator"),
+             QStringLiteral("pageDots"),
              QStringLiteral("modelStatusLabel"),
              QStringLiteral("modelProgressBar"),
              QStringLiteral("serviceStatusLabel"),
@@ -390,6 +433,20 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QVERIFY2(widget, qPrintable(objectName));
         QVERIFY2(!widget->accessibleName().isEmpty(), qPrintable(objectName));
     }
+
+    auto *introImage =
+        dialog.findChild<QLabel *>(QStringLiteral("introIllustration"));
+    QVERIFY(introImage);
+    introImage->clear();
+    QApplication::processEvents();
+    auto *introHeading =
+        dialog.findChild<QLabel *>(QStringLiteral("introHeading"));
+    QVERIFY(introHeading->isVisibleTo(&dialog));
+    auto *next = button(dialog, "nextButton");
+    QVERIFY(next->isVisibleTo(&dialog));
+    QVERIFY(next->isEnabled());
+    QTest::mouseClick(next, Qt::LeftButton);
+    QCOMPARE(dialog.currentPage(), 1);
 
     QApplication::setWindowIcon(previousIcon);
 }

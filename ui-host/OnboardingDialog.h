@@ -4,6 +4,7 @@
 #pragma once
 
 #include <DDialog>
+#include <QList>
 
 class QLabel;
 class QProgressBar;
@@ -55,7 +56,8 @@ private:
     QStackedWidget *pages_;
     QPushButton *backButton_;
     QPushButton *nextButton_;
-    QLabel *pageIndicator_;
+    QWidget *pageDotsWidget_;
+    QList<QLabel *> pageDots_;
     QLabel *modelStatusLabel_;
     QLabel *modelErrorLabel_;
     QLabel *serviceStatusLabel_;
