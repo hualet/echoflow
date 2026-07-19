@@ -24,6 +24,8 @@
 
 namespace {
 
+constexpr int kSemanticTagCornerRadius = 10;
+
 class SemanticTagLabel final : public QLabel {
 public:
     using QLabel::QLabel;
@@ -36,7 +38,8 @@ protected:
             painter.setRenderHint(QPainter::Antialiasing);
             painter.setPen(Qt::NoPen);
             painter.setBrush(palette().brush(backgroundRole()));
-            painter.drawRoundedRect(rect(), 10, 10);
+            painter.drawRoundedRect(rect(), kSemanticTagCornerRadius,
+                                    kSemanticTagCornerRadius);
         }
         QLabel::paintEvent(event);
     }
@@ -294,7 +297,7 @@ QWidget *OnboardingDialog::createVisualPage(
         tagLabel->setWordWrap(true);
         tagLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         tagLabel->setProperty("semanticTag", true);
-        tagLabel->setProperty("cornerRadius", 10);
+        tagLabel->setProperty("cornerRadius", kSemanticTagCornerRadius);
         tagLabel->setBackgroundRole(QPalette::AlternateBase);
         tagLabel->setForegroundRole(QPalette::Text);
         tagLabel->setContentsMargins(10, 4, 10, 4);

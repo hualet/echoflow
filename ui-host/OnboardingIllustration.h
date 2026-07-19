@@ -4,7 +4,6 @@
 #pragma once
 
 #include <QLabel>
-#include <QPixmap>
 
 class OnboardingIllustration final : public QLabel {
 public:
@@ -17,7 +16,4 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
-
-private:
-    QPixmap source_;
 };

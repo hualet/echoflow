@@ -10,12 +10,14 @@
 #include <QFile>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QImage>
 #include <QLabel>
 #include <QLayout>
 #include <QPalette>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRegion>
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTemporaryDir>
@@ -93,6 +95,40 @@ static QPushButton *button(OnboardingDialog &dialog, const char *name)
     return result;
 }
 
+static QImage renderIllustration(OnboardingIllustration &illustration,
+                                 qreal devicePixelRatio)
+{
+    const QSize logicalSize(240, 180);
+    illustration.resize(logicalSize);
+    illustration.show();
+    QApplication::processEvents();
+
+    QImage image(QSize(qRound(logicalSize.width() * devicePixelRatio),
+                       qRound(logicalSize.height() * devicePixelRatio)),
+                 QImage::Format_ARGB32_Premultiplied);
+    image.setDevicePixelRatio(devicePixelRatio);
+    image.fill(Qt::transparent);
+    illustration.render(&image, QPoint(), QRegion(), QWidget::DrawChildren);
+    return image;
+}
+
+static QRect pixelBounds(const QImage &image, bool redOnly)
+{
+    QRect bounds;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = image.pixelColor(x, y);
+            const bool matches = color.alpha() > 0
+                && (!redOnly || (color.red() > 200 && color.green() < 80
+                                 && color.blue() < 80));
+            if (matches) {
+                bounds |= QRect(x, y, 1, 1);
+            }
+        }
+    }
+    return bounds;
+}
+
 class TestOnboardingDialog : public QObject {
     Q_OBJECT
 private slots:
@@ -133,6 +169,30 @@ void TestOnboardingDialog::illustrationPreservesSourceAndCollapsesMissingResourc
     valid.resize(140, 210);
     QApplication::processEvents();
     QCOMPARE(valid.pixmap(Qt::ReturnByValue).size(), QSize(768, 768));
+
+    valid.clear();
+    QVERIFY(pixelBounds(renderIllustration(valid, 1.0), false).isNull());
+    QCOMPARE(valid.sizeHint(), QSize(0, 0));
+    QCOMPARE(valid.minimumSizeHint(), QSize(0, 0));
+
+    QPixmap replacement(80, 40);
+    replacement.fill(QColor(240, 20, 20));
+    valid.setPixmap(replacement);
+    QCOMPARE(valid.pixmap(Qt::ReturnByValue).size(), QSize(80, 40));
+    for (const qreal devicePixelRatio : {1.0, 2.0}) {
+        const QImage image = renderIllustration(valid, devicePixelRatio);
+        const QRect bounds = pixelBounds(image, true);
+        QVERIFY(!bounds.isNull());
+        QVERIFY(qAbs(bounds.width()
+                     - qRound(240 * devicePixelRatio)) <= 2);
+        QVERIFY(qAbs(bounds.height()
+                     - qRound(120 * devicePixelRatio)) <= 2);
+        QVERIFY(qAbs((bounds.left() + bounds.right())
+                     - (image.rect().left() + image.rect().right())) <= 2);
+        QVERIFY(qAbs((bounds.top() + bounds.bottom())
+                     - (image.rect().top() + image.rect().bottom())) <= 2);
+        QVERIFY(image.rect().contains(bounds));
+    }
 
     QWidget page;
     auto *layout = new QHBoxLayout(&page);
