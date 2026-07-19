@@ -39,8 +39,8 @@ private:
                               const QString &headingObjectName,
                               const QString &description,
                               const QString &descriptionObjectName,
-                              const QString &tag,
-                              const QString &tagObjectName);
+                              const QString &tag = {},
+                              const QString &tagObjectName = {});
     QLabel *createIllustration(const QString &resourcePath,
                                const QString &objectName,
                                const QString &accessibleName,

@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPalette>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
@@ -268,7 +269,17 @@ QWidget *OnboardingDialog::createVisualPage(
     copy->addStretch();
     copy->addWidget(pageTitle(heading, page, headingObjectName));
     copy->addWidget(wrappedLabel(description, page, descriptionObjectName));
-    copy->addWidget(wrappedLabel(tag, page, tagObjectName));
+    if (!tag.isEmpty()) {
+        auto *tagLabel = wrappedLabel(tag, page, tagObjectName);
+        tagLabel->setProperty("semanticTag", true);
+        tagLabel->setBackgroundRole(QPalette::AlternateBase);
+        tagLabel->setForegroundRole(QPalette::Text);
+        tagLabel->setContentsMargins(10, 4, 10, 4);
+        tagLabel->setStyleSheet(QStringLiteral(
+            "QLabel { background-color: palette(alternate-base); "
+            "color: palette(text); border-radius: 10px; }"));
+        copy->addWidget(tagLabel);
+    }
     copy->addStretch();
     layout->addLayout(copy, 55);
     return page;

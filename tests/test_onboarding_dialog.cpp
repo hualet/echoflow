@@ -237,6 +237,14 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QVERIFY2(tag, qPrintable(page.tagObjectName));
         QCOMPARE(tag->text(), page.tag);
         QVERIFY(tag->wordWrap());
+        QVERIFY(tag->property("semanticTag").toBool());
+        QCOMPARE(tag->backgroundRole(), QPalette::AlternateBase);
+        QCOMPARE(tag->foregroundRole(), QPalette::Text);
+        QCOMPARE(tag->contentsMargins(), QMargins(10, 4, 10, 4));
+        QVERIFY(tag->styleSheet().contains(
+            QStringLiteral("palette(alternate-base)")));
+        QVERIFY(tag->styleSheet().contains(QStringLiteral("palette(text)")));
+        QVERIFY(tag->styleSheet().contains(QStringLiteral("border-radius")));
     }
     QCOMPARE(dialog.minimumWidth(), 680);
     QVERIFY(dialog.minimumHeight() >= 500);
