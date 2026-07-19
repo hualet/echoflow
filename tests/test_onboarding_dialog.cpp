@@ -7,6 +7,7 @@
 #include "OnboardingState.h"
 #include "SetupCommandRunner.h"
 
+#include <QAccessible>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -18,6 +19,8 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegion>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTemporaryDir>
@@ -136,6 +139,7 @@ private slots:
     void illustrationPreservesSourceAndCollapsesMissingResource();
     void hasFourPagesAndBoundedNavigation();
     void usesApprovedVisualStoryAndAccessibleImages();
+    void setupErrorsRemainReachableAtMinimumSize();
     void startRunsSetupAndDisablesPrimaryAction();
     void rendersDeterminateAndIndeterminateModelProgress();
     void failureShowsErrorAndRetriesFailedWork();
@@ -232,18 +236,25 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     QVERIFY(pages);
     QVERIFY(dots);
     QCOMPARE(pages->count(), 4);
-    const QList<QLabel *> dotLabels =
-        dots->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
-    QCOMPARE(dotLabels.size(), 4);
+    QCOMPARE(dots->findChildren<QWidget *>(QString(),
+                                           Qt::FindDirectChildrenOnly)
+                 .size(),
+             0);
+    QAccessibleInterface *dotsInterface =
+        QAccessible::queryAccessibleInterface(dots);
+    QVERIFY(dotsInterface);
+    QCOMPARE(dotsInterface->childCount(), 0);
+    QCOMPARE(dots->property("activePage").toInt(), 0);
     QCOMPARE(dialog.currentPage(), 0);
     QVERIFY(!back->isEnabled());
     QCOMPARE(back->text(), QStringLiteral("上一步"));
     QCOMPARE(next->text(), QStringLiteral("下一步"));
     QCOMPARE(dots->accessibleName(), QStringLiteral("第 1 页，共 4 页"));
-    QCOMPARE(dotLabels.at(0)->property("active").toBool(), true);
-    for (int dot = 1; dot < dotLabels.size(); ++dot) {
-        QCOMPARE(dotLabels.at(dot)->property("active").toBool(), false);
-    }
+    dialog.resize(dialog.minimumSize());
+    dialog.show();
+    QApplication::processEvents();
+    const int initialDotsCenter =
+        dots->mapTo(&dialog, dots->rect().center()).x();
 
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 0);
@@ -251,18 +262,19 @@ void TestOnboardingDialog::hasFourPagesAndBoundedNavigation()
     QTest::keyClick(next, Qt::Key_Space);
     QCOMPARE(dialog.currentPage(), 1);
     QCOMPARE(dots->accessibleName(), QStringLiteral("第 2 页，共 4 页"));
-    QCOMPARE(dotLabels.at(1)->property("active").toBool(), true);
+    QCOMPARE(dots->property("activePage").toInt(), 1);
     for (int page = 2; page < 4; ++page) {
         QTest::mouseClick(next, Qt::LeftButton);
         QCOMPARE(dialog.currentPage(), page);
         QCOMPARE(dots->accessibleName(),
                  QStringLiteral("第 %1 页，共 4 页").arg(page + 1));
-        for (int dot = 0; dot < dotLabels.size(); ++dot) {
-            QCOMPARE(dotLabels.at(dot)->property("active").toBool(),
-                     dot == page);
-        }
+        QCOMPARE(dots->property("activePage").toInt(), page);
     }
     QCOMPARE(next->text(), QStringLiteral("开始使用 EchoFlow"));
+    QApplication::processEvents();
+    const int finalDotsCenter =
+        dots->mapTo(&dialog, dots->rect().center()).x();
+    QVERIFY(qAbs(finalDotsCenter - initialDotsCenter) <= 1);
     QTest::mouseClick(back, Qt::LeftButton);
     QCOMPARE(dialog.currentPage(), 2);
     QCOMPARE(dots->accessibleName(), QStringLiteral("第 3 页，共 4 页"));
@@ -390,14 +402,11 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     auto *dots = dialog.findChild<QWidget *>(QStringLiteral("pageDots"));
     QVERIFY(dots);
     QVERIFY(!dots->accessibleName().isEmpty());
-    const QList<QLabel *> dotLabels =
-        dots->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
-    QCOMPARE(dotLabels.size(), 4);
-    for (int i = 0; i < dotLabels.size(); ++i) {
-        QCOMPARE(dotLabels.at(i)->property("active").toBool(), i == 0);
-        QCOMPARE(dotLabels.at(i)->foregroundRole(),
-                 i == 0 ? QPalette::Highlight : QPalette::Mid);
-    }
+    QCOMPARE(dots->property("activePage").toInt(), 0);
+    QCOMPARE(dots->findChildren<QWidget *>(QString(),
+                                           Qt::FindDirectChildrenOnly)
+                 .size(),
+             0);
     QCOMPARE(dialog.minimumWidth(), 680);
     QVERIFY(dialog.minimumHeight() >= 500);
 
@@ -449,6 +458,73 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QCOMPARE(dialog.currentPage(), 1);
 
     QApplication::setWindowIcon(previousIcon);
+}
+
+void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
+    OnboardingDialog dialog(&controller);
+    dialog.resize(dialog.minimumSize());
+    dialog.show();
+    auto *next = button(dialog, "nextButton");
+    for (int i = 0; i < 3; ++i) {
+        QTest::mouseClick(next, Qt::LeftButton);
+    }
+    QApplication::processEvents();
+    QCOMPARE(dialog.size(), QSize(680, 500));
+
+    auto *scroll =
+        dialog.findChild<QScrollArea *>(QStringLiteral("setupScrollArea"));
+    QVERIFY(scroll);
+    QVERIFY(scroll->widgetResizable());
+    QCOMPARE(scroll->frameShape(), QFrame::NoFrame);
+    QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+    QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+    QCOMPARE(scroll->verticalScrollBar()->maximum(), 0);
+
+    QTest::mouseClick(next, Qt::LeftButton);
+    const QString modelError = QStringLiteral(
+        "模型下载服务器暂时不可用，请检查网络连接。\n"
+        "镜像返回了超时错误，已保留当前下载进度。\n"
+        "稍后可以从此页面重试下载。");
+    const QString serviceError = QStringLiteral(
+        "无法启用托盘自启动，systemd 用户会话拒绝了请求。\n"
+        "后台服务未能启动，请检查用户日志。\n"
+        "修复会话后可以重新尝试。");
+    const QString fcitxError = QStringLiteral(
+        "Fcitx 重新加载失败，当前输入法连接仍不可用。\n"
+        "请确认 Fcitx 进程正在运行。\n"
+        "然后返回此页面重试。");
+    model.finish(false, modelError);
+    runner.finish(QStringLiteral("ui-autostart"), false,
+                  serviceError.section(QLatin1Char('\n'), 0, 0));
+    runner.finish(QStringLiteral("service"), false,
+                  serviceError.section(QLatin1Char('\n'), 1));
+    runner.finish(QStringLiteral("fcitx"), false, fcitxError);
+    QApplication::processEvents();
+
+    QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+    for (const QString &objectName : {
+             QStringLiteral("modelErrorLabel"),
+             QStringLiteral("serviceErrorLabel"),
+             QStringLiteral("fcitxErrorLabel")}) {
+        auto *error = dialog.findChild<QLabel *>(objectName);
+        QVERIFY2(error, qPrintable(objectName));
+        QVERIFY2(scroll->widget()->isAncestorOf(error), qPrintable(objectName));
+        QVERIFY2(error->height() >= error->heightForWidth(error->width()),
+                 qPrintable(objectName));
+        scroll->ensureWidgetVisible(error, 0, 0);
+        QApplication::processEvents();
+        const QRect visibleRect = error->rect().translated(
+            error->mapTo(scroll->viewport(), QPoint()));
+        QVERIFY2(visibleRect.intersects(scroll->viewport()->rect()),
+                 qPrintable(objectName));
+    }
 }
 
 void TestOnboardingDialog::startRunsSetupAndDisablesPrimaryAction()
