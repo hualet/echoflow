@@ -7,6 +7,8 @@
 #include "OnboardingState.h"
 #include "SetupCommandRunner.h"
 
+#include <DTitlebar>
+
 #include <QAccessible>
 #include <QFile>
 #include <QFontMetrics>
@@ -303,6 +305,21 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QApplication::processEvents();
 
     QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
+    auto *titlebar = dialog.findChild<Dtk::Widget::DTitlebar *>(
+        QStringLiteral("onboardingTitlebar"));
+    QVERIFY(titlebar);
+    QCOMPARE(dialog.title(), QString());
+
+    auto *titleLabel = titlebar->findChild<QLabel *>(
+        QStringLiteral("onboardingTitleLabel"));
+    auto *titleIcon = titlebar->findChild<QLabel *>(
+        QStringLiteral("onboardingTitleIcon"));
+    QVERIFY(titleLabel);
+    QVERIFY(titleIcon);
+    QCOMPARE(titleLabel->text(), QStringLiteral("欢迎使用 EchoFlow"));
+    QCOMPARE(titleLabel->accessibleName(), QStringLiteral("欢迎使用 EchoFlow"));
+    QVERIFY(!titleIcon->pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(titleIcon->accessibleName(), QStringLiteral("EchoFlow"));
 
     struct VisualPage {
         QString illustrationObjectName;

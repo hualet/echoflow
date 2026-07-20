@@ -6,6 +6,8 @@
 #include "OnboardingIllustration.h"
 #include "OnboardingSetupController.h"
 
+#include <DTitlebar>
+
 #include <QApplication>
 #include <QFont>
 #include <QFontMetrics>
@@ -215,13 +217,41 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
 {
     Q_ASSERT(controller_);
     setObjectName(QStringLiteral("onboardingDialog"));
-    setTitle(QStringLiteral("欢迎使用 EchoFlow"));
-    setWordWrapTitle(true);
     setWindowIcon(QApplication::windowIcon());
-    setIcon(QApplication::windowIcon());
+    setTitle({});
+    setIcon({});
     setModal(false);
     setMinimumSize(680, 500);
     setOnButtonClickedClose(false);
+
+    auto *titlebar = new Dtk::Widget::DTitlebar(this);
+    titlebar->setObjectName(QStringLiteral("onboardingTitlebar"));
+    titlebar->setBackgroundTransparent(true);
+    titlebar->setSeparatorVisible(false);
+
+    auto *titleWidget = new QWidget(titlebar);
+    auto *titleLayout = new QHBoxLayout(titleWidget);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
+    titleLayout->setSpacing(8);
+
+    auto *titleIcon = new QLabel(titleWidget);
+    titleIcon->setObjectName(QStringLiteral("onboardingTitleIcon"));
+    titleIcon->setAccessibleName(QStringLiteral("EchoFlow"));
+    titleIcon->setPixmap(QApplication::windowIcon().pixmap(20, 20));
+    titleIcon->setFixedSize(20, 20);
+
+    auto *titleLabel =
+        new QLabel(QStringLiteral("欢迎使用 EchoFlow"), titleWidget);
+    titleLabel->setObjectName(QStringLiteral("onboardingTitleLabel"));
+    titleLabel->setAccessibleName(titleLabel->text());
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+
+    titleLayout->addWidget(titleIcon);
+    titleLayout->addWidget(titleLabel);
+    titlebar->setCustomWidget(titleWidget);
+    addContent(titlebar);
 
     auto *content = new QWidget(this);
     auto *layout = new QVBoxLayout(content);
