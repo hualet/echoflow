@@ -29,6 +29,7 @@
 #include <QStackedWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QVBoxLayout>
 
 class FakeModelSource final : public ModelSetupSource {
     Q_OBJECT
@@ -509,20 +510,63 @@ void TestOnboardingDialog::usesNativeDtkSetupGroup()
     finishInitialNotReady(runner);
     OnboardingDialog dialog(&controller);
 
-    auto *group = dialog.findChild<Dtk::Widget::DBackgroundGroup *>(
-        QStringLiteral("setupStatusGroup"));
+    const auto groups =
+        dialog.findChildren<Dtk::Widget::DBackgroundGroup *>();
+    QCOMPARE(groups.size(), 1);
+    const auto namedGroups =
+        dialog.findChildren<Dtk::Widget::DBackgroundGroup *>(
+            QStringLiteral("setupStatusGroup"));
+    QCOMPARE(namedGroups.size(), 1);
+    auto *group = namedGroups.constFirst();
     QVERIFY(group);
     QCOMPARE(group->backgroundRole(), QPalette::Base);
 
+    QList<QWidget *> rows;
     for (const QString &name : {
              QStringLiteral("modelSetupRow"),
              QStringLiteral("serviceSetupRow"),
              QStringLiteral("fcitxSetupRow")}) {
         auto *row = dialog.findChild<QWidget *>(name);
         QVERIFY2(row, qPrintable(name));
-        QVERIFY2(group->isAncestorOf(row), qPrintable(name));
+        QCOMPARE(row->parentWidget(), group);
         QVERIFY(!qobject_cast<QFrame *>(row));
+        rows.append(row);
     }
+    auto *modelRow = rows.at(0);
+    auto *serviceRow = rows.at(1);
+    auto *fcitxRow = rows.at(2);
+
+    for (const QString &name : {
+             QStringLiteral("modelProgressBar"),
+             QStringLiteral("modelProgressLabel"),
+             QStringLiteral("modelErrorLabel")}) {
+        auto *widget = dialog.findChild<QWidget *>(name);
+        QVERIFY2(widget, qPrintable(name));
+        QCOMPARE(widget->parentWidget(), modelRow);
+    }
+    auto *serviceError =
+        dialog.findChild<QLabel *>(QStringLiteral("serviceErrorLabel"));
+    auto *fcitxError =
+        dialog.findChild<QLabel *>(QStringLiteral("fcitxErrorLabel"));
+    QVERIFY(serviceError);
+    QVERIFY(fcitxError);
+    QCOMPARE(serviceError->parentWidget(), serviceRow);
+    QCOMPARE(fcitxError->parentWidget(), fcitxRow);
+
+    auto *aggregateError =
+        dialog.findChild<QLabel *>(QStringLiteral("aggregateErrorLabel"));
+    QVERIFY(aggregateError);
+    QVERIFY(!group->isAncestorOf(aggregateError));
+    auto *setupContent = group->parentWidget();
+    QVERIFY(setupContent);
+    QCOMPARE(aggregateError->parentWidget(), setupContent);
+    auto *setupLayout =
+        qobject_cast<QVBoxLayout *>(setupContent->layout());
+    QVERIFY(setupLayout);
+    const int groupIndex = setupLayout->indexOf(group);
+    const int aggregateErrorIndex = setupLayout->indexOf(aggregateError);
+    QVERIFY(groupIndex >= 0);
+    QVERIFY(aggregateErrorIndex > groupIndex);
 
     QCOMPARE(group->findChildren<QFrame *>(QString(),
                                             Qt::FindDirectChildrenOnly)
