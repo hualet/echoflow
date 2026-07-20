@@ -643,6 +643,11 @@ void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()
     QVERIFY(scroll);
     QVERIFY(scroll->widgetResizable());
     QCOMPARE(scroll->frameShape(), QFrame::NoFrame);
+    QVERIFY(scroll->testAttribute(Qt::WA_TranslucentBackground));
+    QVERIFY(!scroll->viewport()->autoFillBackground());
+    QVERIFY(scroll->viewport()->backgroundRole() != QPalette::Base);
+    QVERIFY(!scroll->widget()->autoFillBackground());
+    QVERIFY(scroll->widget()->backgroundRole() != QPalette::Base);
     QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
     QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
     QCOMPARE(scroll->verticalScrollBar()->maximum(), 0);

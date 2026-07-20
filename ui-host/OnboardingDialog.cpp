@@ -461,6 +461,9 @@ QWidget *OnboardingDialog::createSetupPage()
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    scroll->setAttribute(Qt::WA_TranslucentBackground);
+    scroll->viewport()->setAutoFillBackground(false);
+    scroll->viewport()->setBackgroundRole(QPalette::NoRole);
 
     auto *setupContent = new QWidget(scroll);
     auto *setup = new QVBoxLayout(setupContent);
@@ -547,6 +550,8 @@ QWidget *OnboardingDialog::createSetupPage()
     setup->addWidget(aggregateErrorLabel_);
     setup->addStretch();
     scroll->setWidget(setupContent);
+    setupContent->setAutoFillBackground(false);
+    setupContent->setBackgroundRole(QPalette::NoRole);
     layout->addWidget(scroll, 66);
     return page;
 }
