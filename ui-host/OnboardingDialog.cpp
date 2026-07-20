@@ -224,7 +224,9 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     setMinimumSize(680, 500);
     setOnButtonClickedClose(false);
 
-    auto *titlebar = new Dtk::Widget::DTitlebar(this);
+    auto *titlebar = findChild<Dtk::Widget::DTitlebar *>(
+        QString(), Qt::FindDirectChildrenOnly);
+    Q_ASSERT(titlebar);
     titlebar->setObjectName(QStringLiteral("onboardingTitlebar"));
     titlebar->setBackgroundTransparent(true);
     titlebar->setSeparatorVisible(false);
@@ -236,7 +238,7 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
 
     auto *titleIcon = new QLabel(titleWidget);
     titleIcon->setObjectName(QStringLiteral("onboardingTitleIcon"));
-    titleIcon->setAccessibleName(QStringLiteral("EchoFlow"));
+    titleIcon->setAccessibleName({});
     titleIcon->setPixmap(QApplication::windowIcon().pixmap(20, 20));
     titleIcon->setFixedSize(20, 20);
 
@@ -251,7 +253,6 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     titleLayout->addWidget(titleIcon);
     titleLayout->addWidget(titleLabel);
     titlebar->setCustomWidget(titleWidget);
-    addContent(titlebar);
 
     auto *content = new QWidget(this);
     auto *layout = new QVBoxLayout(content);

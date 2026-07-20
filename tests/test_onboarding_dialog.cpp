@@ -305,11 +305,18 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QApplication::processEvents();
 
     QCOMPARE(dialog.windowIcon().cacheKey(), testIcon.cacheKey());
-    auto *titlebar = dialog.findChild<Dtk::Widget::DTitlebar *>(
-        QStringLiteral("onboardingTitlebar"));
-    QVERIFY(titlebar);
-    QCOMPARE(dialog.contentCount(), 2);
-    QCOMPARE(dialog.getContent(0), static_cast<QWidget *>(titlebar));
+    const auto titlebars = dialog.findChildren<Dtk::Widget::DTitlebar *>(
+        QString(), Qt::FindDirectChildrenOnly);
+    QCOMPARE(titlebars.size(), 1);
+    auto *titlebar = titlebars.constFirst();
+    QCOMPARE(titlebar->objectName(), QStringLiteral("onboardingTitlebar"));
+
+    auto *stackedPages =
+        dialog.findChild<QStackedWidget *>(QStringLiteral("pages"));
+    QVERIFY(stackedPages);
+    QCOMPARE(dialog.contentCount(), 1);
+    QCOMPARE(dialog.getContent(0), stackedPages->parentWidget());
+    QVERIFY(dialog.getContent(0) != titlebar);
     QCOMPARE(dialog.title(), QString());
     QVERIFY(dialog.icon().isNull());
 
@@ -324,7 +331,7 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QVERIFY(!titleIcon->pixmap(Qt::ReturnByValue).isNull());
     QCOMPARE(titleIcon->pixmap(Qt::ReturnByValue).cacheKey(),
              testIcon.pixmap(20, 20).cacheKey());
-    QCOMPARE(titleIcon->accessibleName(), QStringLiteral("EchoFlow"));
+    QVERIFY(titleIcon->accessibleName().isEmpty());
 
     struct VisualPage {
         QString illustrationObjectName;
@@ -521,14 +528,17 @@ void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()
     const QString modelError = QStringLiteral(
         "模型下载服务器暂时不可用，请检查网络连接。\n"
         "镜像返回了超时错误，已保留当前下载进度。\n"
+        "如果网络需要代理，请先确认代理配置可用。\n"
         "稍后可以从此页面重试下载。");
     const QString serviceError = QStringLiteral(
         "无法启用托盘自启动，systemd 用户会话拒绝了请求。\n"
         "后台服务未能启动，请检查用户日志。\n"
+        "日志中可能包含进一步的会话错误信息。\n"
         "修复会话后可以重新尝试。");
     const QString fcitxError = QStringLiteral(
         "Fcitx 重新加载失败，当前输入法连接仍不可用。\n"
         "请确认 Fcitx 进程正在运行。\n"
+        "也请确认 EchoFlow 已添加到当前输入法列表。\n"
         "然后返回此页面重试。");
     model.finish(false, modelError);
     runner.finish(QStringLiteral("ui-autostart"), false,
