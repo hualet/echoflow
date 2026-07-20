@@ -308,7 +308,10 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     auto *titlebar = dialog.findChild<Dtk::Widget::DTitlebar *>(
         QStringLiteral("onboardingTitlebar"));
     QVERIFY(titlebar);
+    QCOMPARE(dialog.contentCount(), 2);
+    QCOMPARE(dialog.getContent(0), static_cast<QWidget *>(titlebar));
     QCOMPARE(dialog.title(), QString());
+    QVERIFY(dialog.icon().isNull());
 
     auto *titleLabel = titlebar->findChild<QLabel *>(
         QStringLiteral("onboardingTitleLabel"));
@@ -319,6 +322,8 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QCOMPARE(titleLabel->text(), QStringLiteral("欢迎使用 EchoFlow"));
     QCOMPARE(titleLabel->accessibleName(), QStringLiteral("欢迎使用 EchoFlow"));
     QVERIFY(!titleIcon->pixmap(Qt::ReturnByValue).isNull());
+    QCOMPARE(titleIcon->pixmap(Qt::ReturnByValue).cacheKey(),
+             testIcon.pixmap(20, 20).cacheKey());
     QCOMPARE(titleIcon->accessibleName(), QStringLiteral("EchoFlow"));
 
     struct VisualPage {
