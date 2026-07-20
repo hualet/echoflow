@@ -1,3 +1,22 @@
+echoflow (0.2.4) unstable; urgency=medium
+
+  * Add a first-run guide that downloads the selected speech model, enables
+    the user services, verifies Fcitx readiness, and resumes or retries
+    incomplete setup without losing diagnostic details.
+  * Make the usage guide available from the tray and settings so users can
+    revisit the recording shortcut, privacy model, and configuration entry
+    points at any time.
+  * Refresh onboarding with image-led pages, an application title bar, and a
+    native DTK setup group that remains accessible in light and dark themes.
+  * Harden single-instance activation so desktop launches reliably reach the
+    existing UI process during startup and reject unsafe socket responses.
+  * Improve local and Debian upgrades with an installed desktop launcher,
+    desktop-file validation, and coordinated service restarts after updates.
+  * Publish a project landing page with the current offline voice-input
+    workflow and installation entry points.
+
+ -- Hualet Wang <hualet@deepin.org>  Mon, 20 Jul 2026 21:41:13 +0800
+
 echoflow (0.2.1) unstable; urgency=medium
 
   * Rework the voice capsule so it appears only while recording or
