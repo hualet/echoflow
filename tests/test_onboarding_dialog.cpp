@@ -9,6 +9,7 @@
 
 #include <QAccessible>
 #include <QFile>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QImage>
@@ -367,7 +368,7 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         auto *tag = dialog.findChild<QLabel *>(page.tagObjectName);
         QVERIFY2(tag, qPrintable(page.tagObjectName));
         QCOMPARE(tag->text(), page.tag);
-        QVERIFY(tag->wordWrap());
+        QVERIFY(!tag->wordWrap());
         QVERIFY(tag->property("semanticTag").toBool());
         QCOMPARE(tag->backgroundRole(), QPalette::AlternateBase);
         QCOMPARE(tag->foregroundRole(), QPalette::Text);
@@ -381,6 +382,13 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QVERIFY(tagIndex >= 0);
         QCOMPARE(copyLayout->itemAt(tagIndex)->alignment(), Qt::AlignLeft);
         QVERIFY(tag->width() <= tag->sizeHint().width());
+        const QMargins margins = tag->contentsMargins();
+        const QFontMetrics metrics(tag->font());
+        QCOMPARE(tag->height(), tag->sizeHint().height());
+        QVERIFY(tag->height() <= metrics.lineSpacing() + margins.top()
+                                     + margins.bottom() + 1);
+        QVERIFY(tag->contentsRect().width()
+                >= metrics.horizontalAdvance(tag->text()));
     }
 
     auto *setupIllustration =

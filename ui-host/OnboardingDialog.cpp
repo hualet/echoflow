@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QFont>
+#include <QFontMetrics>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -375,13 +376,18 @@ QWidget *OnboardingDialog::createVisualPage(
     if (!tag.isEmpty()) {
         auto *tagLabel = new SemanticTagLabel(tag, page);
         tagLabel->setObjectName(tagObjectName);
-        tagLabel->setWordWrap(true);
+        tagLabel->setWordWrap(false);
         tagLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         tagLabel->setProperty("semanticTag", true);
         tagLabel->setProperty("cornerRadius", kSemanticTagCornerRadius);
         tagLabel->setBackgroundRole(QPalette::AlternateBase);
         tagLabel->setForegroundRole(QPalette::Text);
         tagLabel->setContentsMargins(10, 4, 10, 4);
+        const QMargins margins = tagLabel->contentsMargins();
+        tagLabel->setMinimumWidth(
+            tagLabel->fontMetrics().horizontalAdvance(tag)
+            + margins.left() + margins.right());
+        tagLabel->setMaximumHeight(tagLabel->sizeHint().height());
         tagLabel->setSizePolicy(QSizePolicy::Maximum,
                                 QSizePolicy::Preferred);
         copy->addWidget(tagLabel, 0, Qt::AlignLeft);
