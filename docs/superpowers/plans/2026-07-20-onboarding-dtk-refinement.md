@@ -4,7 +4,7 @@
 
 **Goal:** Move the welcome identity into a real DTK title bar and restyle the final setup page as a native DTK settings group without changing onboarding behavior.
 
-**Architecture:** Keep `OnboardingDialog` as the existing non-modal `DDialog`, but clear its centered content title and insert a `DTitlebar` as the first content widget. Keep the existing setup labels and controller wiring, replacing only the three outlined row frames with row widgets inside one `DBackgroundGroup`.
+**Architecture:** Keep `OnboardingDialog` as the existing non-modal `DDialog`, clear its centered content title/icon, and configure the `DTitlebar` that `DDialog` already owns as a direct child. Keep the slideshow as the sole dialog content widget and preserve the existing setup labels and controller wiring while replacing only the three outlined row frames with row widgets inside one `DBackgroundGroup`.
 
 **Tech Stack:** C++17, Qt 6 Widgets, DTK 6 Widgets, QTest, CMake/CTest
 
@@ -12,11 +12,13 @@
 
 ## File Structure
 
-- Modify `ui-host/OnboardingDialog.cpp`: create the custom DTK title bar and native setup group while preserving the current controller/rendering paths.
+- Modify `ui-host/OnboardingDialog.cpp`: configure the dialog's native DTK title bar and native setup group while preserving the current controller/rendering paths.
 - Modify `tests/test_onboarding_dialog.cpp`: verify the title bar hierarchy, absence of the old centered title, grouped setup rows, accessibility, and minimum-size error reachability.
 - Modify `docs/superpowers/specs/2026-07-18-onboarding-visual-refresh-design.md`: already revised in commit `cc3c086`; no further design change is planned.
 
 ### Task 1: Put the welcome identity in a real DTK title bar
+
+A minimal `DDialog` probe establishes the ownership rule for this task: a fresh dialog has no content widgets and already has exactly one direct-child `DTitlebar`. Reuse that title bar; creating another one would duplicate the native title-bar surface and break the dialog content hierarchy.
 
 **Files:**
 - Modify: `tests/test_onboarding_dialog.cpp`
@@ -29,10 +31,20 @@ Add DTK title-bar coverage to `TestOnboardingDialog::usesApprovedVisualStoryAndA
 ```cpp
 #include <DTitlebar>
 
-auto *titlebar = dialog.findChild<Dtk::Widget::DTitlebar *>(
-    QStringLiteral("onboardingTitlebar"));
-QVERIFY(titlebar);
+const auto titlebars = dialog.findChildren<Dtk::Widget::DTitlebar *>(
+    QString(), Qt::FindDirectChildrenOnly);
+QCOMPARE(titlebars.size(), 1);
+auto *titlebar = titlebars.constFirst();
+QCOMPARE(titlebar->objectName(), QStringLiteral("onboardingTitlebar"));
+
+auto *stackedPages =
+    dialog.findChild<QStackedWidget *>(QStringLiteral("pages"));
+QVERIFY(stackedPages);
+QCOMPARE(dialog.contentCount(), 1);
+QCOMPARE(dialog.getContent(0), stackedPages->parentWidget());
+QVERIFY(dialog.getContent(0) != titlebar);
 QCOMPARE(dialog.title(), QString());
+QVERIFY(dialog.icon().isNull());
 
 auto *titleLabel = titlebar->findChild<QLabel *>(
     QStringLiteral("onboardingTitleLabel"));
@@ -43,7 +55,9 @@ QVERIFY(titleIcon);
 QCOMPARE(titleLabel->text(), QStringLiteral("欢迎使用 EchoFlow"));
 QCOMPARE(titleLabel->accessibleName(), QStringLiteral("欢迎使用 EchoFlow"));
 QVERIFY(!titleIcon->pixmap(Qt::ReturnByValue).isNull());
-QCOMPARE(titleIcon->accessibleName(), QStringLiteral("EchoFlow"));
+QCOMPARE(titleIcon->pixmap(Qt::ReturnByValue).cacheKey(),
+         QApplication::windowIcon().pixmap(20, 20).cacheKey());
+QVERIFY(titleIcon->accessibleName().isEmpty());
 ```
 
 - [ ] **Step 2: Run the focused test and confirm the expected failure**
@@ -56,16 +70,22 @@ ctest --test-dir /tmp/echoflow-onboarding-dtk-baseline \
   -R test_onboarding_dialog --output-on-failure
 ```
 
-Expected: `test_onboarding_dialog` fails because `onboardingTitlebar` does not exist.
+Expected: `test_onboarding_dialog` fails because the existing direct-child title bar is not yet configured as `onboardingTitlebar`. Any implementation that adds a second title bar as dialog content also fails the single-titlebar and single-content assertions.
 
 - [ ] **Step 3: Implement the DTK title bar**
 
-In `ui-host/OnboardingDialog.cpp`, include `DTitlebar`, clear the centered `DDialog` title/icon, and insert a custom title bar before the slideshow content:
+In `ui-host/OnboardingDialog.cpp`, include `DTitlebar`, clear the centered `DDialog` title/icon, retrieve the title bar that `DDialog` already created as a direct child, and configure its custom widget:
 
 ```cpp
 #include <DTitlebar>
 
-auto *titlebar = new Dtk::Widget::DTitlebar(this);
+setWindowIcon(QApplication::windowIcon());
+setTitle({});
+setIcon({});
+
+auto *titlebar = findChild<Dtk::Widget::DTitlebar *>(
+    QString(), Qt::FindDirectChildrenOnly);
+Q_ASSERT(titlebar);
 titlebar->setObjectName(QStringLiteral("onboardingTitlebar"));
 titlebar->setBackgroundTransparent(true);
 titlebar->setSeparatorVisible(false);
@@ -77,7 +97,7 @@ titleLayout->setSpacing(8);
 
 auto *titleIcon = new QLabel(titleWidget);
 titleIcon->setObjectName(QStringLiteral("onboardingTitleIcon"));
-titleIcon->setAccessibleName(QStringLiteral("EchoFlow"));
+titleIcon->setAccessibleName({});
 titleIcon->setPixmap(QApplication::windowIcon().pixmap(20, 20));
 titleIcon->setFixedSize(20, 20);
 
@@ -91,13 +111,9 @@ titleLabel->setFont(titleFont);
 titleLayout->addWidget(titleIcon);
 titleLayout->addWidget(titleLabel);
 titlebar->setCustomWidget(titleWidget);
-
-setTitle({});
-setIcon({});
-addContent(titlebar);
 ```
 
-Keep `setWindowIcon(QApplication::windowIcon())` so the window manager and task switcher retain the application icon. Add the existing slideshow content after the title bar.
+Do not allocate another `DTitlebar` and do not pass a title bar to `addContent()`. Keep the existing `addContent(content)` call so the slideshow remains the sole dialog content widget; `setWindowIcon(QApplication::windowIcon())` retains the application icon for the window manager and task switcher.
 
 - [ ] **Step 4: Run the title-bar test**
 
@@ -115,8 +131,8 @@ Expected: `test_onboarding_dialog` passes and the existing four-page/navigation 
 
 ```bash
 git add ui-host/OnboardingDialog.cpp tests/test_onboarding_dialog.cpp
-git commit -m "fix(onboarding): move welcome text into title bar" \
-  -m "Use a real DTK title bar for the application identity so the slideshow content no longer carries a floating dialog title. Preserve the existing dialog and navigation behavior."
+git commit -m "fix(onboarding): reuse dialog title bar" \
+  -m "Configure DDialog's existing native title bar instead of adding a second one as content. Keep the slideshow as the sole content widget and mark the adjacent application icon as decorative for accessibility."
 ```
 
 ### Task 2: Restyle the setup page as one native DTK settings group
