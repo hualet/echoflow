@@ -69,6 +69,20 @@ resource, accessible image description, heading, body, and optional semantic
 tag. The setup page uses the same two-column shell but supplies its current
 status widgets as the right-side content.
 
+The dialog uses a real DTK title bar rather than `DDialog`'s centered content
+title. The application icon and `欢迎使用 EchoFlow` appear in that title bar,
+leaving the slideshow content area to present only the current page. The title
+bar retains the native close affordance and window-drag behavior.
+
+The final page follows the native DTK settings-group language instead of using
+individually outlined `QFrame::StyledPanel` rows. Model, background service,
+and Fcitx readiness appear as three rows inside one theme-aware
+`DBackgroundGroup`, with native separators and palette roles. Each row keeps
+its name on the left and its current state on the right. Model progress and
+item-specific errors expand directly below their owning row; aggregate errors
+remain below the group. The illustration is reduced to a supporting role so
+setup state remains the page's primary visual hierarchy.
+
 The footer keeps Back, Next, retry, and completion behavior. The textual page
 counter is replaced visually by four compact dots while retaining an
 accessible progress description such as `第 2 页，共 4 页`. Back and primary
@@ -128,6 +142,10 @@ below the visible window bounds.
 - All four pages use a consistent soft 3D blue-violet visual language.
 - The approved left-image, right-copy composition remains balanced at the
   dialog's minimum size.
+- The application icon and `欢迎使用 EchoFlow` occupy a real DTK title bar and
+  are not repeated as centered slideshow content.
+- The setup page uses a single native DTK settings group without boxed
+  `QFrame::StyledPanel` rows.
 - The final page preserves all real setup progress, errors, retry, and
   completion behavior.
 - Dark and light themes use native DTK surfaces with no baked rectangular
