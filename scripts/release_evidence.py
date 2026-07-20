@@ -28,6 +28,22 @@ def _version(changelog):
     return match.group(1)
 
 
+def _version_tuple(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def _previous_release_tag(repo, parent, version):
+    target = _version_tuple(version)
+    candidates = []
+    for tag in _git(repo, "tag", "--merged", parent, "--list", "v*").splitlines():
+        match = re.fullmatch(r"v(\d+\.\d+\.\d+)", tag)
+        if match and _version_tuple(match.group(1)) < target:
+            candidates.append((_version_tuple(match.group(1)), tag))
+    if not candidates:
+        raise ValueError(f"no previous release tag found before v{version}")
+    return max(candidates)[1]
+
+
 def _commit_file(repo, commit, path):
     try:
         return _git(repo, "show", f"{commit}:{path}")
@@ -67,7 +83,7 @@ def verify_release(repo, commit="HEAD", tag=None):
     baseline = evidence.get("baseline", {})
     if candidate.get("commit") != parent:
         raise ValueError("evidence candidate commit is not the release commit parent")
-    expected_baseline_ref = f"v{previous_version}"
+    expected_baseline_ref = _previous_release_tag(repo, parent, version)
     if baseline.get("ref") != expected_baseline_ref:
         raise ValueError(f"baseline ref must be {expected_baseline_ref}")
     baseline_commit = _git(repo, "rev-parse", f"{expected_baseline_ref}^{{commit}}").strip()

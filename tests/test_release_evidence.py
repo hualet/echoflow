@@ -42,7 +42,7 @@ class ReleaseEvidenceTest(unittest.TestCase):
             ["git", *args], cwd=self.repo, check=True, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
 
-    def evidence(self):
+    def evidence(self, *, version="0.2.2", baseline_ref="v0.2.1"):
         baseline = result()
         candidate = result((105.0, 105.0))
         comparison = {
@@ -62,10 +62,10 @@ class ReleaseEvidenceTest(unittest.TestCase):
         return {
             "schema_version": 1,
             "status": "pass",
-            "version": "0.2.2",
+            "version": version,
             "baseline": {
-                "ref": "v0.2.1",
-                "commit": self.git("rev-parse", "v0.2.1").strip(),
+                "ref": baseline_ref,
+                "commit": self.git("rev-parse", baseline_ref).strip(),
                 "mode": "rebuilt",
                 "identity": copy.deepcopy(IDENTITY),
                 "result": baseline,
@@ -79,17 +79,18 @@ class ReleaseEvidenceTest(unittest.TestCase):
             "comparison": comparison,
         }
 
-    def make_release(self, *, evidence=None, source_change=False):
+    def make_release(self, *, evidence=None, source_change=False,
+                     version="0.2.2"):
         changelog = self.repo / "debian/changelog"
         changelog.write_text(
-            "echoflow (0.2.2) unstable; urgency=medium\n\n  * Candidate.\n\n -- Test <test@example.com>  Thu, 02 Jul 2026 00:00:00 +0800\n\n"
+            f"echoflow ({version}) unstable; urgency=medium\n\n  * Candidate.\n\n -- Test <test@example.com>  Thu, 02 Jul 2026 00:00:00 +0800\n\n"
             + changelog.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         if evidence is not None:
             directory = self.repo / "docs/performance/releases"
             directory.mkdir(parents=True)
-            (directory / "0.2.2.json").write_text(
+            (directory / f"{version}.json").write_text(
                 json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         if source_change:
             (self.repo / "service/main.cpp").write_text("smuggled\n", encoding="utf-8")
@@ -99,6 +100,13 @@ class ReleaseEvidenceTest(unittest.TestCase):
 
     def test_valid_release_commit_passes(self):
         commit = self.make_release(evidence=self.evidence())
+        release_evidence.verify_release(self.repo, commit)
+
+    def test_uses_latest_release_tag_when_changelog_skipped_versions(self):
+        self.git("tag", "v0.2.2", self.candidate)
+        self.git("tag", "v0.2.3", self.candidate)
+        evidence = self.evidence(version="0.2.4", baseline_ref="v0.2.3")
+        commit = self.make_release(evidence=evidence, version="0.2.4")
         release_evidence.verify_release(self.repo, commit)
 
     def test_missing_evidence_is_rejected(self):
