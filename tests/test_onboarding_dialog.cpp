@@ -7,6 +7,7 @@
 #include "OnboardingState.h"
 #include "SetupCommandRunner.h"
 
+#include <DBackgroundGroup>
 #include <DTitlebar>
 
 #include <QAccessible>
@@ -142,6 +143,7 @@ private slots:
     void illustrationPreservesSourceAndCollapsesMissingResource();
     void hasFourPagesAndBoundedNavigation();
     void usesApprovedVisualStoryAndAccessibleImages();
+    void usesNativeDtkSetupGroup();
     void setupErrorsRemainReachableAtMinimumSize();
     void startRunsSetupAndDisablesPrimaryAction();
     void rendersDeterminateAndIndeterminateModelProgress();
@@ -495,6 +497,37 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
     QCOMPARE(dialog.currentPage(), 1);
 
     QApplication::setWindowIcon(previousIcon);
+}
+
+void TestOnboardingDialog::usesNativeDtkSetupGroup()
+{
+    QTemporaryDir dir;
+    OnboardingState state(dir.filePath(QStringLiteral("ui-state.ini")));
+    FakeModelSource model;
+    FakeCommandRunner runner;
+    OnboardingSetupController controller(&model, &runner, &state);
+    finishInitialNotReady(runner);
+    OnboardingDialog dialog(&controller);
+
+    auto *group = dialog.findChild<Dtk::Widget::DBackgroundGroup *>(
+        QStringLiteral("setupStatusGroup"));
+    QVERIFY(group);
+    QCOMPARE(group->backgroundRole(), QPalette::Base);
+
+    for (const QString &name : {
+             QStringLiteral("modelSetupRow"),
+             QStringLiteral("serviceSetupRow"),
+             QStringLiteral("fcitxSetupRow")}) {
+        auto *row = dialog.findChild<QWidget *>(name);
+        QVERIFY2(row, qPrintable(name));
+        QVERIFY2(group->isAncestorOf(row), qPrintable(name));
+        QVERIFY(!qobject_cast<QFrame *>(row));
+    }
+
+    QCOMPARE(group->findChildren<QFrame *>(QString(),
+                                            Qt::FindDirectChildrenOnly)
+                 .size(),
+             0);
 }
 
 void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()

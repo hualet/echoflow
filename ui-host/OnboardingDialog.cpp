@@ -6,6 +6,7 @@
 #include "OnboardingIllustration.h"
 #include "OnboardingSetupController.h"
 
+#include <DBackgroundGroup>
 #include <DTitlebar>
 
 #include <QApplication>
@@ -472,40 +473,51 @@ QWidget *OnboardingDialog::createSetupPage()
         QStringLiteral("首次下载模型需要联网；服务和 Fcitx 会同步检查。"),
         setupContent, QStringLiteral("setupDescriptionLabel")));
 
-    auto addRow = [setup, setupContent](const QString &name,
-                                       const QString &statusName,
-                                       const QString &errorName,
-                                       QLabel **status, QLabel **error) {
-        auto *frame = new QFrame(setupContent);
-        frame->setFrameShape(QFrame::StyledPanel);
-        auto *row = new QVBoxLayout(frame);
-        row->setContentsMargins(8, 4, 8, 4);
-        row->setSpacing(2);
+    auto *groupLayout = new QVBoxLayout;
+    groupLayout->setContentsMargins(0, 0, 0, 0);
+    groupLayout->setSpacing(0);
+    auto *statusGroup = new Dtk::Widget::DBackgroundGroup(
+        groupLayout, setupContent);
+    statusGroup->setObjectName(QStringLiteral("setupStatusGroup"));
+    statusGroup->setBackgroundRole(QPalette::Base);
+    statusGroup->setItemMargins(QMargins(12, 8, 12, 8));
+    statusGroup->setItemSpacing(0);
+    statusGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+
+    auto addRow = [groupLayout, statusGroup](
+                      const QString &rowName, const QString &name,
+                      const QString &statusName, const QString &errorName,
+                      QLabel **status, QLabel **error) {
+        auto *rowWidget = new QWidget(statusGroup);
+        rowWidget->setObjectName(rowName);
+        auto *row = new QVBoxLayout(rowWidget);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(4);
         auto *heading = new QHBoxLayout;
-        auto *nameLabel = new QLabel(name, frame);
+        auto *nameLabel = new QLabel(name, rowWidget);
         QFont font = nameLabel->font();
         font.setBold(true);
         nameLabel->setFont(font);
-        *status = new QLabel(frame);
+        *status = new QLabel(rowWidget);
         (*status)->setObjectName(statusName);
         (*status)->setAccessibleName(name + QStringLiteral("状态"));
         heading->addWidget(nameLabel);
         heading->addStretch();
         heading->addWidget(*status);
         row->addLayout(heading);
-        *error = wrappedLabel({}, frame);
+        *error = wrappedLabel({}, rowWidget);
         (*error)->setObjectName(errorName);
         (*error)->setAccessibleName(name + QStringLiteral("错误"));
         (*error)->hide();
         row->addWidget(*error);
-        setup->addWidget(frame);
+        groupLayout->addWidget(rowWidget);
         return row;
     };
 
     QVBoxLayout *modelRow = addRow(
-        QStringLiteral("语音模型"), QStringLiteral("modelStatusLabel"),
-        QStringLiteral("modelErrorLabel"), &modelStatusLabel_,
-        &modelErrorLabel_);
+        QStringLiteral("modelSetupRow"), QStringLiteral("语音模型"),
+        QStringLiteral("modelStatusLabel"), QStringLiteral("modelErrorLabel"),
+        &modelStatusLabel_, &modelErrorLabel_);
     modelProgressBar_ = new QProgressBar(setupContent);
     modelProgressBar_->setObjectName(QStringLiteral("modelProgressBar"));
     modelProgressBar_->setAccessibleName(QStringLiteral("语音模型下载进度"));
@@ -517,14 +529,16 @@ QWidget *OnboardingDialog::createSetupPage()
     modelRow->insertWidget(1, modelProgressBar_);
     modelRow->insertWidget(2, modelProgressLabel_);
 
-    addRow(QStringLiteral("后台服务"),
+    addRow(QStringLiteral("serviceSetupRow"), QStringLiteral("后台服务"),
            QStringLiteral("serviceStatusLabel"),
            QStringLiteral("serviceErrorLabel"), &serviceStatusLabel_,
            &serviceErrorLabel_);
-    addRow(QStringLiteral("Fcitx 就绪状态"),
+    addRow(QStringLiteral("fcitxSetupRow"),
+           QStringLiteral("Fcitx 就绪状态"),
            QStringLiteral("fcitxStatusLabel"),
            QStringLiteral("fcitxErrorLabel"), &fcitxStatusLabel_,
            &fcitxErrorLabel_);
+    setup->addWidget(statusGroup);
 
     aggregateErrorLabel_ = wrappedLabel({}, setupContent);
     aggregateErrorLabel_->setObjectName(QStringLiteral("aggregateErrorLabel"));
