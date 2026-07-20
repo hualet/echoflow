@@ -480,8 +480,8 @@ QWidget *OnboardingDialog::createSetupPage()
         groupLayout, setupContent);
     statusGroup->setObjectName(QStringLiteral("setupStatusGroup"));
     statusGroup->setBackgroundRole(QPalette::Base);
-    statusGroup->setItemMargins(QMargins(12, 8, 12, 8));
-    statusGroup->setItemSpacing(0);
+    statusGroup->setItemMargins({});
+    statusGroup->setItemSpacing(1);
     statusGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
 
     auto addRow = [groupLayout, statusGroup](
@@ -491,8 +491,8 @@ QWidget *OnboardingDialog::createSetupPage()
         auto *rowWidget = new QWidget(statusGroup);
         rowWidget->setObjectName(rowName);
         auto *row = new QVBoxLayout(rowWidget);
-        row->setContentsMargins(0, 0, 0, 0);
-        row->setSpacing(4);
+        row->setContentsMargins(12, 8, 12, 8);
+        row->setSpacing(2);
         auto *heading = new QHBoxLayout;
         auto *nameLabel = new QLabel(name, rowWidget);
         QFont font = nameLabel->font();

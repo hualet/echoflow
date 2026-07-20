@@ -520,6 +520,8 @@ void TestOnboardingDialog::usesNativeDtkSetupGroup()
     auto *group = namedGroups.constFirst();
     QVERIFY(group);
     QCOMPARE(group->backgroundRole(), QPalette::Base);
+    QCOMPARE(group->itemMargins(), QMargins());
+    QCOMPARE(group->layout()->spacing(), 1);
 
     QList<QWidget *> rows;
     for (const QString &name : {
@@ -535,6 +537,50 @@ void TestOnboardingDialog::usesNativeDtkSetupGroup()
     auto *modelRow = rows.at(0);
     auto *serviceRow = rows.at(1);
     auto *fcitxRow = rows.at(2);
+
+    dialog.resize(dialog.minimumSize());
+    dialog.show();
+    auto *next = button(dialog, "nextButton");
+    for (int page = 0; page < 3; ++page) {
+        QTest::mouseClick(next, Qt::LeftButton);
+    }
+    QApplication::processEvents();
+
+    const QStringList statusNames = {
+        QStringLiteral("modelStatusLabel"),
+        QStringLiteral("serviceStatusLabel"),
+        QStringLiteral("fcitxStatusLabel")};
+    for (int index = 0; index < rows.size(); ++index) {
+        auto *row = rows.at(index);
+        auto *rowLayout = qobject_cast<QVBoxLayout *>(row->layout());
+        QVERIFY(rowLayout);
+        QCOMPARE(rowLayout->contentsMargins(), QMargins(12, 8, 12, 8));
+
+        const auto directLabels = row->findChildren<QLabel *>(
+            QString(), Qt::FindDirectChildrenOnly);
+        QLabel *nameLabel = nullptr;
+        for (auto *label : directLabels) {
+            if (label->objectName().isEmpty()) {
+                QVERIFY(!nameLabel);
+                nameLabel = label;
+            }
+        }
+        auto *statusLabel =
+            row->findChild<QLabel *>(statusNames.at(index),
+                                     Qt::FindDirectChildrenOnly);
+        QVERIFY(nameLabel);
+        QVERIFY(statusLabel);
+        QVERIFY(nameLabel->isVisibleTo(row));
+        QVERIFY(statusLabel->isVisibleTo(row));
+        QVERIFY(nameLabel->geometry().left() >= 12);
+        QVERIFY(nameLabel->geometry().top() >= 8);
+        QVERIFY(row->width() - nameLabel->geometry().right() - 1 >= 12);
+        QVERIFY(row->height() - nameLabel->geometry().bottom() - 1 >= 8);
+        QVERIFY(statusLabel->geometry().left() >= 12);
+        QVERIFY(statusLabel->geometry().top() >= 8);
+        QVERIFY(row->width() - statusLabel->geometry().right() - 1 >= 12);
+        QVERIFY(row->height() - statusLabel->geometry().bottom() - 1 >= 8);
+    }
 
     for (const QString &name : {
              QStringLiteral("modelProgressBar"),
