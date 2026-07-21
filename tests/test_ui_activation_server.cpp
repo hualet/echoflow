@@ -519,6 +519,10 @@ void TestUiActivationServer::preservesSymlinkAtSocketPath()
 
 void TestUiActivationServer::preservesSocketOnPermissionDenied()
 {
+    if (::geteuid() == 0) {
+        QSKIP("Socket permission denial requires a non-root test process");
+    }
+
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString path = dir.filePath(QStringLiteral("protected.sock"));

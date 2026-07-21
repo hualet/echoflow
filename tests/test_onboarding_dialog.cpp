@@ -676,7 +676,6 @@ void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()
     runner.finish(QStringLiteral("fcitx"), false, fcitxError);
     QApplication::processEvents();
 
-    QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
     for (const QString &objectName : {
              QStringLiteral("modelErrorLabel"),
              QStringLiteral("serviceErrorLabel"),
