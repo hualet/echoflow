@@ -683,8 +683,8 @@ void TestOnboardingDialog::setupErrorsRemainReachableAtMinimumSize()
         auto *error = dialog.findChild<QLabel *>(objectName);
         QVERIFY2(error, qPrintable(objectName));
         QVERIFY2(scroll->widget()->isAncestorOf(error), qPrintable(objectName));
-        QVERIFY2(error->height() >= error->heightForWidth(error->width()),
-                 qPrintable(objectName));
+        QTRY_VERIFY2(error->height() >= error->heightForWidth(error->width()),
+                     qPrintable(objectName));
         scroll->ensureWidgetVisible(error, 0, 0);
         QApplication::processEvents();
         const QRect visibleRect = error->rect().translated(
