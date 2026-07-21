@@ -1,3 +1,10 @@
+echoflow (0.2.6) unstable; urgency=medium
+
+  * Stabilize Debian release validation by waiting for offscreen onboarding
+    layouts to finish sizing wrapped setup errors.
+
+ -- Hualet Wang <hualet@deepin.org>  Wed, 22 Jul 2026 00:11:27 +0800
+
 echoflow (0.2.5) unstable; urgency=medium
 
   * Restore Debian release builds by making environment-sensitive UI and
