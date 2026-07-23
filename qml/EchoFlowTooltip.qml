@@ -6,11 +6,10 @@ import QtQuick.Window 2.15
 import QtQuick.Controls 2.15
 import org.deepin.dtk 1.0 as D
 
-// Voice capsule shown only while a recording or transcription is in flight.
-// Appears the moment recording starts and disappears when the session ends
-// (IDLE). During recording the left X button cancels (discard), the right
-// check button stops and starts transcription; a symbolic waveform animates
-// between them. While transcribing it shows centered status text.
+// Voice capsule follows the controller's explicit session phase. Idle offers a
+// microphone action beside a static waveform. During recording the left X
+// button cancels (discard), the right check button stops and starts
+// transcription, and the waveform animates. Status phases show centered text.
 Window {
     id: root
     flags: Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
@@ -21,7 +20,7 @@ Window {
     visible: false
 
     property string message: ""
-    property bool busy: false
+    property string phase: "idle"
     property int targetX: 0
     property int targetY: 0
     readonly property color capsuleBackground: typeof theme !== "undefined" ? theme.capsuleBackground : "#232629"
@@ -40,8 +39,10 @@ Window {
     readonly property color accent: typeof theme !== "undefined" ? theme.accent : "#0081ff"
     readonly property color accentText: typeof theme !== "undefined" ? theme.accentText : "white"
 
-    readonly property bool transcribing: root.busy && root.message === "正在转写"
-    readonly property bool recording: root.busy && !root.transcribing
+    readonly property bool idle: root.phase === "idle"
+    readonly property bool recording: root.phase === "recording"
+    readonly property bool transcribing: root.phase === "transcribing"
+    readonly property bool cancelling: root.phase === "cancelling"
     readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
 
     // (targetX, targetY) is the capsule's bottom-center anchor.
@@ -52,9 +53,9 @@ Window {
 
     Connections {
         target: tooltipController
-        function onTooltipChanged(visibility, msg, isBusy, hasPosition, moveX, moveY) {
+        function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY) {
+            root.phase = newPhase
             root.message = msg
-            root.busy = isBusy
             if (hasPosition) {
                 root.targetX = moveX
                 root.targetY = moveY
@@ -63,6 +64,7 @@ Window {
                 root.visible = true
                 capsule.opacity = 1
             } else {
+                capsule.opacity = 0
                 root.visible = false
             }
         }
@@ -86,20 +88,28 @@ Window {
         readonly property int kWaveSpacing: 5
         readonly property int kWaveHeight: 16
         readonly property int kWaveWidth: kWaveBars * kWaveBarWidth + (kWaveBars - 1) * kWaveSpacing
+        readonly property real kIdleWidth: kHPad + kWaveWidth + kGap
+                                                + kButtonSize + kHPad
+        readonly property real kNaturalRecordingWidth: kHPad + kButtonSize
+                                                + (root.hasLiveText
+                                                   ? kGap + liveText.implicitWidth : 0)
+                                                + kGap + kWaveWidth
+                                                + kGap + kButtonSize + kHPad
+        readonly property real kMaxRecordingWidth: Screen.width / 3
+        readonly property real kRecordingWidth: Math.min(kNaturalRecordingWidth,
+                                                         kMaxRecordingWidth)
+        readonly property real kStatusWidth: statusLabel.implicitWidth + 2 * kHPad
 
         height: kHeight
         radius: kRadius
         color: "transparent"
         clip: false
 
+        // idle: [pad][static wave][gap][microphone][pad]
         // recording: [pad][X][gap][live text][gap][wave][gap][✓][pad]
-        // transcribing: [ centered status text ]
-        width: root.recording
-               ? kHPad + kButtonSize            // X button
-                 + (root.hasLiveText ? kGap + liveText.width : 0)
-                 + kGap + waveArea.width        // waveform (always present)
-                 + kGap + kButtonSize + kHPad   // ✓ button
-               : statusLabel.implicitWidth + 2 * kHPad
+        // transcribing/cancelling: [ centered status text ]
+        width: root.idle ? kIdleWidth
+                         : root.recording ? kRecordingWidth : kStatusWidth
 
         D.StyledBehindWindowBlur {
             anchors.fill: parent
@@ -120,6 +130,74 @@ Window {
             radius: capsule.kRadius
             color: root.capsuleInsideBorder
             z: D.DTK.AboveOrder
+        }
+
+        // ---- idle: start-recording microphone button ----
+        Item {
+            id: microphoneButton
+            width: capsule.kButtonSize
+            height: capsule.kButtonSize
+            anchors {
+                right: parent.right
+                rightMargin: capsule.kHPad
+                verticalCenter: parent.verticalCenter
+            }
+            visible: root.idle
+            Accessible.name: qsTr("开始录音")
+            Accessible.role: Accessible.Button
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: microphoneArea.pressed
+                       ? Qt.darker(root.accent, 1.18)
+                       : microphoneArea.containsMouse
+                         ? Qt.lighter(root.accent, 1.12) : root.accent
+                Behavior on color { ColorAnimation { duration: 120 } }
+            }
+
+            // symbolic microphone body, pickup arc, stem, and stand
+            Canvas {
+                anchors.centerIn: parent
+                width: 14
+                height: 14
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.strokeStyle = root.accentText
+                    ctx.lineWidth = 1.7
+                    ctx.lineCap = "round"
+                    ctx.lineJoin = "round"
+
+                    ctx.beginPath()
+                    ctx.moveTo(7, 1.5)
+                    ctx.bezierCurveTo(5.3, 1.5, 4.5, 2.7, 4.5, 4.2)
+                    ctx.lineTo(4.5, 6.5)
+                    ctx.bezierCurveTo(4.5, 8, 5.3, 9.2, 7, 9.2)
+                    ctx.bezierCurveTo(8.7, 9.2, 9.5, 8, 9.5, 6.5)
+                    ctx.lineTo(9.5, 4.2)
+                    ctx.bezierCurveTo(9.5, 2.7, 8.7, 1.5, 7, 1.5)
+                    ctx.stroke()
+
+                    ctx.beginPath()
+                    ctx.moveTo(2.5, 6.5)
+                    ctx.bezierCurveTo(2.5, 9.3, 4.3, 11, 7, 11)
+                    ctx.bezierCurveTo(9.7, 11, 11.5, 9.3, 11.5, 6.5)
+                    ctx.moveTo(7, 11)
+                    ctx.lineTo(7, 13)
+                    ctx.moveTo(4.5, 13)
+                    ctx.lineTo(9.5, 13)
+                    ctx.stroke()
+                }
+            }
+
+            MouseArea {
+                id: microphoneArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: tooltipController.requestToggle()
+            }
         }
 
         // ---- left: cancel (X) button ----
@@ -168,20 +246,20 @@ Window {
             }
         }
 
-        // ---- recording: symbolic waveform (always shown, right of the text) ----
+        // ---- idle/recording: symbolic waveform ----
         // Single Canvas draws all bars in one pass — far cheaper than a
         // Repeater of Rectangles each with its own height animation, and it
         // avoids per-bar NumberAnimation nodes competing for render budget.
         Item {
             id: waveArea
             anchors {
-                left: root.hasLiveText ? liveText.right : cancelButton.right
-                leftMargin: capsule.kGap
+                right: root.idle ? microphoneButton.left : confirmButton.left
+                rightMargin: capsule.kGap
                 verticalCenter: parent.verticalCenter
             }
             width: capsule.kWaveWidth
             height: capsule.kWaveHeight
-            visible: root.recording
+            visible: root.idle || root.recording
 
             Canvas {
                 id: waveCanvas
@@ -194,6 +272,10 @@ Window {
                 Connections {
                     target: waveAnim
                     function onAmplitudesChanged() { waveCanvas.requestPaint() }
+                }
+                Connections {
+                    target: root
+                    function onPhaseChanged() { waveCanvas.requestPaint() }
                 }
                 onPaint: {
                     var ctx = getContext("2d")
@@ -220,7 +302,7 @@ Window {
                         ctx.closePath()
                     }
                     for (var i = 0; i < n; ++i) {
-                        var amp = waveAnim.amplitudes.length === n
+                        var amp = root.recording && waveAnim.amplitudes.length === n
                                   ? waveAnim.amplitudes[i] : 0.5
                         var barH = waveCanvas.peaks[i] * h * (0.45 + 0.55 * amp)
                         var x = i * (barW + gap)
@@ -232,28 +314,37 @@ Window {
             }
         }
 
-        // ---- recording: live ASR text (left of the waveform) ----
-        Label {
-            id: liveText
+        // ---- recording: clipped live ASR text (left of the waveform) ----
+        Item {
+            id: liveTextViewport
             anchors {
                 left: cancelButton.right
                 leftMargin: capsule.kGap
+                right: waveArea.left
+                rightMargin: capsule.kGap
                 verticalCenter: parent.verticalCenter
             }
             visible: root.hasLiveText
-            text: root.message
-            color: root.capsuleText
-            font.pixelSize: 13
-            width: Math.min(implicitWidth, 420)
-            horizontalAlignment: Text.AlignLeft
-            elide: Text.ElideRight
+            height: liveText.implicitHeight
+            clip: true
+
+            Label {
+                id: liveText
+                anchors.verticalCenter: parent.verticalCenter
+                x: Math.min(0, liveTextViewport.width - implicitWidth)
+                text: root.message
+                color: root.capsuleText
+                font.pixelSize: 13
+                horizontalAlignment: Text.AlignLeft
+                Behavior on x { NumberAnimation { duration: 160 } }
+            }
         }
 
-        // ---- transcribing: centered status ----
+        // ---- transcribing/cancelling: centered status ----
         Label {
             id: statusLabel
             anchors.centerIn: parent
-            visible: root.transcribing
+            visible: root.transcribing || root.cancelling
             text: root.message
             color: root.capsuleText
             font.pixelSize: 13
@@ -313,7 +404,7 @@ Window {
         id: waveTimer
         interval: 110
         repeat: true
-        running: root.visible && root.recording && waveArea.visible
+        running: root.visible && root.phase === "recording"
         onTriggered: {
             var next = []
             for (var i = 0; i < capsule.kWaveBars; ++i) {

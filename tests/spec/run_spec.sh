@@ -167,8 +167,14 @@ assert_contains "$ROOT/service/main.cpp" '\"vad_backend\"' "default config repor
 assert_contains "$ROOT/service/main.cpp" '\"energy_min_speech_rms\"' "default config reports energy VAD floor"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.h" "readerError_" "live pipeline retains capture thread failures"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "rethrow_exception(readerError_)" "live pipeline rejects partial text after capture failure"
-# The capsule appears only when recording starts and has no idle hint or
-# focus-tracking fade timers anymore.
+# The capsule renders explicit controller phases and keeps the idle action
+# available without bringing back focus-tracking fade timers.
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' "capsule defaults to the idle phase"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY)" "capsule consumes explicit controller phases"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "idle capsule has a microphone action"
+assert_before "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "onClicked: tooltipController.requestToggle()" "microphone action toggles recording"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'running: root.visible && root.phase === "recording"' "wave animation runs only while recording"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "visible: root.transcribing || root.cancelling" "cancelling phase renders centered status"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestCancel()" "capsule X button cancels recording"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestToggle()" "capsule check button stops and transcribes"
 assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "按右 Ctrl 语音输入" "capsule has no idle focus hint"
