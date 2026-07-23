@@ -9,7 +9,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_AUTOMOC ON)
 
-    find_package(Qt6 REQUIRED COMPONENTS Core Network Test Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Test Widgets)
     find_package(Dtk6 COMPONENTS Widget Gui REQUIRED)
     enable_testing()
 
@@ -72,10 +72,21 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_test(NAME test_onboarding_dialog COMMAND test_onboarding_dialog)
     set_tests_properties(test_onboarding_dialog PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    add_executable(test_capsule_controller
+        test_capsule_controller.cpp
+        ../ui-host/CapsuleController.cpp)
+    target_include_directories(test_capsule_controller PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_capsule_controller PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME test_capsule_controller COMMAND test_capsule_controller)
+    set_tests_properties(test_capsule_controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     return()
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Network Test Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Gui Network Test Widgets)
 find_package(Dtk6 COMPONENTS Widget Gui REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 qt_standard_project_setup()
@@ -172,6 +183,18 @@ target_link_libraries(test_onboarding_dialog PRIVATE
 echoflow_enable_dead_strip(test_onboarding_dialog)
 add_test(NAME test_onboarding_dialog COMMAND test_onboarding_dialog)
 set_tests_properties(test_onboarding_dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_capsule_controller
+    test_capsule_controller.cpp
+    ../ui-host/CapsuleController.cpp)
+target_include_directories(test_capsule_controller PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_capsule_controller PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Test)
+echoflow_enable_dead_strip(test_capsule_controller)
+add_test(NAME test_capsule_controller COMMAND test_capsule_controller)
+set_tests_properties(test_capsule_controller PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 target_include_directories(test_benchmark_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)

@@ -17,6 +17,7 @@ include(GNUInstallDirs)
 
 add_executable(echoflow-ui
     main.cpp
+    CapsuleController.cpp
     EchoFlowSettings.cpp
     SettingsDialog.cpp
     ModelDownloader.cpp
