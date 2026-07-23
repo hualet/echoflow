@@ -112,9 +112,10 @@ assert_contains "$ROOT/systemd/user/echoflow-ui.service.in" "@CMAKE_INSTALL_FULL
 assert_contains "$ROOT/service/CrispAsrEngine.h" 'IAsrEngine' "CrispAsrEngine implements IAsrEngine"
 assert_absent "$ROOT/service/Server.cpp" 'qwen_asr' "Server does not touch qwen-asr"
 assert_absent "$ROOT/service/VoiceSession.cpp" 'qwen_asr' "VoiceSession does not touch qwen-asr"
-for verb in FOCUS BLUR CTRL_DOWN TYPED; do
+for verb in FOCUS BLUR CTRL_DOWN TYPED CANCEL STATUS; do
   assert_contains "$ROOT/service/VoiceSession.cpp" "$verb" "verb $verb handled"
 done
+assert_contains "$ROOT/service/Server.cpp" '"STATUS"' "Server allows STATUS command"
 
 assert_script_absent() {
   if [[ ! -e "$ROOT/scripts/setup-qwen-asr-0.6b.sh" ]]; then

@@ -17,7 +17,7 @@ namespace echoflow {
 
 namespace {
 
-constexpr std::array<const char*, 5> kAllowedCommands = {"FOCUS", "BLUR", "CTRL_DOWN", "TYPED", "CANCEL"};
+constexpr std::array<const char*, 6> kAllowedCommands = {"FOCUS", "BLUR", "CTRL_DOWN", "TYPED", "CANCEL", "STATUS"};
 
 std::string trim(const std::string& value)
 {
