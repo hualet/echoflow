@@ -162,7 +162,7 @@ std::string VoiceSession::handleCommand(const std::string& command)
 
     if (verb == "STATUS") {
         const auto [phase, version] = phaseSnapshot();
-        publishPhase(phase, version);
+        publishPhase(phase, version, true);
         return phaseName(phase);
     }
 
@@ -492,75 +492,49 @@ std::pair<SessionState, std::uint64_t> VoiceSession::phaseSnapshot() const
     return { state_, stateVersion_ };
 }
 
-void VoiceSession::publishPhase(SessionState state, std::uint64_t version)
+void VoiceSession::publishPhase(
+    SessionState state, std::uint64_t version, bool suppressIfStale)
 {
-    const auto notification = std::make_shared<PhaseNotification>(
-        PhaseNotification { state, version });
     bool drain = false;
-    bool wait = false;
     {
         std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
-        phaseNotifications_.push_back(notification);
+        phaseNotifications_.push_back(
+            PhaseNotification { state, version, suppressIfStale });
         if (!phaseNotificationDraining_) {
             phaseNotificationDraining_ = true;
-            phaseNotificationDrainer_ = std::this_thread::get_id();
             drain = true;
-        } else {
-            // Synchronous re-entry from ui_.send() must enqueue and return;
-            // another thread waits so phase publication keeps its old contract.
-            wait = phaseNotificationDrainer_ != std::this_thread::get_id();
         }
     }
 
     if (drain) {
-        std::exception_ptr ownError;
         while (true) {
-            std::shared_ptr<PhaseNotification> next;
+            PhaseNotification next;
             {
                 std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
                 if (phaseNotifications_.empty()) {
                     phaseNotificationDraining_ = false;
-                    phaseNotificationDrainer_ = {};
                     break;
                 }
                 next = phaseNotifications_.front();
                 phaseNotifications_.pop_front();
             }
 
-            bool current = false;
-            {
+            bool publish = true;
+            if (next.suppressIfStale) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 // A delayed STATUS snapshot must not overwrite a newer phase.
-                current = state_ == next->state && stateVersion_ == next->version;
+                publish = state_ == next.state && stateVersion_ == next.version;
             }
 
-            if (current) {
+            if (publish) {
                 try {
-                    ui_.send(phaseName(next->state));
+                    ui_.send(phaseName(next.state));
+                } catch (const std::exception& e) {
+                    log(std::string("voice phase notification failed: ") + e.what());
                 } catch (...) {
-                    next->error = std::current_exception();
+                    log("voice phase notification failed: unknown exception");
                 }
             }
-
-            {
-                std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
-                next->complete = true;
-            }
-            phaseNotificationCondition_.notify_all();
-            if (next == notification && next->error) {
-                ownError = next->error;
-            }
-        }
-        if (ownError) {
-            std::rethrow_exception(ownError);
-        }
-    } else if (wait) {
-        std::unique_lock<std::mutex> lock(phaseNotificationMutex_);
-        phaseNotificationCondition_.wait(lock, [&notification] {
-            return notification->complete;
-        });
-        if (notification->error) {
-            std::rethrow_exception(notification->error);
         }
     }
 }

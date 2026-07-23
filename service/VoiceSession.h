@@ -11,7 +11,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <exception>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -51,8 +50,7 @@ private:
     struct PhaseNotification {
         SessionState state;
         std::uint64_t version;
-        bool complete = false;
-        std::exception_ptr error;
+        bool suppressIfStale;
     };
 
     std::string startRecording();
@@ -66,7 +64,8 @@ private:
     std::string cancelActiveSession();
     std::uint64_t setStateLocked(SessionState state);
     std::pair<SessionState, std::uint64_t> phaseSnapshot() const;
-    void publishPhase(SessionState state, std::uint64_t version);
+    void publishPhase(
+        SessionState state, std::uint64_t version, bool suppressIfStale = false);
     static std::string phaseName(SessionState state);
 
     Config cfg_;
@@ -93,10 +92,8 @@ private:
     bool shuttingDown_ = false;
 
     std::mutex phaseNotificationMutex_;
-    std::condition_variable phaseNotificationCondition_;
-    std::deque<std::shared_ptr<PhaseNotification>> phaseNotifications_;
+    std::deque<PhaseNotification> phaseNotifications_;
     bool phaseNotificationDraining_ = false;
-    std::thread::id phaseNotificationDrainer_;
 };
 
 } // namespace echoflow

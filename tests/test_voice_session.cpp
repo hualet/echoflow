@@ -451,6 +451,62 @@ struct ReentrantUi : IUiNotifier {
     }
 };
 
+struct CrossThreadCommandUi : IUiNotifier {
+    VoiceSession* session = nullptr;
+    std::atomic<bool> reentryBlocked = false;
+    std::atomic<int> reentriesInFlight = 0;
+    std::atomic<bool> armed = false;
+    std::mutex completionMutex;
+    std::condition_variable completionCondition;
+
+    void send(const std::string&) override
+    {
+        if (!session || !armed.exchange(false)) {
+            return;
+        }
+
+        auto result = std::make_shared<std::promise<std::string>>();
+        auto future = result->get_future();
+        ++reentriesInFlight;
+        std::thread reentry([this, result] {
+            result->set_value(session->handleCommand("STATUS"));
+            {
+                std::lock_guard<std::mutex> lock(completionMutex);
+                --reentriesInFlight;
+            }
+            completionCondition.notify_all();
+        });
+        if (future.wait_for(200ms) == std::future_status::ready) {
+            reentry.join();
+        } else {
+            reentryBlocked = true;
+            reentry.detach();
+        }
+    }
+
+    bool waitForReentries(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(completionMutex);
+        return completionCondition.wait_for(
+            lock, timeout, [this] { return reentriesInFlight.load() == 0; });
+    }
+};
+
+struct SameThreadCommandUi : IUiNotifier {
+    VoiceSession* session = nullptr;
+    bool armed = false;
+    std::string response;
+
+    void send(const std::string&) override
+    {
+        if (!session || !armed) {
+            return;
+        }
+        armed = false;
+        response = session->handleCommand("STATUS");
+    }
+};
+
 struct BlockingPartialUi : IUiNotifier {
     mutable std::mutex messagesMutex;
     std::condition_variable messagesCondition;
@@ -530,6 +586,8 @@ private slots:
     void cancellingNotificationPrecedesFinalIdle();
     void cancelAfterCommitClaimRemainsResponsive();
     void notifierCanReenterSessionWithoutDeadlock();
+    void notifierCanDispatchCommandOnSameThreadWithoutDeadlock();
+    void notifierCanDispatchCommandAcrossThreadWithoutDeadlock();
     void partialCompletesBeforeTranscribingNotification();
     void partialCompletesBeforeRecordingCancelIdle();
     void destructorWaitsForBlockedPartialNotification();
@@ -538,6 +596,7 @@ private slots:
     void threadLaunchFailureRestoresRecording();
     void statusReportsEveryPhaseWithoutMutation();
     void staleStatusCannotOvertakeFinalIdle();
+    void queuedCancellationStillPrecedesFinalIdle();
     void blurDuringTranscribingDiscardsFinishedText();
     void destructorWaitsForFinalization();
     void latePartialAfterStopIsIgnored();
@@ -1080,6 +1139,42 @@ void TestVoiceSession::notifierCanReenterSessionWithoutDeadlock()
     QVERIFY2(!ui.reentryBlocked.load(), "IUiNotifier::send ran under the session state mutex");
 }
 
+void TestVoiceSession::notifierCanDispatchCommandAcrossThreadWithoutDeadlock()
+{
+    FakeRecorder recorder;
+    FakeAsr asr;
+    FakeCommitter committer;
+    CrossThreadCommandUi ui;
+    VoiceSession session(Config::defaultConfig(), recorder, asr, committer, ui);
+    ui.session = &session;
+    ui.armed = true;
+
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QVERIFY(ui.waitForReentries());
+    QVERIFY2(!ui.reentryBlocked.load(),
+        "phase publisher waited on a command dispatched by its own notifier");
+
+    session.handleCommand("CANCEL");
+}
+
+void TestVoiceSession::notifierCanDispatchCommandOnSameThreadWithoutDeadlock()
+{
+    FakeRecorder recorder;
+    FakeAsr asr;
+    FakeCommitter committer;
+    SameThreadCommandUi ui;
+    VoiceSession session(Config::defaultConfig(), recorder, asr, committer, ui);
+    ui.session = &session;
+    ui.armed = true;
+
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QCOMPARE(QString::fromStdString(ui.response), QStringLiteral("RECORDING"));
+
+    session.handleCommand("CANCEL");
+}
+
 void TestVoiceSession::partialCompletesBeforeTranscribingNotification()
 {
     FakeLivePipeline pipeline;
@@ -1321,6 +1416,49 @@ void TestVoiceSession::staleStatusCannotOvertakeFinalIdle()
     QCOMPARE(messages.size(), std::size_t(2));
     QCOMPARE(QString::fromStdString(messages[0]), QStringLiteral("TRANSCRIBING"));
     QCOMPARE(QString::fromStdString(messages[1]), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::queuedCancellationStillPrecedesFinalIdle()
+{
+    BlockingLivePipeline pipeline;
+    pipeline.result = "must be discarded";
+    FakeCommitter committer;
+    BlockingStatusUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseBlockedCalls {
+        [&pipeline, &ui] {
+            pipeline.releaseFinish();
+            ui.releaseStatus();
+        }
+    };
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    ui.clear();
+
+    ui.blockNext("TRANSCRIBING");
+    auto status
+        = std::async(std::launch::async, [&session] { return session.handleCommand("STATUS"); });
+    QVERIFY(ui.waitForStatusEntered());
+
+    auto cancel
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CANCEL"); });
+    QCOMPARE(cancel.wait_for(200ms), std::future_status::ready);
+    QCOMPARE(QString::fromStdString(cancel.get()), QStringLiteral("CANCELLED"));
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    ui.releaseStatus();
+
+    QCOMPARE(status.wait_for(1000ms), std::future_status::ready);
+    status.get();
+    QVERIFY(ui.waitForMessage("IDLE"));
+    const auto messages = ui.messages();
+    QCOMPARE(messages.size(), std::size_t(3));
+    QCOMPARE(QString::fromStdString(messages[0]), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages[1]), QStringLiteral("CANCELLING"));
+    QCOMPARE(QString::fromStdString(messages[2]), QStringLiteral("IDLE"));
+    QVERIFY(committer.texts().empty());
 }
 
 void TestVoiceSession::blurDuringTranscribingDiscardsFinishedText()
