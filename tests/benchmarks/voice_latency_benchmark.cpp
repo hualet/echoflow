@@ -7,6 +7,7 @@
 #include "VoiceSession.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -146,8 +147,17 @@ public:
 
 class CountingUi : public echoflow::IUiNotifier {
 public:
-    int messages = 0;
-    void send(const std::string&) override { ++messages; }
+    std::atomic<int> messages = 0;
+
+    void send(const std::string& message) override
+    {
+        // VoiceSession publishes Idle before its final notification. Keep that
+        // window observable so the benchmark must join the worker before readout.
+        if (message == "IDLE") {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ++messages;
+    }
 };
 
 void printUsage()
@@ -167,18 +177,25 @@ int runSynthetic(int iterations)
         TimedAsr asr;
         TimedCommitter committer;
         CountingUi ui;
-        echoflow::VoiceSession session(echoflow::Config::defaultConfig(), recorder, asr, committer, ui);
+        std::string reply;
+        double stopToReplyMs = 0.0;
 
-        session.handleCommand("CTRL_DOWN");
-        auto started = Clock::now();
-        std::string reply = session.handleCommand("CTRL_DOWN");
-        double stopToReplyMs = elapsedMs(started);
+        {
+            echoflow::VoiceSession session(
+                echoflow::Config::defaultConfig(), recorder, asr, committer, ui);
 
-        if (!waitForIdle(session)) {
-            std::fprintf(stderr,
-                         "session-synthetic iteration %d timed out waiting for finalization\n",
-                         i + 1);
-            return 1;
+            session.handleCommand("CTRL_DOWN");
+            auto started = Clock::now();
+            reply = session.handleCommand("CTRL_DOWN");
+            stopToReplyMs = elapsedMs(started);
+
+            if (!waitForIdle(session)) {
+                std::fprintf(stderr,
+                             "session-synthetic iteration %d timed out waiting for finalization\n",
+                             i + 1);
+                std::fflush(stderr);
+                std::_Exit(EXIT_FAILURE);
+            }
         }
 
         std::printf("{\"mode\":\"session-synthetic\",\"iteration\":%d,"
@@ -186,7 +203,7 @@ int runSynthetic(int iterations)
                     "\"transcribe_ms\":%.3f,\"commit_ms\":%.3f,"
                     "\"ui_messages\":%d,\"reply\":\"%s\"}\n",
                     i + 1, stopToReplyMs, recorder.stopMs, asr.transcribeMs,
-                    committer.commitMs, ui.messages, jsonEscape(reply).c_str());
+                    committer.commitMs, ui.messages.load(), jsonEscape(reply).c_str());
     }
     return 0;
 }
