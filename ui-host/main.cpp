@@ -22,7 +22,6 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
-#include <QGuiApplication>
 #include <QIcon>
 #include <QMenu>
 #include <QMessageBox>
@@ -30,7 +29,6 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QProcess>
-#include <QScreen>
 #include <QSocketNotifier>
 #include <QStandardPaths>
 #include <QString>
@@ -43,6 +41,7 @@
 #include <DGuiApplicationHelper>
 #include <DPalette>
 
+#include "CapsuleController.h"
 #include "EchoFlowSettings.h"
 #include "ModelDownloadCoordinator.h"
 #include "ModelSetupAdapter.h"
@@ -169,52 +168,6 @@ void restartServiceAfterSettingsChange() {
     }
 }
 
-struct TooltipPos {
-    bool hasPosition = false;
-    int x = 0;
-    int y = 0;
-};
-
-// The voice capsule always sits at the primary screen's bottom-center, ~8px
-// above the panel (availableGeometry already excludes panels).
-TooltipPos fixedCapsulePosition() {
-    if (auto *screen = QGuiApplication::primaryScreen()) {
-        const QRect avail = screen->availableGeometry();
-        return {true, avail.left() + avail.width() / 2, avail.bottom() - 8};
-    }
-    return {};
-}
-
-class TooltipController final : public QObject {
-    Q_OBJECT
-public:
-    explicit TooltipController(QString controlPath, QObject *parent = nullptr)
-        : QObject(parent), controlPath_(std::move(controlPath)) {}
-
-public slots:
-    void setTooltip(bool visible, const QString &message, bool busy = false,
-                    bool hasPosition = false, int moveX = 0, int moveY = 0) {
-        emit tooltipChanged(visible, message, busy, hasPosition, moveX, moveY);
-    }
-
-    // Equivalent to pressing the right Ctrl key: toggles recording on/off.
-    void requestToggle() {
-        sendControlCommand(controlPath_, "CTRL_DOWN");
-    }
-
-    // The capsule's X button: discard the recording and hide the capsule.
-    void requestCancel() {
-        sendControlCommand(controlPath_, "CANCEL");
-    }
-
-signals:
-    void tooltipChanged(bool visible, const QString &message, bool busy,
-                        bool hasPosition, int moveX, int moveY);
-
-private:
-    QString controlPath_;
-};
-
 class ThemeBridge final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QColor capsuleBackground READ capsuleBackground NOTIFY paletteChanged)
@@ -265,7 +218,7 @@ private:
 class UiSocketServer final : public QObject {
     Q_OBJECT
 public:
-    UiSocketServer(QString path, TooltipController *controller, QObject *parent = nullptr)
+    UiSocketServer(QString path, CapsuleController *controller, QObject *parent = nullptr)
         : QObject(parent), path_(std::move(path)), controller_(controller) {}
 
     ~UiSocketServer() override {
@@ -332,33 +285,13 @@ private:
         // focus-tracking capsule.
         if (message.startsWith(QStringLiteral("SHOW_TOOLTIP"))) {
             return;
-        } else if (message == QStringLiteral("RECORDING")) {
-            recordingStreamActive_ = true;
-            const TooltipPos pos = fixedCapsulePosition();
-            controller_->setTooltip(true, QStringLiteral("正在聆听"), true,
-                                     pos.hasPosition, pos.x, pos.y);
-        } else if (message.startsWith(QStringLiteral("STREAM_TEXT"))) {
-            if (!recordingStreamActive_) {
-                return;
-            }
-            QString text = message.mid(QStringLiteral("STREAM_TEXT").size()).trimmed();
-            if (!text.isEmpty()) {
-                const TooltipPos pos = fixedCapsulePosition();
-                controller_->setTooltip(true, text, true, pos.hasPosition, pos.x, pos.y);
-            }
-        } else if (message == QStringLiteral("TRANSCRIBING")) {
-            recordingStreamActive_ = false;
-            controller_->setTooltip(true, QStringLiteral("正在转写"), true);
-        } else if (message == QStringLiteral("HIDE_TOOLTIP") || message == QStringLiteral("IDLE")) {
-            recordingStreamActive_ = false;
-            controller_->setTooltip(false, QString(), false);
         }
+        controller_->applyServiceMessage(message);
     }
 
     QString path_;
-    TooltipController *controller_ = nullptr;
+    CapsuleController *controller_ = nullptr;
     int fd_ = -1;
-    bool recordingStreamActive_ = false;
     std::unique_ptr<QSocketNotifier> notifier_;
 };
 
@@ -431,7 +364,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    TooltipController controller(QString::fromStdString(defaultControlSocketPath()));
+    const QString controlPath = QString::fromStdString(defaultControlSocketPath());
+    CapsuleController controller([controlPath](std::string_view command) {
+        return sendControlCommand(controlPath, command);
+    });
     ThemeBridge theme;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("tooltipController"), &controller);
@@ -453,6 +389,8 @@ int main(int argc, char **argv) {
     }
 
     QMenu trayMenu;
+    QAction *capsuleAction = trayMenu.addAction(QObject::tr("显示录音胶囊"));
+    capsuleAction->setCheckable(true);
     QAction *guideAction = trayMenu.addAction(QObject::tr("使用引导"));
     QAction *settingsAction = trayMenu.addAction(QObject::tr("设置"));
     trayMenu.addSeparator();
@@ -486,6 +424,10 @@ int main(int argc, char **argv) {
     bool shuttingDown = false;
     QPointer<echoflow::SettingsDialog> settingsDialog;
     QPointer<OnboardingDialog> onboardingDialog;
+    QObject::connect(capsuleAction, &QAction::toggled,
+                     &controller, &CapsuleController::setPersistent);
+    QObject::connect(&controller, &CapsuleController::persistentChanged,
+                     capsuleAction, &QAction::setChecked);
     auto openSettings = [&]() {
         if (!settingsDialog) {
             settingsDialog = new echoflow::SettingsDialog(
