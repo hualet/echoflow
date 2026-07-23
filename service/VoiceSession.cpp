@@ -98,11 +98,11 @@ VoiceSession::~VoiceSession()
         shuttingDown_ = true;
         if (state_ == SessionState::Recording) {
             cancelRecording = true;
-            state_ = SessionState::Idle;
+            setStateLocked(SessionState::Idle);
             runningGeneration_ = 0;
         } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
             cancelRequested_ = true;
-            state_ = SessionState::Cancelling;
+            setStateLocked(SessionState::Cancelling);
         }
     }
     condition_.notify_all();
@@ -161,9 +161,9 @@ std::string VoiceSession::handleCommand(const std::string& command)
     }
 
     if (verb == "STATUS") {
-        const auto phase = phaseName(state());
-        ui_.send(phase);
-        return phase;
+        const auto [phase, version] = phaseSnapshot();
+        publishPhase(phase, version);
+        return phaseName(phase);
     }
 
     if (verb == "CTRL_DOWN") {
@@ -187,6 +187,7 @@ std::string VoiceSession::startRecording()
 {
     joinCompletedWorker();
 
+    std::uint64_t phaseVersion = 0;
     try {
         if (livePipeline_) {
             livePipeline_->start();
@@ -197,13 +198,13 @@ std::string VoiceSession::startRecording()
         log(std::string("voice start failed: ") + e.what());
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            state_ = SessionState::Idle;
+            phaseVersion = setStateLocked(SessionState::Idle);
             runningGeneration_ = 0;
             cancelRequested_ = false;
             commitClaimed_ = false;
             finalizationStartPublished_ = false;
         }
-        ui_.send("IDLE");
+        publishPhase(SessionState::Idle, phaseVersion);
         return "ERR " + std::string(e.what());
     }
 
@@ -213,9 +214,9 @@ std::string VoiceSession::startRecording()
         cancelRequested_ = false;
         commitClaimed_ = false;
         finalizationStartPublished_ = false;
-        state_ = SessionState::Recording;
+        phaseVersion = setStateLocked(SessionState::Recording);
     }
-    ui_.send("RECORDING");
+    publishPhase(SessionState::Recording, phaseVersion);
     setPartialTextAccepting(true);
     return "RECORDING";
 }
@@ -223,6 +224,7 @@ std::string VoiceSession::startRecording()
 std::string VoiceSession::startFinalization()
 {
     std::uint64_t generation = 0;
+    std::uint64_t phaseVersion = 0;
     std::string launchError;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -233,7 +235,7 @@ std::string VoiceSession::startFinalization()
         // The pipeline is about to be finalized; stop accepting streaming
         // partials. The worker waits for TRANSCRIBING to be published before
         // touching capture/ASR, so notifier calls stay outside this mutex.
-        state_ = SessionState::Transcribing;
+        phaseVersion = setStateLocked(SessionState::Transcribing);
         finalizationRunning_ = true;
         finalizationStartPublished_ = false;
         commitClaimed_ = false;
@@ -243,7 +245,7 @@ std::string VoiceSession::startFinalization()
                 = threadLauncher_([this, generation] { finalize(generation); });
         } catch (const std::system_error& e) {
             launchError = e.what();
-            state_ = SessionState::Recording;
+            phaseVersion = setStateLocked(SessionState::Recording);
             finalizationRunning_ = false;
             finalizationStartPublished_ = false;
         }
@@ -251,12 +253,12 @@ std::string VoiceSession::startFinalization()
 
     if (!launchError.empty()) {
         log("voice finalization launch failed: " + launchError);
-        ui_.send("RECORDING");
+        publishPhase(SessionState::Recording, phaseVersion);
         return "ERR " + launchError;
     }
 
     setPartialTextAccepting(false);
-    ui_.send("TRANSCRIBING");
+    publishPhase(SessionState::Transcribing, phaseVersion);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (finalizationRunning_ && runningGeneration_ == generation) {
@@ -327,6 +329,7 @@ void VoiceSession::finalize(std::uint64_t generation)
     }
 
     bool notifyIdle = false;
+    std::uint64_t idleVersion = 0;
     {
         std::unique_lock<std::mutex> lock(mutex_);
         const bool current = finalizationRunning_ && runningGeneration_ == generation;
@@ -336,7 +339,7 @@ void VoiceSession::finalize(std::uint64_t generation)
             // CANCELLING is published before the terminal IDLE.
             condition_.wait(lock,
                 [this] { return pendingCancellationNotifications_ == 0; });
-            state_ = SessionState::Idle;
+            idleVersion = setStateLocked(SessionState::Idle);
             runningGeneration_ = 0;
             finalizationRunning_ = false;
             finalizationStartPublished_ = false;
@@ -346,7 +349,7 @@ void VoiceSession::finalize(std::uint64_t generation)
         }
     }
     if (notifyIdle) {
-        ui_.send("IDLE");
+        publishPhase(SessionState::Idle, idleVersion);
     }
 }
 
@@ -402,26 +405,30 @@ std::string VoiceSession::cancelActiveSession()
     bool cancelRecording = false;
     bool publishCancellation = false;
     std::string result = "CANCELLED";
-    std::string notification;
+    SessionState notification = SessionState::Idle;
+    std::uint64_t notificationVersion = 0;
+    bool hasNotification = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (state_ == SessionState::Recording) {
             cancelRecording = true;
-            state_ = SessionState::Idle;
+            notificationVersion = setStateLocked(SessionState::Idle);
             runningGeneration_ = 0;
             cancelRequested_ = false;
-            notification = "IDLE";
+            hasNotification = true;
         } else if (state_ == SessionState::Transcribing && commitClaimed_) {
             // The external commit has already won the claim gate. Report the
             // in-flight phase honestly; cancellation can no longer suppress it.
             result = "TRANSCRIBING";
         } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
             cancelRequested_ = true;
-            state_ = SessionState::Cancelling;
+            notification = SessionState::Cancelling;
+            notificationVersion = setStateLocked(SessionState::Cancelling);
             ++pendingCancellationNotifications_;
             publishCancellation = true;
         } else {
-            notification = "IDLE";
+            notificationVersion = stateVersion_;
+            hasNotification = true;
         }
     }
 
@@ -441,7 +448,7 @@ std::string VoiceSession::cancelActiveSession()
             condition_.notify_all();
         };
         try {
-            ui_.send("CANCELLING");
+            publishPhase(SessionState::Cancelling, notificationVersion);
         } catch (...) {
             finishNotification();
             throw;
@@ -464,10 +471,98 @@ std::string VoiceSession::cancelActiveSession()
             }
         }
     }
-    if (!notification.empty()) {
-        ui_.send(notification);
+    if (hasNotification) {
+        publishPhase(notification, notificationVersion);
     }
     return result;
+}
+
+std::uint64_t VoiceSession::setStateLocked(SessionState state)
+{
+    if (state_ != state) {
+        state_ = state;
+        ++stateVersion_;
+    }
+    return stateVersion_;
+}
+
+std::pair<SessionState, std::uint64_t> VoiceSession::phaseSnapshot() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return { state_, stateVersion_ };
+}
+
+void VoiceSession::publishPhase(SessionState state, std::uint64_t version)
+{
+    const auto notification = std::make_shared<PhaseNotification>(
+        PhaseNotification { state, version });
+    bool drain = false;
+    bool wait = false;
+    {
+        std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
+        phaseNotifications_.push_back(notification);
+        if (!phaseNotificationDraining_) {
+            phaseNotificationDraining_ = true;
+            phaseNotificationDrainer_ = std::this_thread::get_id();
+            drain = true;
+        } else {
+            // Synchronous re-entry from ui_.send() must enqueue and return;
+            // another thread waits so phase publication keeps its old contract.
+            wait = phaseNotificationDrainer_ != std::this_thread::get_id();
+        }
+    }
+
+    if (drain) {
+        std::exception_ptr ownError;
+        while (true) {
+            std::shared_ptr<PhaseNotification> next;
+            {
+                std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
+                if (phaseNotifications_.empty()) {
+                    phaseNotificationDraining_ = false;
+                    phaseNotificationDrainer_ = {};
+                    break;
+                }
+                next = phaseNotifications_.front();
+                phaseNotifications_.pop_front();
+            }
+
+            bool current = false;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                // A delayed STATUS snapshot must not overwrite a newer phase.
+                current = state_ == next->state && stateVersion_ == next->version;
+            }
+
+            if (current) {
+                try {
+                    ui_.send(phaseName(next->state));
+                } catch (...) {
+                    next->error = std::current_exception();
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(phaseNotificationMutex_);
+                next->complete = true;
+            }
+            phaseNotificationCondition_.notify_all();
+            if (next == notification && next->error) {
+                ownError = next->error;
+            }
+        }
+        if (ownError) {
+            std::rethrow_exception(ownError);
+        }
+    } else if (wait) {
+        std::unique_lock<std::mutex> lock(phaseNotificationMutex_);
+        phaseNotificationCondition_.wait(lock, [&notification] {
+            return notification->complete;
+        });
+        if (notification->error) {
+            std::rethrow_exception(notification->error);
+        }
+    }
 }
 
 std::string VoiceSession::phaseName(SessionState state)

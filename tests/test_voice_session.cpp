@@ -314,6 +314,51 @@ struct FakeUi : IUiNotifier {
     }
 };
 
+struct BlockingStatusUi : FakeUi {
+    std::mutex statusMutex;
+    std::condition_variable statusCondition;
+    std::string blockedMessage;
+    bool statusArmed_ = false;
+    bool statusEntered_ = false;
+    bool statusReleased_ = false;
+
+    void send(const std::string& message) override
+    {
+        {
+            std::unique_lock<std::mutex> lock(statusMutex);
+            if (statusArmed_ && message == blockedMessage) {
+                statusArmed_ = false;
+                statusEntered_ = true;
+                statusCondition.notify_all();
+                statusCondition.wait(lock, [this] { return statusReleased_; });
+            }
+        }
+        FakeUi::send(message);
+    }
+
+    void blockNext(const std::string& message)
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        blockedMessage = message;
+        statusArmed_ = true;
+        statusEntered_ = false;
+        statusReleased_ = false;
+    }
+
+    bool waitForStatusEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(statusMutex);
+        return statusCondition.wait_for(lock, timeout, [this] { return statusEntered_; });
+    }
+
+    void releaseStatus()
+    {
+        std::lock_guard<std::mutex> lock(statusMutex);
+        statusReleased_ = true;
+        statusCondition.notify_all();
+    }
+};
+
 struct BlockingCancellationUi : IUiNotifier {
     mutable std::mutex messagesMutex;
     std::condition_variable messagesCondition;
@@ -492,6 +537,7 @@ private slots:
     void destructorClosesCommitGateBeforeCallbackTeardown();
     void threadLaunchFailureRestoresRecording();
     void statusReportsEveryPhaseWithoutMutation();
+    void staleStatusCannotOvertakeFinalIdle();
     void blurDuringTranscribingDiscardsFinishedText();
     void destructorWaitsForFinalization();
     void latePartialAfterStopIsIgnored();
@@ -1238,6 +1284,43 @@ void TestVoiceSession::statusReportsEveryPhaseWithoutMutation()
     pipeline.releaseFinish();
     QTRY_COMPARE(session.state(), SessionState::Idle);
     QVERIFY(ui.waitForMessage("IDLE"));
+}
+
+void TestVoiceSession::staleStatusCannotOvertakeFinalIdle()
+{
+    BlockingLivePipeline pipeline;
+    pipeline.result.clear();
+    FakeCommitter committer;
+    BlockingStatusUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseBlockedCalls {
+        [&pipeline, &ui] {
+            pipeline.releaseFinish();
+            ui.releaseStatus();
+        }
+    };
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    ui.clear();
+
+    ui.blockNext("TRANSCRIBING");
+    auto status
+        = std::async(std::launch::async, [&session] { return session.handleCommand("STATUS"); });
+    QVERIFY(ui.waitForStatusEntered());
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    ui.releaseStatus();
+
+    QCOMPARE(status.wait_for(1000ms), std::future_status::ready);
+    QCOMPARE(QString::fromStdString(status.get()), QStringLiteral("TRANSCRIBING"));
+    QVERIFY(ui.waitForMessage("IDLE"));
+    const auto messages = ui.messages();
+    QCOMPARE(messages.size(), std::size_t(2));
+    QCOMPARE(QString::fromStdString(messages[0]), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages[1]), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::blurDuringTranscribingDiscardsFinishedText()

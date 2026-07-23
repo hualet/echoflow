@@ -10,9 +10,12 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 namespace echoflow {
 
@@ -45,6 +48,13 @@ private:
         std::size_t active = 0;
     };
 
+    struct PhaseNotification {
+        SessionState state;
+        std::uint64_t version;
+        bool complete = false;
+        std::exception_ptr error;
+    };
+
     std::string startRecording();
     std::string startFinalization();
     void finalize(std::uint64_t generation);
@@ -54,6 +64,9 @@ private:
     // Discard any in-flight recording and return to Idle, emitting IDLE so the
     // UI hides the capsule. Shared by BLUR (focus lost) and CANCEL (X button).
     std::string cancelActiveSession();
+    std::uint64_t setStateLocked(SessionState state);
+    std::pair<SessionState, std::uint64_t> phaseSnapshot() const;
+    void publishPhase(SessionState state, std::uint64_t version);
     static std::string phaseName(SessionState state);
 
     Config cfg_;
@@ -68,6 +81,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     SessionState state_ = SessionState::Idle;
+    std::uint64_t stateVersion_ = 0;
     std::thread finalizationWorker_;
     std::uint64_t nextGeneration_ = 0;
     std::uint64_t runningGeneration_ = 0;
@@ -77,6 +91,12 @@ private:
     std::size_t pendingCancellationNotifications_ = 0;
     bool cancelRequested_ = false;
     bool shuttingDown_ = false;
+
+    std::mutex phaseNotificationMutex_;
+    std::condition_variable phaseNotificationCondition_;
+    std::deque<std::shared_ptr<PhaseNotification>> phaseNotifications_;
+    bool phaseNotificationDraining_ = false;
+    std::thread::id phaseNotificationDrainer_;
 };
 
 } // namespace echoflow
