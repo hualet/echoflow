@@ -200,6 +200,37 @@ struct BlockingLivePipeline : FakeLivePipeline {
     }
 };
 
+struct BlockingCallbackTeardownPipeline : BlockingLivePipeline {
+    std::mutex teardownMutex;
+    std::condition_variable teardownCondition;
+    bool teardownEntered_ = false;
+    bool teardownReleased_ = false;
+
+    void setPartialTextCallback(std::function<void(const std::string&)> callback) override
+    {
+        if (!callback) {
+            std::unique_lock<std::mutex> lock(teardownMutex);
+            teardownEntered_ = true;
+            teardownCondition.notify_all();
+            teardownCondition.wait(lock, [this] { return teardownReleased_; });
+        }
+        FakeLivePipeline::setPartialTextCallback(std::move(callback));
+    }
+
+    bool waitForTeardownEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(teardownMutex);
+        return teardownCondition.wait_for(lock, timeout, [this] { return teardownEntered_; });
+    }
+
+    void releaseTeardown()
+    {
+        std::lock_guard<std::mutex> lock(teardownMutex);
+        teardownReleased_ = true;
+        teardownCondition.notify_all();
+    }
+};
+
 struct FakeCommitter : ICommitter {
     mutable std::mutex mutex;
     std::condition_variable condition;
@@ -458,6 +489,7 @@ private slots:
     void partialCompletesBeforeRecordingCancelIdle();
     void destructorWaitsForBlockedPartialNotification();
     void copiedPartialCallbackIsSafeAfterDestruction();
+    void destructorClosesCommitGateBeforeCallbackTeardown();
     void threadLaunchFailureRestoresRecording();
     void statusReportsEveryPhaseWithoutMutation();
     void blurDuringTranscribingDiscardsFinishedText();
@@ -1116,6 +1148,39 @@ void TestVoiceSession::copiedPartialCallbackIsSafeAfterDestruction()
     ui.clear();
     copiedCallback("late copied callback");
     QVERIFY(ui.messages().empty());
+}
+
+void TestVoiceSession::destructorClosesCommitGateBeforeCallbackTeardown()
+{
+    BlockingCallbackTeardownPipeline pipeline;
+    pipeline.result = "must not commit";
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = std::make_unique<VoiceSession>(
+        Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
+    ScopeExit releaseTeardown { [&pipeline] { pipeline.releaseTeardown(); } };
+
+    session->handleCommand("CTRL_DOWN");
+    session->handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    auto destruction = std::async(std::launch::async,
+        [owned = std::move(session)]() mutable { owned.reset(); });
+    const bool teardownEntered = pipeline.waitForTeardownEntered();
+
+    pipeline.releaseFinish();
+    const bool finishExited = pipeline.waitForFinishExited();
+    const bool idlePublishedDuringTeardown = ui.waitForMessage("IDLE", 250ms);
+    const auto committedTexts = committer.texts();
+    pipeline.releaseTeardown();
+    destruction.get();
+
+    QVERIFY(teardownEntered);
+    QVERIFY(finishExited);
+    QVERIFY2(!idlePublishedDuringTeardown,
+        "finalizer emitted IDLE after destruction began");
+    QVERIFY2(committedTexts.empty(),
+        "finalizer committed text while destructor was blocked in callback teardown");
 }
 
 void TestVoiceSession::threadLaunchFailureRestoresRecording()

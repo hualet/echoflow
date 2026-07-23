@@ -92,8 +92,6 @@ VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
 
 VoiceSession::~VoiceSession()
 {
-    shutdownPartialTextCallback();
-
     bool cancelRecording = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -108,6 +106,10 @@ VoiceSession::~VoiceSession()
         }
     }
     condition_.notify_all();
+
+    // Close the finalization/commit gate before callback teardown can block.
+    // No external collaborator is called while the session mutex is held.
+    shutdownPartialTextCallback();
 
     if (cancelRecording) {
         try {
