@@ -25,16 +25,15 @@ std::string trim(const std::string& value)
 
 std::string upper(std::string value)
 {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::toupper(c));
-    });
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     return value;
 }
 
-}  // namespace
+} // namespace
 
-VoiceSession::VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
-                           ICommitter& committer, IUiNotifier& ui)
+VoiceSession::VoiceSession(
+    Config cfg, IRecorder& recorder, IAsrEngine& asr, ICommitter& committer, IUiNotifier& ui)
     : cfg_(std::move(cfg))
     , recorder_(&recorder)
     , asr_(&asr)
@@ -43,20 +42,65 @@ VoiceSession::VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
 {
 }
 
-VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
-                           ICommitter& committer, IUiNotifier& ui)
+VoiceSession::VoiceSession(
+    Config cfg, ILiveVoicePipeline& livePipeline, ICommitter& committer, IUiNotifier& ui)
     : cfg_(std::move(cfg))
     , livePipeline_(&livePipeline)
     , committer_(committer)
     , ui_(ui)
 {
     livePipeline_->setPartialTextCallback([this](const std::string& text) {
-        // Ignore partials that arrive after the pipeline was finished or
-        // cancelled — they belong to a session the user already closed.
-        if (!text.empty() && recordingStreamActive_) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Keep the check and notification ordered with stop/cancel so a
+        // partial cannot appear after the capsule changes phase.
+        if (!text.empty() && !shuttingDown_ && state_ == SessionState::Recording
+            && recordingStreamActive_) {
             ui_.send("STREAM_TEXT " + text);
         }
     });
+}
+
+VoiceSession::~VoiceSession()
+{
+    bool cancelRecording = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        shuttingDown_ = true;
+        recordingStreamActive_ = false;
+        if (state_ == SessionState::Recording) {
+            cancelRecording = true;
+            state_ = SessionState::Idle;
+            runningGeneration_ = 0;
+        } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
+            cancelRequested_ = true;
+            state_ = SessionState::Cancelling;
+        }
+    }
+
+    if (cancelRecording) {
+        try {
+            if (livePipeline_) {
+                livePipeline_->cancel();
+            } else {
+                recorder_->stop();
+            }
+        } catch (const std::exception& e) {
+            log(std::string("voice cancel failed: ") + e.what());
+        }
+    }
+
+    if (finalizationWorker_.joinable()) {
+        finalizationWorker_.join();
+    }
+    if (livePipeline_) {
+        livePipeline_->setPartialTextCallback({});
+    }
+}
+
+SessionState VoiceSession::state() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_;
 }
 
 std::string VoiceSession::handleCommand(const std::string& command)
@@ -76,22 +120,32 @@ std::string VoiceSession::handleCommand(const std::string& command)
     if (verb == "BLUR") {
         // Focus left the input context: discard any live recording the same way
         // the X button does, then hide the capsule.
-        cancelRecording();
+        cancelActiveSession();
         return "TOOLTIP hide";
     }
 
     if (verb == "CANCEL") {
         // The capsule's X button: discard the recording and hide.
-        cancelRecording();
+        cancelActiveSession();
         return "CANCELLED";
     }
 
+    if (verb == "STATUS") {
+        const auto phase = phaseName(state());
+        ui_.send(phase);
+        return phase;
+    }
+
     if (verb == "CTRL_DOWN") {
-        if (state_ == SessionState::Idle) {
+        const auto currentState = state();
+        if (currentState == SessionState::Idle) {
             return startRecording();
         }
-        if (state_ == SessionState::Recording) {
-            return stopTranscribeCommit();
+        if (currentState == SessionState::Recording) {
+            return startFinalization();
+        }
+        if (currentState == SessionState::Cancelling) {
+            return "CANCELLING";
         }
         return "TRANSCRIBING";
     }
@@ -101,6 +155,8 @@ std::string VoiceSession::handleCommand(const std::string& command)
 
 std::string VoiceSession::startRecording()
 {
+    joinCompletedWorker();
+
     try {
         if (livePipeline_) {
             livePipeline_->start();
@@ -109,24 +165,47 @@ std::string VoiceSession::startRecording()
         }
     } catch (const std::exception& e) {
         log(std::string("voice start failed: ") + e.what());
-        state_ = SessionState::Idle;
-        recordingStreamActive_ = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            state_ = SessionState::Idle;
+            runningGeneration_ = 0;
+            cancelRequested_ = false;
+            recordingStreamActive_ = false;
+        }
         ui_.send("IDLE");
         return "ERR " + std::string(e.what());
     }
-    recordingStreamActive_ = true;
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        runningGeneration_ = ++nextGeneration_;
+        cancelRequested_ = false;
+        recordingStreamActive_ = true;
+        state_ = SessionState::Recording;
+    }
     ui_.send("RECORDING");
-    state_ = SessionState::Recording;
     return "RECORDING";
 }
 
-std::string VoiceSession::stopTranscribeCommit()
+std::string VoiceSession::startFinalization()
 {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != SessionState::Recording) {
+        return phaseName(state_);
+    }
+
     // The pipeline is about to be finalized; stop accepting streaming partials.
     recordingStreamActive_ = false;
     state_ = SessionState::Transcribing;
+    finalizationRunning_ = true;
+    const auto generation = runningGeneration_;
     ui_.send("TRANSCRIBING");
+    finalizationWorker_ = std::thread([this, generation] { finalize(generation); });
+    return "TRANSCRIBING";
+}
 
+void VoiceSession::finalize(std::uint64_t generation)
+{
     std::string text;
     if (livePipeline_) {
         try {
@@ -135,15 +214,11 @@ std::string VoiceSession::stopTranscribeCommit()
             log(std::string("asr transcribe failed: ") + e.what());
         }
     } else {
-        auto audio = recorder_->stop();
-        if (audio.empty()) {
-            state_ = SessionState::Idle;
-            ui_.send("IDLE");
-            return "CANCELLED";
-        }
-
         try {
-            text = asr_->transcribe(audio);
+            const auto audio = recorder_->stop();
+            if (!audio.empty()) {
+                text = asr_->transcribe(audio);
+            }
         } catch (const std::exception& e) {
             log(std::string("asr transcribe failed: ") + e.what());
         }
@@ -151,22 +226,77 @@ std::string VoiceSession::stopTranscribeCommit()
     if (cfg_.stripTrailingPunctuation) {
         text = stripPunctuation(text);
     }
-    if (text.empty()) {
-        state_ = SessionState::Idle;
-        ui_.send("IDLE");
-        return "EMPTY";
-    }
 
-    auto [ok, detail] = committer_.commitText(text);
-    state_ = SessionState::Idle;
-    ui_.send("IDLE");
-    return ok ? "COMMITTED" : "ERR " + detail;
+    bool notifyIdle = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const bool current = finalizationRunning_ && runningGeneration_ == generation;
+
+        // This mutex is the cancellation/commit linearization gate. CANCEL
+        // taking it first marks the generation cancelled and suppresses the
+        // commit. Once this short commit starts, a later CANCEL observes Idle.
+        if (current && !cancelRequested_ && !shuttingDown_ && !text.empty()) {
+            try {
+                const auto [ok, detail] = committer_.commitText(text);
+                if (!ok) {
+                    log("voice commit failed: " + detail);
+                }
+            } catch (const std::exception& e) {
+                log(std::string("voice commit failed: ") + e.what());
+            }
+        }
+
+        if (current) {
+            state_ = SessionState::Idle;
+            runningGeneration_ = 0;
+            finalizationRunning_ = false;
+            cancelRequested_ = false;
+            recordingStreamActive_ = false;
+            notifyIdle = !shuttingDown_;
+        }
+    }
+    if (notifyIdle) {
+        ui_.send("IDLE");
+    }
 }
 
-void VoiceSession::cancelRecording()
+void VoiceSession::joinCompletedWorker()
 {
-    recordingStreamActive_ = false;
-    if (state_ == SessionState::Recording) {
+    std::thread completedWorker;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (finalizationWorker_.joinable() && !finalizationRunning_) {
+            completedWorker = std::move(finalizationWorker_);
+        }
+    }
+    if (completedWorker.joinable()) {
+        completedWorker.join();
+    }
+}
+
+void VoiceSession::cancelActiveSession()
+{
+    bool cancelRecording = false;
+    std::string notification;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        recordingStreamActive_ = false;
+        if (state_ == SessionState::Recording) {
+            cancelRecording = true;
+            state_ = SessionState::Idle;
+            runningGeneration_ = 0;
+            cancelRequested_ = false;
+            notification = "IDLE";
+        } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
+            cancelRequested_ = true;
+            state_ = SessionState::Cancelling;
+            notification = "CANCELLING";
+        } else {
+            notification = "IDLE";
+        }
+    }
+
+    if (cancelRecording) {
         if (livePipeline_) {
             try {
                 livePipeline_->cancel();
@@ -174,11 +304,29 @@ void VoiceSession::cancelRecording()
                 log(std::string("voice cancel failed: ") + e.what());
             }
         } else {
-            recorder_->stop();
+            try {
+                recorder_->stop();
+            } catch (const std::exception& e) {
+                log(std::string("voice cancel failed: ") + e.what());
+            }
         }
     }
-    state_ = SessionState::Idle;
-    ui_.send("IDLE");
+    ui_.send(notification);
 }
 
-}  // namespace echoflow
+std::string VoiceSession::phaseName(SessionState state)
+{
+    switch (state) {
+    case SessionState::Idle:
+        return "IDLE";
+    case SessionState::Recording:
+        return "RECORDING";
+    case SessionState::Transcribing:
+        return "TRANSCRIBING";
+    case SessionState::Cancelling:
+        return "CANCELLING";
+    }
+    return "IDLE";
+}
+
+} // namespace echoflow

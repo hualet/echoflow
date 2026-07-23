@@ -5,46 +5,83 @@
 
 #include "VoiceSession.h"
 
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
+#include <future>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 using namespace echoflow;
+using namespace std::chrono_literals;
 
 struct FakeRecorder : IRecorder {
-    int starts = 0;
-    int stops = 0;
+    mutable std::mutex mutex;
+    int starts_ = 0;
+    int stops_ = 0;
     std::filesystem::path path = "/tmp/echoflow-test.wav";
 
-    void start() override { ++starts; }
+    void start() override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++starts_;
+    }
     std::filesystem::path stop() override
     {
-        ++stops;
+        std::lock_guard<std::mutex> lock(mutex);
+        ++stops_;
         return path;
+    }
+
+    int starts() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return starts_;
+    }
+
+    int stops() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return stops_;
     }
 };
 
 struct FakeAsr : IAsrEngine {
-    explicit FakeAsr(std::string r = "hello") : result(std::move(r)) {}
+    explicit FakeAsr(std::string r = "hello")
+        : result(std::move(r))
+    {
+    }
 
+    mutable std::mutex mutex;
     std::string result;
     bool throwOnTranscribe = false;
-    std::vector<std::filesystem::path> audioPaths;
+    std::vector<std::filesystem::path> audioPaths_;
 
     std::string transcribe(const std::filesystem::path& audio) override
     {
-        audioPaths.push_back(audio);
+        std::lock_guard<std::mutex> lock(mutex);
+        audioPaths_.push_back(audio);
         if (throwOnTranscribe) {
             throw std::runtime_error("asr unavailable");
         }
         return result;
     }
+
+    std::vector<std::filesystem::path> audioPaths() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return audioPaths_;
+    }
 };
 
 struct FakeLivePipeline : ILiveVoicePipeline {
-    int starts = 0;
-    int finishes = 0;
-    int cancels = 0;
+    mutable std::mutex mutex;
+    int starts_ = 0;
+    int finishes_ = 0;
+    int cancels_ = 0;
     std::string result = "hello";
     bool throwOnStart = false;
     bool throwOnFinish = false;
@@ -53,7 +90,8 @@ struct FakeLivePipeline : ILiveVoicePipeline {
 
     void start() override
     {
-        ++starts;
+        std::lock_guard<std::mutex> lock(mutex);
+        ++starts_;
         if (throwOnStart) {
             throw std::runtime_error("live start unavailable");
         }
@@ -61,7 +99,8 @@ struct FakeLivePipeline : ILiveVoicePipeline {
 
     std::string finish() override
     {
-        ++finishes;
+        std::lock_guard<std::mutex> lock(mutex);
+        ++finishes_;
         if (throwOnFinish) {
             throw std::runtime_error("live finish unavailable");
         }
@@ -70,7 +109,8 @@ struct FakeLivePipeline : ILiveVoicePipeline {
 
     void cancel() override
     {
-        ++cancels;
+        std::lock_guard<std::mutex> lock(mutex);
+        ++cancels_;
         if (throwOnCancel) {
             throw std::runtime_error("live cancel unavailable");
         }
@@ -78,24 +118,119 @@ struct FakeLivePipeline : ILiveVoicePipeline {
 
     void setPartialTextCallback(std::function<void(const std::string&)> callback) override
     {
+        std::lock_guard<std::mutex> lock(mutex);
         partialTextCallback = std::move(callback);
+    }
+
+    int starts() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return starts_;
+    }
+
+    int finishes() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return finishes_;
+    }
+
+    int cancels() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return cancels_;
+    }
+
+    std::function<void(const std::string&)> callback() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return partialTextCallback;
+    }
+};
+
+struct BlockingLivePipeline : FakeLivePipeline {
+    std::condition_variable condition;
+    bool finishEntered_ = false;
+    bool finishReleased_ = false;
+
+    std::string finish() override
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ++finishes_;
+        finishEntered_ = true;
+        condition.notify_all();
+        condition.wait(lock, [this] { return finishReleased_; });
+        if (throwOnFinish) {
+            throw std::runtime_error("live finish unavailable");
+        }
+        return result;
+    }
+
+    bool waitForFinishEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this] { return finishEntered_; });
+    }
+
+    void releaseFinish()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        finishReleased_ = true;
+        condition.notify_all();
     }
 };
 
 struct FakeCommitter : ICommitter {
-    std::vector<std::string> texts;
-    std::pair<bool, std::string> ret = {true, "OK"};
+    mutable std::mutex mutex;
+    std::condition_variable condition;
+    std::vector<std::string> texts_;
+    std::pair<bool, std::string> ret = { true, "OK" };
 
     std::pair<bool, std::string> commitText(const std::string& text) override
     {
-        texts.push_back(text);
+        std::lock_guard<std::mutex> lock(mutex);
+        texts_.push_back(text);
+        condition.notify_all();
         return ret;
+    }
+
+    std::vector<std::string> texts() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return texts_;
     }
 };
 
 struct FakeUi : IUiNotifier {
-    std::vector<std::string> messages;
-    void send(const std::string& message) override { messages.push_back(message); }
+    mutable std::mutex mutex;
+    std::condition_variable condition;
+    std::vector<std::string> messages_;
+
+    void send(const std::string& message) override
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        messages_.push_back(message);
+        condition.notify_all();
+    }
+
+    std::vector<std::string> messages() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return messages_;
+    }
+
+    void clear()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        messages_.clear();
+    }
+
+    bool waitForMessage(const std::string& message, std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this, &message] {
+            return std::find(messages_.begin(), messages_.end(), message) != messages_.end();
+        });
+    }
 };
 
 class TestVoiceSession : public QObject {
@@ -120,17 +255,24 @@ private slots:
     void livePartialTextUpdatesTooltip();
     void livePreviewDoesNotAffectCommittedText();
     void liveStartExceptionReturnsToIdle();
+    void stopReturnsWhileLiveFinishIsBlocked();
+    void cancelDuringTranscribingDiscardsFinishedText();
+    void ctrlDuringCancellingDoesNotRestartPipeline();
+    void statusReportsEveryPhaseWithoutMutation();
+    void blurDuringTranscribingDiscardsFinishedText();
+    void destructorWaitsForFinalization();
+    void latePartialAfterStopIsIgnored();
     void unknownCommandReturnsError();
 };
 
-static VoiceSession makeSession(FakeRecorder& recorder, FakeAsr& asr,
-                                FakeCommitter& committer, FakeUi& ui)
+static VoiceSession makeSession(
+    FakeRecorder& recorder, FakeAsr& asr, FakeCommitter& committer, FakeUi& ui)
 {
     return VoiceSession(Config::defaultConfig(), recorder, asr, committer, ui);
 }
 
-static VoiceSession makeLiveSession(FakeLivePipeline& pipeline,
-                                    FakeCommitter& committer, FakeUi& ui)
+static VoiceSession makeLiveSession(
+    FakeLivePipeline& pipeline, FakeCommitter& committer, FakeUi& ui)
 {
     return VoiceSession(Config::defaultConfig(), pipeline, committer, ui);
 }
@@ -143,10 +285,11 @@ void TestVoiceSession::ctrlStartsRecording()
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
-    QCOMPARE(recorder.starts, 1);
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QCOMPARE(recorder.starts(), 1);
     QCOMPARE(session.state(), SessionState::Recording);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("RECORDING"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("RECORDING"));
 }
 
 void TestVoiceSession::focusIsNowHarmless()
@@ -161,10 +304,11 @@ void TestVoiceSession::focusIsNowHarmless()
 
     QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS")), QStringLiteral("IGNORED"));
     QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS 120 240 2 18")),
-             QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages.empty());
+        QStringLiteral("IGNORED"));
+    QVERIFY(ui.messages().empty());
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
 }
 
 void TestVoiceSession::typedIsNowHarmless()
@@ -178,12 +322,12 @@ void TestVoiceSession::typedIsNowHarmless()
     auto session = makeSession(recorder, asr, committer, ui);
 
     QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages.empty());
+    QVERIFY(ui.messages().empty());
 
     session.handleCommand("CTRL_DOWN");
-    ui.messages.clear();
+    ui.clear();
     QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages.empty());
+    QVERIFY(ui.messages().empty());
     QCOMPARE(session.state(), SessionState::Recording);
 }
 
@@ -197,15 +341,21 @@ void TestVoiceSession::secondCtrlStopsTranscribesAndCommits()
 
     session.handleCommand("CTRL_DOWN");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("COMMITTED"));
-    QCOMPARE(recorder.stops, 1);
-    QCOMPARE(asr.audioPaths.size(), size_t(1));
-    QCOMPARE(asr.audioPaths.front(), recorder.path);
-    QCOMPARE(committer.texts.size(), size_t(1));
-    QCOMPARE(QString::fromStdString(committer.texts.front()), QStringLiteral("离线语音输入"));
-    QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(recorder.stops(), 1);
+    const auto audioPaths = asr.audioPaths();
+    QCOMPARE(audioPaths.size(), size_t(1));
+    QCOMPARE(audioPaths.front(), recorder.path);
+    const auto texts = committer.texts();
+    QCOMPARE(texts.size(), size_t(1));
+    QCOMPARE(QString::fromStdString(texts.front()), QStringLiteral("离线语音输入"));
+    const auto messages = ui.messages();
+    QCOMPARE(
+        QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::transcribeExceptionReturnsToIdle()
@@ -219,11 +369,15 @@ void TestVoiceSession::transcribeExceptionReturnsToIdle()
 
     session.handleCommand("CTRL_DOWN");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("EMPTY"));
-    QCOMPARE(session.state(), SessionState::Idle);
-    QVERIFY(committer.texts.empty());
-    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QVERIFY(committer.texts().empty());
+    const auto messages = ui.messages();
+    QCOMPARE(
+        QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::tooShortAudioIsCancelled()
@@ -236,10 +390,12 @@ void TestVoiceSession::tooShortAudioIsCancelled()
     auto session = makeSession(recorder, asr, committer, ui);
 
     session.handleCommand("CTRL_DOWN");
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("CANCELLED"));
-    QCOMPARE(recorder.stops, 1);
-    QVERIFY(committer.texts.empty());
-    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(recorder.stops(), 1);
+    QVERIFY(committer.texts().empty());
 }
 
 void TestVoiceSession::cancelDiscardsRecording()
@@ -253,14 +409,14 @@ void TestVoiceSession::cancelDiscardsRecording()
     auto session = makeSession(recorder, asr, committer, ui);
 
     session.handleCommand("CTRL_DOWN");
-    ui.messages.clear();
+    ui.clear();
 
     QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
-    QCOMPARE(recorder.stops, 1);
-    QVERIFY(asr.audioPaths.empty());
-    QVERIFY(committer.texts.empty());
+    QCOMPARE(recorder.stops(), 1);
+    QVERIFY(asr.audioPaths().empty());
+    QVERIFY(committer.texts().empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::blurWhileRecordingCancelsAndDiscards()
@@ -273,10 +429,10 @@ void TestVoiceSession::blurWhileRecordingCancelsAndDiscards()
 
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
-    QCOMPARE(recorder.stops, 1);
-    QVERIFY(committer.texts.empty());
+    QCOMPARE(recorder.stops(), 1);
+    QVERIFY(committer.texts().empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveCtrlStartsPipeline()
@@ -286,10 +442,11 @@ void TestVoiceSession::liveCtrlStartsPipeline()
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
-    QCOMPARE(pipeline.starts, 1);
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
+    QCOMPARE(pipeline.starts(), 1);
     QCOMPARE(session.state(), SessionState::Recording);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("RECORDING"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("RECORDING"));
 }
 
 void TestVoiceSession::liveSecondCtrlFinishesAndCommits()
@@ -302,13 +459,18 @@ void TestVoiceSession::liveSecondCtrlFinishesAndCommits()
 
     session.handleCommand("CTRL_DOWN");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("COMMITTED"));
-    QCOMPARE(pipeline.finishes, 1);
-    QCOMPARE(committer.texts.size(), size_t(1));
-    QCOMPARE(QString::fromStdString(committer.texts.front()), QStringLiteral("实时语音输入"));
-    QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(pipeline.finishes(), 1);
+    const auto texts = committer.texts();
+    QCOMPARE(texts.size(), size_t(1));
+    QCOMPARE(QString::fromStdString(texts.front()), QStringLiteral("实时语音输入"));
+    const auto messages = ui.messages();
+    QCOMPARE(
+        QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveEmptyResultDoesNotCommit()
@@ -321,12 +483,16 @@ void TestVoiceSession::liveEmptyResultDoesNotCommit()
 
     session.handleCommand("CTRL_DOWN");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("EMPTY"));
-    QCOMPARE(pipeline.finishes, 1);
-    QVERIFY(committer.texts.empty());
-    QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(pipeline.finishes(), 1);
+    QVERIFY(committer.texts().empty());
+    const auto messages = ui.messages();
+    QCOMPARE(
+        QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveFinishExceptionReturnsToIdle()
@@ -339,12 +505,16 @@ void TestVoiceSession::liveFinishExceptionReturnsToIdle()
 
     session.handleCommand("CTRL_DOWN");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("EMPTY"));
-    QCOMPARE(pipeline.finishes, 1);
-    QVERIFY(committer.texts.empty());
-    QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.at(ui.messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(pipeline.finishes(), 1);
+    QVERIFY(committer.texts().empty());
+    const auto messages = ui.messages();
+    QCOMPARE(
+        QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveCancelDiscardsRecording()
@@ -357,14 +527,14 @@ void TestVoiceSession::liveCancelDiscardsRecording()
     auto session = makeLiveSession(pipeline, committer, ui);
 
     session.handleCommand("CTRL_DOWN");
-    ui.messages.clear();
+    ui.clear();
 
     QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
-    QCOMPARE(pipeline.cancels, 1);
-    QCOMPARE(pipeline.finishes, 0);
-    QVERIFY(committer.texts.empty());
+    QCOMPARE(pipeline.cancels(), 1);
+    QCOMPARE(pipeline.finishes(), 0);
+    QVERIFY(committer.texts().empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveBlurCancelsAndDiscards()
@@ -376,11 +546,11 @@ void TestVoiceSession::liveBlurCancelsAndDiscards()
 
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
-    QCOMPARE(pipeline.cancels, 1);
-    QCOMPARE(pipeline.finishes, 0);
-    QVERIFY(committer.texts.empty());
+    QCOMPARE(pipeline.cancels(), 1);
+    QCOMPARE(pipeline.finishes(), 0);
+    QVERIFY(committer.texts().empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
@@ -393,11 +563,11 @@ void TestVoiceSession::liveCancelExceptionStillReturnsToIdleAndHidesTooltip()
 
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
-    QCOMPARE(pipeline.cancels, 1);
-    QCOMPARE(pipeline.finishes, 0);
-    QVERIFY(committer.texts.empty());
+    QCOMPARE(pipeline.cancels(), 1);
+    QCOMPARE(pipeline.finishes(), 0);
+    QVERIFY(committer.texts().empty());
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
 }
 
 void TestVoiceSession::livePartialTextUpdatesTooltip()
@@ -407,19 +577,20 @@ void TestVoiceSession::livePartialTextUpdatesTooltip()
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
 
-    QVERIFY(pipeline.partialTextCallback);
+    const auto callback = pipeline.callback();
+    QVERIFY(callback);
     // Partials only flow while a recording is active.
     session.handleCommand("CTRL_DOWN");
-    ui.messages.clear();
-    pipeline.partialTextCallback("实时文本");
+    ui.clear();
+    callback("实时文本");
 
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("STREAM_TEXT 实时文本"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("STREAM_TEXT 实时文本"));
 
     // After CANCEL, late partials are dropped (the session the user closed).
     session.handleCommand("CANCEL");
-    ui.messages.clear();
-    pipeline.partialTextCallback("迟到文本");
-    QVERIFY(ui.messages.empty());
+    ui.clear();
+    callback("迟到文本");
+    QVERIFY(ui.messages().empty());
 }
 
 void TestVoiceSession::livePreviewDoesNotAffectCommittedText()
@@ -431,13 +602,17 @@ void TestVoiceSession::livePreviewDoesNotAffectCommittedText()
     auto session = makeLiveSession(pipeline, committer, ui);
 
     session.handleCommand("CTRL_DOWN");
-    QVERIFY(pipeline.partialTextCallback);
-    pipeline.partialTextCallback("错误预览文本");
+    const auto callback = pipeline.callback();
+    QVERIFY(callback);
+    callback("错误预览文本");
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")),
-             QStringLiteral("COMMITTED"));
-    QCOMPARE(committer.texts.size(), size_t(1));
-    QCOMPARE(QString::fromStdString(committer.texts.front()), QStringLiteral("稳定最终文本"));
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    const auto texts = committer.texts();
+    QCOMPARE(texts.size(), size_t(1));
+    QCOMPARE(QString::fromStdString(texts.front()), QStringLiteral("稳定最终文本"));
 }
 
 void TestVoiceSession::liveStartExceptionReturnsToIdle()
@@ -449,10 +624,178 @@ void TestVoiceSession::liveStartExceptionReturnsToIdle()
     auto session = makeLiveSession(pipeline, committer, ui);
 
     QCOMPARE(QString::fromStdString(session.handleCommand("CTRL_DOWN")),
-             QStringLiteral("ERR live start unavailable"));
-    QCOMPARE(pipeline.starts, 1);
+        QStringLiteral("ERR live start unavailable"));
+    QCOMPARE(pipeline.starts(), 1);
     QCOMPARE(session.state(), SessionState::Idle);
-    QCOMPARE(QString::fromStdString(ui.messages.back()), QStringLiteral("IDLE"));
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::stopReturnsWhileLiveFinishIsBlocked()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    auto stopResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CTRL_DOWN"); });
+    QVERIFY(pipeline.waitForFinishEntered());
+
+    const bool returnedPromptly = stopResult.wait_for(200ms) == std::future_status::ready;
+    pipeline.releaseFinish();
+    QCOMPARE(QString::fromStdString(stopResult.get()), QStringLiteral("TRANSCRIBING"));
+    QVERIFY2(returnedPromptly, "CTRL_DOWN waited for livePipeline.finish()");
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+}
+
+void TestVoiceSession::cancelDuringTranscribingDiscardsFinishedText()
+{
+    BlockingLivePipeline pipeline;
+    pipeline.result = "must be discarded";
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QVERIFY(pipeline.waitForFinishEntered());
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
+    QCOMPARE(session.state(), SessionState::Cancelling);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("CANCELLING"));
+    QCOMPARE(pipeline.cancels(), 0);
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")), QStringLiteral("CANCELLED"));
+    QCOMPARE(session.state(), SessionState::Cancelling);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("CANCELLING"));
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QVERIFY(committer.texts().empty());
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::ctrlDuringCancellingDoesNotRestartPipeline()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    session.handleCommand("CANCEL");
+
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("CANCELLING"));
+    QCOMPARE(pipeline.starts(), 1);
+    QCOMPARE(pipeline.finishes(), 1);
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+}
+
+void TestVoiceSession::statusReportsEveryPhaseWithoutMutation()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("STATUS")), QStringLiteral("IDLE"));
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("IDLE"));
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(QString::fromStdString(session.handleCommand("STATUS")), QStringLiteral("RECORDING"));
+    QCOMPARE(session.state(), SessionState::Recording);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("RECORDING"));
+
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("STATUS")), QStringLiteral("TRANSCRIBING"));
+    QCOMPARE(session.state(), SessionState::Transcribing);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("TRANSCRIBING"));
+
+    session.handleCommand("CANCEL");
+    QCOMPARE(QString::fromStdString(session.handleCommand("STATUS")), QStringLiteral("CANCELLING"));
+    QCOMPARE(session.state(), SessionState::Cancelling);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("CANCELLING"));
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+}
+
+void TestVoiceSession::blurDuringTranscribingDiscardsFinishedText()
+{
+    BlockingLivePipeline pipeline;
+    pipeline.result = "must be discarded";
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("BLUR")), QStringLiteral("TOOLTIP hide"));
+    QCOMPARE(session.state(), SessionState::Cancelling);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("CANCELLING"));
+    QCOMPARE(pipeline.cancels(), 0);
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QVERIFY(committer.texts().empty());
+}
+
+void TestVoiceSession::destructorWaitsForFinalization()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto lifetime = std::async(std::launch::async, [&] {
+        auto session = makeLiveSession(pipeline, committer, ui);
+        session.handleCommand("CTRL_DOWN");
+        return session.handleCommand("CTRL_DOWN");
+    });
+
+    QVERIFY(pipeline.waitForFinishEntered());
+    QCOMPARE(lifetime.wait_for(200ms), std::future_status::timeout);
+    pipeline.releaseFinish();
+    QCOMPARE(lifetime.wait_for(1000ms), std::future_status::ready);
+    QCOMPARE(QString::fromStdString(lifetime.get()), QStringLiteral("TRANSCRIBING"));
+    QVERIFY(!pipeline.callback());
+}
+
+void TestVoiceSession::latePartialAfterStopIsIgnored()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeLiveSession(pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    const auto callback = pipeline.callback();
+    QVERIFY(callback);
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    ui.clear();
+
+    callback("late text");
+    QVERIFY(ui.messages().empty());
+
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
 }
 
 void TestVoiceSession::unknownCommandReturnsError()
@@ -463,7 +806,8 @@ void TestVoiceSession::unknownCommandReturnsError()
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("FROBNICATE")), QStringLiteral("ERR unknown-command"));
+    QCOMPARE(QString::fromStdString(session.handleCommand("FROBNICATE")),
+        QStringLiteral("ERR unknown-command"));
 }
 
 QTEST_GUILESS_MAIN(TestVoiceSession)
