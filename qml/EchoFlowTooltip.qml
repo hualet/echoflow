@@ -38,6 +38,12 @@ Window {
     readonly property color capsuleText: typeof theme !== "undefined" ? theme.capsuleText : "#f4f6f8"
     readonly property color accent: typeof theme !== "undefined" ? theme.accent : "#0081ff"
     readonly property color accentText: typeof theme !== "undefined" ? theme.accentText : "white"
+    onAccentChanged: waveCanvas.requestPaint()
+    onAccentTextChanged: {
+        microphoneCanvas.requestPaint()
+        confirmCanvas.requestPaint()
+    }
+    onCapsuleTextChanged: cancelCanvas.requestPaint()
 
     readonly property bool idle: root.phase === "idle"
     readonly property bool recording: root.phase === "recording"
@@ -145,6 +151,7 @@ Window {
             visible: root.idle
             Accessible.name: qsTr("开始录音")
             Accessible.role: Accessible.Button
+            Accessible.onPressAction: tooltipController.requestToggle()
 
             Rectangle {
                 anchors.fill: parent
@@ -158,6 +165,7 @@ Window {
 
             // symbolic microphone body, pickup arc, stem, and stand
             Canvas {
+                id: microphoneCanvas
                 anchors.centerIn: parent
                 width: 14
                 height: 14
@@ -211,17 +219,24 @@ Window {
                 verticalCenter: parent.verticalCenter
             }
             visible: root.recording
+            Accessible.name: qsTr("取消并丢弃录音")
+            Accessible.role: Accessible.Button
+            Accessible.onPressAction: tooltipController.requestCancel()
 
             Rectangle {
                 id: cancelBg
                 anchors.fill: parent
                 radius: width / 2
-                color: cancelArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                color: cancelArea.pressed
+                       ? Qt.rgba(1, 1, 1, 0.20)
+                       : cancelArea.containsMouse
+                         ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
                 Behavior on color { ColorAnimation { duration: 120 } }
             }
 
             // symbolic X glyph
             Canvas {
+                id: cancelCanvas
                 anchors.centerIn: parent
                 width: 12; height: 12
                 onPaint: {
@@ -318,10 +333,10 @@ Window {
         Item {
             id: liveTextViewport
             anchors {
-                left: cancelButton.right
-                leftMargin: capsule.kGap
+                left: root.hasLiveText ? cancelButton.right : waveArea.left
+                leftMargin: root.hasLiveText ? capsule.kGap : 0
                 right: waveArea.left
-                rightMargin: capsule.kGap
+                rightMargin: root.hasLiveText ? capsule.kGap : 0
                 verticalCenter: parent.verticalCenter
             }
             visible: root.hasLiveText
@@ -361,16 +376,24 @@ Window {
                 verticalCenter: parent.verticalCenter
             }
             visible: root.recording
+            Accessible.name: qsTr("结束录音并开始转写")
+            Accessible.role: Accessible.Button
+            Accessible.onPressAction: tooltipController.requestToggle()
 
             Rectangle {
                 id: confirmBg
                 anchors.fill: parent
                 radius: width / 2
-                color: root.accent
+                color: confirmArea.pressed
+                       ? Qt.darker(root.accent, 1.18)
+                       : confirmArea.containsMouse
+                         ? Qt.lighter(root.accent, 1.12) : root.accent
+                Behavior on color { ColorAnimation { duration: 120 } }
             }
 
             // symbolic check glyph
             Canvas {
+                id: confirmCanvas
                 anchors.centerIn: parent
                 width: 14; height: 14
                 onPaint: {
@@ -391,6 +414,7 @@ Window {
             MouseArea {
                 id: confirmArea
                 anchors.fill: parent
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: tooltipController.requestToggle()
             }

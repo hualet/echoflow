@@ -50,6 +50,22 @@ assert_before() {
   fi
 }
 
+assert_count() {
+  local file="$1"
+  local needle="$2"
+  local expected="$3"
+  local description="$4"
+  local actual
+  actual="$(grep -cF -- "$needle" "$file")"
+  if [[ "$actual" -eq "$expected" ]]; then
+    echo "ok   - $description"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - $description ($file has $actual occurrences of $needle, expected $expected)"
+    fail=$((fail + 1))
+  fi
+}
+
 assert_png_asset() {
   local file="$1"
   local description="$2"
@@ -173,8 +189,23 @@ assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' 
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY)" "capsule consumes explicit controller phases"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "idle capsule has a microphone action"
 assert_before "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "onClicked: tooltipController.requestToggle()" "microphone action toggles recording"
+assert_count "$ROOT/qml/EchoFlowTooltip.qml" "Accessible.role: Accessible.Button" 3 "all capsule icon controls expose the button role"
+assert_count "$ROOT/qml/EchoFlowTooltip.qml" "Accessible.onPressAction: tooltipController.requestToggle()" 2 "microphone and confirm accessibility actions toggle recording"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "Accessible.onPressAction: tooltipController.requestCancel()" "cancel accessibility action discards recording"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "visible: root.idle" "microphone action is idle-only"
+assert_count "$ROOT/qml/EchoFlowTooltip.qml" "visible: root.recording" 2 "cancel and confirm actions are recording-only"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "visible: root.idle || root.recording" "waveform is visible only for idle and recording"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'running: root.visible && root.phase === "recording"' "wave animation runs only while recording"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "visible: root.transcribing || root.cancelling" "cancelling phase renders centered status"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "readonly property real kMaxRecordingWidth: Screen.width / 3" "recording capsule is capped at one third of the screen"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "id: liveTextViewport" "recording capsule has a live text viewport"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "clip: true" "live text viewport clips overflow"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "left: root.hasLiveText ? cancelButton.right : waveArea.left" "hidden live text viewport starts at the waveform"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "rightMargin: root.hasLiveText ? capsule.kGap : 0" "hidden live text viewport collapses to zero width"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "onAccentChanged: waveCanvas.requestPaint()" "waveform repaints when the accent changes"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "microphoneCanvas.requestPaint()" "microphone glyph repaints when accent text changes"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "confirmCanvas.requestPaint()" "confirm glyph repaints when accent text changes"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "onCapsuleTextChanged: cancelCanvas.requestPaint()" "cancel glyph repaints when capsule text changes"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestCancel()" "capsule X button cancels recording"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "tooltipController.requestToggle()" "capsule check button stops and transcribes"
 assert_absent "$ROOT/qml/EchoFlowTooltip.qml" "按右 Ctrl 语音输入" "capsule has no idle focus hint"
