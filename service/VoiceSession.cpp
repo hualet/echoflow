@@ -290,7 +290,11 @@ void VoiceSession::cancelActiveSession()
         } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
             cancelRequested_ = true;
             state_ = SessionState::Cancelling;
-            notification = "CANCELLING";
+            // Publish the accepted cancellation while holding the same gate
+            // used by finalization. The datagram send is short, and keeping it
+            // inside the gate prevents the worker's terminal IDLE from
+            // overtaking CANCELLING. Slow pipeline operations stay outside.
+            ui_.send("CANCELLING");
         } else {
             notification = "IDLE";
         }
@@ -311,7 +315,9 @@ void VoiceSession::cancelActiveSession()
             }
         }
     }
-    ui_.send(notification);
+    if (!notification.empty()) {
+        ui_.send(notification);
+    }
 }
 
 std::string VoiceSession::phaseName(SessionState state)

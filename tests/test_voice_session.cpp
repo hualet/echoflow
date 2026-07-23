@@ -151,6 +151,7 @@ struct BlockingLivePipeline : FakeLivePipeline {
     std::condition_variable condition;
     bool finishEntered_ = false;
     bool finishReleased_ = false;
+    bool finishExited_ = false;
 
     std::string finish() override
     {
@@ -159,6 +160,8 @@ struct BlockingLivePipeline : FakeLivePipeline {
         finishEntered_ = true;
         condition.notify_all();
         condition.wait(lock, [this] { return finishReleased_; });
+        finishExited_ = true;
+        condition.notify_all();
         if (throwOnFinish) {
             throw std::runtime_error("live finish unavailable");
         }
@@ -176,6 +179,12 @@ struct BlockingLivePipeline : FakeLivePipeline {
         std::lock_guard<std::mutex> lock(mutex);
         finishReleased_ = true;
         condition.notify_all();
+    }
+
+    bool waitForFinishExited(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this] { return finishExited_; });
     }
 };
 
@@ -233,6 +242,58 @@ struct FakeUi : IUiNotifier {
     }
 };
 
+struct BlockingCancellationUi : IUiNotifier {
+    mutable std::mutex messagesMutex;
+    std::condition_variable messagesCondition;
+    std::vector<std::string> messages_;
+    std::mutex cancellationMutex;
+    std::condition_variable cancellationCondition;
+    bool cancellationEntered_ = false;
+    bool cancellationReleased_ = false;
+
+    void send(const std::string& message) override
+    {
+        if (message == "CANCELLING") {
+            std::unique_lock<std::mutex> lock(cancellationMutex);
+            cancellationEntered_ = true;
+            cancellationCondition.notify_all();
+            cancellationCondition.wait(lock, [this] { return cancellationReleased_; });
+        }
+
+        std::lock_guard<std::mutex> lock(messagesMutex);
+        messages_.push_back(message);
+        messagesCondition.notify_all();
+    }
+
+    bool waitForCancellationEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(cancellationMutex);
+        return cancellationCondition.wait_for(
+            lock, timeout, [this] { return cancellationEntered_; });
+    }
+
+    void releaseCancellation()
+    {
+        std::lock_guard<std::mutex> lock(cancellationMutex);
+        cancellationReleased_ = true;
+        cancellationCondition.notify_all();
+    }
+
+    bool waitForMessage(const std::string& message, std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(messagesMutex);
+        return messagesCondition.wait_for(lock, timeout, [this, &message] {
+            return std::find(messages_.begin(), messages_.end(), message) != messages_.end();
+        });
+    }
+
+    std::vector<std::string> messages() const
+    {
+        std::lock_guard<std::mutex> lock(messagesMutex);
+        return messages_;
+    }
+};
+
 class TestVoiceSession : public QObject {
     Q_OBJECT
 
@@ -258,6 +319,7 @@ private slots:
     void stopReturnsWhileLiveFinishIsBlocked();
     void cancelDuringTranscribingDiscardsFinishedText();
     void ctrlDuringCancellingDoesNotRestartPipeline();
+    void cancellingNotificationPrecedesFinalIdle();
     void statusReportsEveryPhaseWithoutMutation();
     void blurDuringTranscribingDiscardsFinishedText();
     void destructorWaitsForFinalization();
@@ -699,6 +761,43 @@ void TestVoiceSession::ctrlDuringCancellingDoesNotRestartPipeline()
     pipeline.releaseFinish();
     QTRY_COMPARE(session.state(), SessionState::Idle);
     QVERIFY(ui.waitForMessage("IDLE"));
+}
+
+void TestVoiceSession::cancellingNotificationPrecedesFinalIdle()
+{
+    BlockingLivePipeline pipeline;
+    pipeline.result = "must be discarded";
+    FakeCommitter committer;
+    BlockingCancellationUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    const bool finishEntered = pipeline.waitForFinishEntered();
+    auto cancelResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CANCEL"); });
+    const bool cancellationEntered = ui.waitForCancellationEntered();
+
+    pipeline.releaseFinish();
+    const bool finishExited = pipeline.waitForFinishExited();
+    const bool idlePublishedWhileCancellationBlocked = ui.waitForMessage("IDLE", 250ms);
+    ui.releaseCancellation();
+    const auto result = cancelResult.get();
+    const bool idlePublished = ui.waitForMessage("IDLE");
+    const auto messages = ui.messages();
+
+    QVERIFY(finishEntered);
+    QVERIFY(cancellationEntered);
+    QVERIFY(finishExited);
+    QVERIFY2(!idlePublishedWhileCancellationBlocked,
+        "IDLE overtook the accepted CANCELLING notification");
+    QCOMPARE(QString::fromStdString(result), QStringLiteral("CANCELLED"));
+    QVERIFY(idlePublished);
+    QVERIFY(messages.size() >= size_t(2));
+    QCOMPARE(QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("CANCELLING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
+    QVERIFY(committer.texts().empty());
 }
 
 void TestVoiceSession::statusReportsEveryPhaseWithoutMutation()
