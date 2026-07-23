@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -20,9 +21,24 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+constexpr auto kFinalizationTimeout = std::chrono::seconds(5);
+constexpr auto kFinalizationPollInterval = std::chrono::milliseconds(1);
+
 double elapsedMs(Clock::time_point started)
 {
     return std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+}
+
+bool waitForIdle(const echoflow::VoiceSession& session)
+{
+    const auto deadline = Clock::now() + kFinalizationTimeout;
+    while (session.state() != echoflow::SessionState::Idle) {
+        if (Clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(kFinalizationPollInterval);
+    }
+    return true;
 }
 
 std::string jsonEscape(const std::string& value)
@@ -157,6 +173,13 @@ int runSynthetic(int iterations)
         auto started = Clock::now();
         std::string reply = session.handleCommand("CTRL_DOWN");
         double stopToReplyMs = elapsedMs(started);
+
+        if (!waitForIdle(session)) {
+            std::fprintf(stderr,
+                         "session-synthetic iteration %d timed out waiting for finalization\n",
+                         i + 1);
+            return 1;
+        }
 
         std::printf("{\"mode\":\"session-synthetic\",\"iteration\":%d,"
                     "\"stop_to_reply_ms\":%.3f,\"record_stop_ms\":%.3f,"
