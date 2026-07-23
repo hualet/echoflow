@@ -7,6 +7,8 @@
 #include "Config.h"
 #include "Interfaces.h"
 
+#include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <thread>
@@ -22,10 +24,12 @@ enum class SessionState {
 
 class VoiceSession {
 public:
-    VoiceSession(
-        Config cfg, IRecorder& recorder, IAsrEngine& asr, ICommitter& committer, IUiNotifier& ui);
-    VoiceSession(
-        Config cfg, ILiveVoicePipeline& livePipeline, ICommitter& committer, IUiNotifier& ui);
+    using ThreadLauncher = std::function<std::thread(std::function<void()>)>;
+
+    VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
+        ICommitter& committer, IUiNotifier& ui, ThreadLauncher threadLauncher = {});
+    VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
+        ICommitter& committer, IUiNotifier& ui, ThreadLauncher threadLauncher = {});
     ~VoiceSession();
 
     std::string handleCommand(const std::string& command);
@@ -47,13 +51,19 @@ private:
     ILiveVoicePipeline* livePipeline_ = nullptr;
     ICommitter& committer_;
     IUiNotifier& ui_;
+    ThreadLauncher threadLauncher_;
 
     mutable std::mutex mutex_;
+    std::condition_variable condition_;
     SessionState state_ = SessionState::Idle;
     std::thread finalizationWorker_;
     std::uint64_t nextGeneration_ = 0;
     std::uint64_t runningGeneration_ = 0;
     bool finalizationRunning_ = false;
+    bool finalizationStartPublished_ = false;
+    bool commitClaimed_ = false;
+    std::size_t pendingCancellationNotifications_ = 0;
+    std::size_t activePartialNotifications_ = 0;
     bool cancelRequested_ = false;
     bool shuttingDown_ = false;
     // True while a live (streaming) session is active so late STREAM_TEXT

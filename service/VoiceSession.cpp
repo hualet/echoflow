@@ -30,32 +30,60 @@ std::string upper(std::string value)
     return value;
 }
 
+VoiceSession::ThreadLauncher defaultThreadLauncher()
+{
+    return [](std::function<void()> task) {
+        return std::thread(std::move(task));
+    };
+}
+
 } // namespace
 
-VoiceSession::VoiceSession(
-    Config cfg, IRecorder& recorder, IAsrEngine& asr, ICommitter& committer, IUiNotifier& ui)
+VoiceSession::VoiceSession(Config cfg, IRecorder& recorder, IAsrEngine& asr,
+    ICommitter& committer, IUiNotifier& ui, ThreadLauncher threadLauncher)
     : cfg_(std::move(cfg))
     , recorder_(&recorder)
     , asr_(&asr)
     , committer_(committer)
     , ui_(ui)
+    , threadLauncher_(threadLauncher ? std::move(threadLauncher) : defaultThreadLauncher())
 {
 }
 
-VoiceSession::VoiceSession(
-    Config cfg, ILiveVoicePipeline& livePipeline, ICommitter& committer, IUiNotifier& ui)
+VoiceSession::VoiceSession(Config cfg, ILiveVoicePipeline& livePipeline,
+    ICommitter& committer, IUiNotifier& ui, ThreadLauncher threadLauncher)
     : cfg_(std::move(cfg))
     , livePipeline_(&livePipeline)
     , committer_(committer)
     , ui_(ui)
+    , threadLauncher_(threadLauncher ? std::move(threadLauncher) : defaultThreadLauncher())
 {
     livePipeline_->setPartialTextCallback([this](const std::string& text) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        // Keep the check and notification ordered with stop/cancel so a
-        // partial cannot appear after the capsule changes phase.
-        if (!text.empty() && !shuttingDown_ && state_ == SessionState::Recording
-            && recordingStreamActive_) {
-            ui_.send("STREAM_TEXT " + text);
+        bool publish = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            publish = !text.empty() && !shuttingDown_
+                && state_ == SessionState::Recording && recordingStreamActive_;
+            if (publish) {
+                ++activePartialNotifications_;
+            }
+        }
+        if (publish) {
+            try {
+                ui_.send("STREAM_TEXT " + text);
+            } catch (...) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    --activePartialNotifications_;
+                }
+                condition_.notify_all();
+                throw;
+            }
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                --activePartialNotifications_;
+            }
+            condition_.notify_all();
         }
     });
 }
@@ -64,7 +92,7 @@ VoiceSession::~VoiceSession()
 {
     bool cancelRecording = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         shuttingDown_ = true;
         recordingStreamActive_ = false;
         if (state_ == SessionState::Recording) {
@@ -75,7 +103,9 @@ VoiceSession::~VoiceSession()
             cancelRequested_ = true;
             state_ = SessionState::Cancelling;
         }
+        condition_.wait(lock, [this] { return activePartialNotifications_ == 0; });
     }
+    condition_.notify_all();
 
     if (cancelRecording) {
         try {
@@ -170,6 +200,8 @@ std::string VoiceSession::startRecording()
             state_ = SessionState::Idle;
             runningGeneration_ = 0;
             cancelRequested_ = false;
+            commitClaimed_ = false;
+            finalizationStartPublished_ = false;
             recordingStreamActive_ = false;
         }
         ui_.send("IDLE");
@@ -180,6 +212,8 @@ std::string VoiceSession::startRecording()
         std::lock_guard<std::mutex> lock(mutex_);
         runningGeneration_ = ++nextGeneration_;
         cancelRequested_ = false;
+        commitClaimed_ = false;
+        finalizationStartPublished_ = false;
         recordingStreamActive_ = true;
         state_ = SessionState::Recording;
     }
@@ -189,23 +223,65 @@ std::string VoiceSession::startRecording()
 
 std::string VoiceSession::startFinalization()
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (state_ != SessionState::Recording) {
-        return phaseName(state_);
+    std::uint64_t generation = 0;
+    std::string launchError;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ != SessionState::Recording) {
+            return phaseName(state_);
+        }
+
+        // The pipeline is about to be finalized; stop accepting streaming
+        // partials. The worker waits for TRANSCRIBING to be published before
+        // touching capture/ASR, so notifier calls stay outside this mutex.
+        recordingStreamActive_ = false;
+        state_ = SessionState::Transcribing;
+        finalizationRunning_ = true;
+        finalizationStartPublished_ = false;
+        commitClaimed_ = false;
+        generation = runningGeneration_;
+        try {
+            finalizationWorker_
+                = threadLauncher_([this, generation] { finalize(generation); });
+        } catch (const std::system_error& e) {
+            launchError = e.what();
+            state_ = SessionState::Recording;
+            finalizationRunning_ = false;
+            finalizationStartPublished_ = false;
+            recordingStreamActive_ = true;
+        }
     }
 
-    // The pipeline is about to be finalized; stop accepting streaming partials.
-    recordingStreamActive_ = false;
-    state_ = SessionState::Transcribing;
-    finalizationRunning_ = true;
-    const auto generation = runningGeneration_;
+    if (!launchError.empty()) {
+        log("voice finalization launch failed: " + launchError);
+        ui_.send("RECORDING");
+        return "ERR " + launchError;
+    }
+
     ui_.send("TRANSCRIBING");
-    finalizationWorker_ = std::thread([this, generation] { finalize(generation); });
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (finalizationRunning_ && runningGeneration_ == generation) {
+            finalizationStartPublished_ = true;
+        }
+    }
+    condition_.notify_all();
     return "TRANSCRIBING";
 }
 
 void VoiceSession::finalize(std::uint64_t generation)
 {
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        condition_.wait(lock, [this, generation] {
+            return shuttingDown_ || (finalizationRunning_
+                && runningGeneration_ == generation && finalizationStartPublished_);
+        });
+        if (shuttingDown_ && !finalizationStartPublished_) {
+            return;
+        }
+    }
+
     std::string text;
     if (livePipeline_) {
         try {
@@ -227,29 +303,46 @@ void VoiceSession::finalize(std::uint64_t generation)
         text = stripPunctuation(text);
     }
 
-    bool notifyIdle = false;
+    bool commitClaimed = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         const bool current = finalizationRunning_ && runningGeneration_ == generation;
 
-        // This mutex is the cancellation/commit linearization gate. CANCEL
-        // taking it first marks the generation cancelled and suppresses the
-        // commit. Once this short commit starts, a later CANCEL observes Idle.
+        // This is the cancellation/commit claim gate. CANCEL taking it first
+        // suppresses the external commit. A worker taking it first records an
+        // irrevocable claim, then releases the mutex before commitText().
         if (current && !cancelRequested_ && !shuttingDown_ && !text.empty()) {
-            try {
-                const auto [ok, detail] = committer_.commitText(text);
-                if (!ok) {
-                    log("voice commit failed: " + detail);
-                }
-            } catch (const std::exception& e) {
-                log(std::string("voice commit failed: ") + e.what());
-            }
+            commitClaimed_ = true;
+            commitClaimed = true;
         }
+    }
 
+    if (commitClaimed) {
+        try {
+            const auto [ok, detail] = committer_.commitText(text);
+            if (!ok) {
+                log("voice commit failed: " + detail);
+            }
+        } catch (const std::exception& e) {
+            log(std::string("voice commit failed: ") + e.what());
+        }
+    }
+
+    bool notifyIdle = false;
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool current = finalizationRunning_ && runningGeneration_ == generation;
         if (current) {
+            // An accepted CANCEL increments the pending count before its
+            // notifier call. Waiting here releases mutex_, guaranteeing
+            // CANCELLING is published before the terminal IDLE.
+            condition_.wait(lock,
+                [this] { return pendingCancellationNotifications_ == 0; });
             state_ = SessionState::Idle;
             runningGeneration_ = 0;
             finalizationRunning_ = false;
+            finalizationStartPublished_ = false;
+            commitClaimed_ = false;
             cancelRequested_ = false;
             recordingStreamActive_ = false;
             notifyIdle = !shuttingDown_;
@@ -277,6 +370,7 @@ void VoiceSession::joinCompletedWorker()
 void VoiceSession::cancelActiveSession()
 {
     bool cancelRecording = false;
+    bool publishCancellation = false;
     std::string notification;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -290,14 +384,28 @@ void VoiceSession::cancelActiveSession()
         } else if (state_ == SessionState::Transcribing || state_ == SessionState::Cancelling) {
             cancelRequested_ = true;
             state_ = SessionState::Cancelling;
-            // Publish the accepted cancellation while holding the same gate
-            // used by finalization. The datagram send is short, and keeping it
-            // inside the gate prevents the worker's terminal IDLE from
-            // overtaking CANCELLING. Slow pipeline operations stay outside.
-            ui_.send("CANCELLING");
+            ++pendingCancellationNotifications_;
+            publishCancellation = true;
         } else {
             notification = "IDLE";
         }
+    }
+
+    if (publishCancellation) {
+        const auto finishNotification = [this] {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                --pendingCancellationNotifications_;
+            }
+            condition_.notify_all();
+        };
+        try {
+            ui_.send("CANCELLING");
+        } catch (...) {
+            finishNotification();
+            throw;
+        }
+        finishNotification();
     }
 
     if (cancelRecording) {

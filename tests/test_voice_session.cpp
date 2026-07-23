@@ -6,10 +6,12 @@
 #include "VoiceSession.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -17,6 +19,16 @@
 
 using namespace echoflow;
 using namespace std::chrono_literals;
+
+struct ScopeExit {
+    std::function<void()> callback;
+    ~ScopeExit()
+    {
+        if (callback) {
+            callback();
+        }
+    }
+};
 
 struct FakeRecorder : IRecorder {
     mutable std::mutex mutex;
@@ -209,6 +221,35 @@ struct FakeCommitter : ICommitter {
     }
 };
 
+struct BlockingCommitter : FakeCommitter {
+    std::condition_variable blockingCondition;
+    bool commitEntered_ = false;
+    bool commitReleased_ = false;
+
+    std::pair<bool, std::string> commitText(const std::string& text) override
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        texts_.push_back(text);
+        commitEntered_ = true;
+        blockingCondition.notify_all();
+        blockingCondition.wait(lock, [this] { return commitReleased_; });
+        return ret;
+    }
+
+    bool waitForCommitEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return blockingCondition.wait_for(lock, timeout, [this] { return commitEntered_; });
+    }
+
+    void releaseCommit()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        commitReleased_ = true;
+        blockingCondition.notify_all();
+    }
+};
+
 struct FakeUi : IUiNotifier {
     mutable std::mutex mutex;
     std::condition_variable condition;
@@ -294,6 +335,77 @@ struct BlockingCancellationUi : IUiNotifier {
     }
 };
 
+struct ReentrantUi : IUiNotifier {
+    VoiceSession* session = nullptr;
+    std::atomic<bool> reentryBlocked = false;
+    std::atomic<int> reentriesInFlight = 0;
+    std::mutex completionMutex;
+    std::condition_variable completionCondition;
+
+    void send(const std::string&) override
+    {
+        if (!session) {
+            return;
+        }
+
+        auto result = std::make_shared<std::promise<SessionState>>();
+        auto future = result->get_future();
+        ++reentriesInFlight;
+        std::thread reentry([this, result] {
+            result->set_value(session->state());
+            {
+                std::lock_guard<std::mutex> lock(completionMutex);
+                --reentriesInFlight;
+            }
+            completionCondition.notify_all();
+        });
+        if (future.wait_for(200ms) == std::future_status::ready) {
+            reentry.join();
+        } else {
+            reentryBlocked = true;
+            reentry.detach();
+        }
+    }
+
+    bool waitForReentries(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(completionMutex);
+        return completionCondition.wait_for(
+            lock, timeout, [this] { return reentriesInFlight.load() == 0; });
+    }
+};
+
+struct BlockingPartialUi : IUiNotifier {
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool partialEntered_ = false;
+    bool partialReleased_ = false;
+
+    void send(const std::string& message) override
+    {
+        if (message.rfind("STREAM_TEXT ", 0) != 0) {
+            return;
+        }
+        std::unique_lock<std::mutex> lock(mutex);
+        partialEntered_ = true;
+        condition.notify_all();
+        condition.wait(lock, [this] { return partialReleased_; });
+    }
+
+    bool waitForPartialEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this] { return partialEntered_; });
+    }
+
+    void releasePartial()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        partialReleased_ = true;
+        condition.notify_all();
+    }
+};
+
 class TestVoiceSession : public QObject {
     Q_OBJECT
 
@@ -320,6 +432,10 @@ private slots:
     void cancelDuringTranscribingDiscardsFinishedText();
     void ctrlDuringCancellingDoesNotRestartPipeline();
     void cancellingNotificationPrecedesFinalIdle();
+    void cancelAfterCommitClaimRemainsResponsive();
+    void notifierCanReenterSessionWithoutDeadlock();
+    void destructorWaitsForBlockedPartialNotification();
+    void threadLaunchFailureRestoresRecording();
     void statusReportsEveryPhaseWithoutMutation();
     void blurDuringTranscribingDiscardsFinishedText();
     void destructorWaitsForFinalization();
@@ -702,6 +818,7 @@ void TestVoiceSession::stopReturnsWhileLiveFinishIsBlocked()
     session.handleCommand("CTRL_DOWN");
     auto stopResult
         = std::async(std::launch::async, [&session] { return session.handleCommand("CTRL_DOWN"); });
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
     QVERIFY(pipeline.waitForFinishEntered());
 
     const bool returnedPromptly = stopResult.wait_for(200ms) == std::future_status::ready;
@@ -719,6 +836,7 @@ void TestVoiceSession::cancelDuringTranscribingDiscardsFinishedText()
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(
@@ -747,6 +865,7 @@ void TestVoiceSession::ctrlDuringCancellingDoesNotRestartPipeline()
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     session.handleCommand("CTRL_DOWN");
     session.handleCommand("CTRL_DOWN");
@@ -770,6 +889,8 @@ void TestVoiceSession::cancellingNotificationPrecedesFinalIdle()
     FakeCommitter committer;
     BlockingCancellationUi ui;
     VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
+    ScopeExit releaseCancellation { [&ui] { ui.releaseCancellation(); } };
 
     session.handleCommand("CTRL_DOWN");
     QCOMPARE(
@@ -800,12 +921,120 @@ void TestVoiceSession::cancellingNotificationPrecedesFinalIdle()
     QVERIFY(committer.texts().empty());
 }
 
+void TestVoiceSession::cancelAfterCommitClaimRemainsResponsive()
+{
+    FakeLivePipeline pipeline;
+    pipeline.result = "claimed text";
+    BlockingCommitter committer;
+    FakeUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseCommit { [&committer] { committer.releaseCommit(); } };
+
+    session.handleCommand("CTRL_DOWN");
+    QCOMPARE(
+        QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("TRANSCRIBING"));
+    QVERIFY(committer.waitForCommitEntered());
+
+    auto statusResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("STATUS"); });
+    const bool statusReturnedPromptly = statusResult.wait_for(200ms) == std::future_status::ready;
+    auto cancelResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CANCEL"); });
+    const bool cancelReturnedPromptly = cancelResult.wait_for(200ms) == std::future_status::ready;
+    committer.releaseCommit();
+    const auto status = statusResult.get();
+    const auto result = cancelResult.get();
+    QVERIFY(ui.waitForMessage("IDLE"));
+    const auto messages = ui.messages();
+
+    QVERIFY2(statusReturnedPromptly, "claimed commit held the mutex against STATUS");
+    QCOMPARE(QString::fromStdString(status), QStringLiteral("TRANSCRIBING"));
+    QVERIFY2(cancelReturnedPromptly, "claimed commit held the session state mutex");
+    QCOMPARE(QString::fromStdString(result), QStringLiteral("CANCELLED"));
+    QCOMPARE(committer.texts().size(), size_t(1));
+    QVERIFY(messages.size() >= size_t(2));
+    QCOMPARE(QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("CANCELLING"));
+    QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::notifierCanReenterSessionWithoutDeadlock()
+{
+    BlockingLivePipeline pipeline;
+    FakeCommitter committer;
+    ReentrantUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
+    ui.session = &session;
+
+    session.handleCommand("CTRL_DOWN");
+    const auto callback = pipeline.callback();
+    QVERIFY(callback);
+    callback("partial");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(pipeline.waitForFinishEntered());
+    session.handleCommand("CANCEL");
+    pipeline.releaseFinish();
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForReentries());
+
+    QVERIFY2(!ui.reentryBlocked.load(), "IUiNotifier::send ran under the session state mutex");
+}
+
+void TestVoiceSession::destructorWaitsForBlockedPartialNotification()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    BlockingPartialUi ui;
+    auto session = std::make_unique<VoiceSession>(
+        Config::defaultConfig(), pipeline, committer, ui);
+    session->handleCommand("CTRL_DOWN");
+    const auto callback = pipeline.callback();
+    QVERIFY(callback);
+
+    auto partial = std::async(std::launch::async, [callback] { callback("blocked partial"); });
+    QVERIFY(ui.waitForPartialEntered());
+    auto destruction = std::async(std::launch::async,
+        [owned = std::move(session)]() mutable { owned.reset(); });
+    const bool destructorWaited
+        = destruction.wait_for(200ms) == std::future_status::timeout;
+
+    ui.releasePartial();
+    partial.get();
+    destruction.get();
+
+    QVERIFY2(destructorWaited, "VoiceSession outlived neither an active partial nor its notifier");
+}
+
+void TestVoiceSession::threadLaunchFailureRestoresRecording()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    VoiceSession::ThreadLauncher failingLauncher = [](std::function<void()>) -> std::thread {
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again));
+    };
+    VoiceSession session(
+        Config::defaultConfig(), pipeline, committer, ui, std::move(failingLauncher));
+
+    session.handleCommand("CTRL_DOWN");
+    ui.clear();
+    const auto response = session.handleCommand("CTRL_DOWN");
+
+    QVERIFY(QString::fromStdString(response).startsWith(QStringLiteral("ERR ")));
+    QCOMPARE(session.state(), SessionState::Recording);
+    QCOMPARE(pipeline.finishes(), 0);
+    QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("RECORDING"));
+    session.handleCommand("CANCEL");
+}
+
 void TestVoiceSession::statusReportsEveryPhaseWithoutMutation()
 {
     BlockingLivePipeline pipeline;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     QCOMPARE(QString::fromStdString(session.handleCommand("STATUS")), QStringLiteral("IDLE"));
     QCOMPARE(session.state(), SessionState::Idle);
@@ -840,6 +1069,7 @@ void TestVoiceSession::blurDuringTranscribingDiscardsFinishedText()
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     session.handleCommand("CTRL_DOWN");
     session.handleCommand("CTRL_DOWN");
@@ -866,6 +1096,7 @@ void TestVoiceSession::destructorWaitsForFinalization()
         session.handleCommand("CTRL_DOWN");
         return session.handleCommand("CTRL_DOWN");
     });
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     QVERIFY(pipeline.waitForFinishEntered());
     QCOMPARE(lifetime.wait_for(200ms), std::future_status::timeout);
@@ -881,6 +1112,7 @@ void TestVoiceSession::latePartialAfterStopIsIgnored()
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeLiveSession(pipeline, committer, ui);
+    ScopeExit releaseFinish { [&pipeline] { pipeline.releaseFinish(); } };
 
     session.handleCommand("CTRL_DOWN");
     const auto callback = pipeline.callback();
