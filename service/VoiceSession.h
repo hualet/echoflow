@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -36,13 +37,23 @@ public:
     SessionState state() const;
 
 private:
+    struct PartialCallbackState {
+        std::mutex mutex;
+        std::condition_variable condition;
+        IUiNotifier* ui = nullptr;
+        bool accepting = false;
+        std::size_t active = 0;
+    };
+
     std::string startRecording();
     std::string startFinalization();
     void finalize(std::uint64_t generation);
     void joinCompletedWorker();
+    void setPartialTextAccepting(bool accepting);
+    void shutdownPartialTextCallback();
     // Discard any in-flight recording and return to Idle, emitting IDLE so the
     // UI hides the capsule. Shared by BLUR (focus lost) and CANCEL (X button).
-    void cancelActiveSession();
+    std::string cancelActiveSession();
     static std::string phaseName(SessionState state);
 
     Config cfg_;
@@ -52,6 +63,7 @@ private:
     ICommitter& committer_;
     IUiNotifier& ui_;
     ThreadLauncher threadLauncher_;
+    std::shared_ptr<PartialCallbackState> partialCallbackState_;
 
     mutable std::mutex mutex_;
     std::condition_variable condition_;
@@ -63,12 +75,8 @@ private:
     bool finalizationStartPublished_ = false;
     bool commitClaimed_ = false;
     std::size_t pendingCancellationNotifications_ = 0;
-    std::size_t activePartialNotifications_ = 0;
     bool cancelRequested_ = false;
     bool shuttingDown_ = false;
-    // True while a live (streaming) session is active so late STREAM_TEXT
-    // datagrams arriving after a CANCEL/TRANSCRIBING are ignored.
-    bool recordingStreamActive_ = false;
 };
 
 } // namespace echoflow

@@ -376,33 +376,53 @@ struct ReentrantUi : IUiNotifier {
 };
 
 struct BlockingPartialUi : IUiNotifier {
-    std::mutex mutex;
-    std::condition_variable condition;
+    mutable std::mutex messagesMutex;
+    std::condition_variable messagesCondition;
+    std::vector<std::string> messages_;
+    std::mutex partialMutex;
+    std::condition_variable partialCondition;
     bool partialEntered_ = false;
     bool partialReleased_ = false;
 
     void send(const std::string& message) override
     {
-        if (message.rfind("STREAM_TEXT ", 0) != 0) {
-            return;
+        if (message.rfind("STREAM_TEXT ", 0) == 0) {
+            std::unique_lock<std::mutex> lock(partialMutex);
+            partialEntered_ = true;
+            partialCondition.notify_all();
+            partialCondition.wait(lock, [this] { return partialReleased_; });
         }
-        std::unique_lock<std::mutex> lock(mutex);
-        partialEntered_ = true;
-        condition.notify_all();
-        condition.wait(lock, [this] { return partialReleased_; });
+
+        std::lock_guard<std::mutex> lock(messagesMutex);
+        messages_.push_back(message);
+        messagesCondition.notify_all();
     }
 
     bool waitForPartialEntered(std::chrono::milliseconds timeout = 1000ms)
     {
-        std::unique_lock<std::mutex> lock(mutex);
-        return condition.wait_for(lock, timeout, [this] { return partialEntered_; });
+        std::unique_lock<std::mutex> lock(partialMutex);
+        return partialCondition.wait_for(lock, timeout, [this] { return partialEntered_; });
     }
 
     void releasePartial()
     {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> lock(partialMutex);
         partialReleased_ = true;
-        condition.notify_all();
+        partialCondition.notify_all();
+    }
+
+    bool waitForMessage(const std::string& message, std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(messagesMutex);
+        return messagesCondition.wait_for(lock, timeout, [this, &message] {
+            return std::find(messages_.begin(), messages_.end(), message) != messages_.end();
+        });
+    }
+
+    std::vector<std::string> messages() const
+    {
+        std::lock_guard<std::mutex> lock(messagesMutex);
+        return messages_;
     }
 };
 
@@ -434,7 +454,10 @@ private slots:
     void cancellingNotificationPrecedesFinalIdle();
     void cancelAfterCommitClaimRemainsResponsive();
     void notifierCanReenterSessionWithoutDeadlock();
+    void partialCompletesBeforeTranscribingNotification();
+    void partialCompletesBeforeRecordingCancelIdle();
     void destructorWaitsForBlockedPartialNotification();
+    void copiedPartialCallbackIsSafeAfterDestruction();
     void threadLaunchFailureRestoresRecording();
     void statusReportsEveryPhaseWithoutMutation();
     void blurDuringTranscribingDiscardsFinishedText();
@@ -950,10 +973,9 @@ void TestVoiceSession::cancelAfterCommitClaimRemainsResponsive()
     QVERIFY2(statusReturnedPromptly, "claimed commit held the mutex against STATUS");
     QCOMPARE(QString::fromStdString(status), QStringLiteral("TRANSCRIBING"));
     QVERIFY2(cancelReturnedPromptly, "claimed commit held the session state mutex");
-    QCOMPARE(QString::fromStdString(result), QStringLiteral("CANCELLED"));
+    QCOMPARE(QString::fromStdString(result), QStringLiteral("TRANSCRIBING"));
     QCOMPARE(committer.texts().size(), size_t(1));
-    QVERIFY(messages.size() >= size_t(2));
-    QCOMPARE(QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("CANCELLING"));
+    QVERIFY(std::find(messages.begin(), messages.end(), "CANCELLING") == messages.end());
     QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
 }
 
@@ -980,6 +1002,78 @@ void TestVoiceSession::notifierCanReenterSessionWithoutDeadlock()
     QVERIFY2(!ui.reentryBlocked.load(), "IUiNotifier::send ran under the session state mutex");
 }
 
+void TestVoiceSession::partialCompletesBeforeTranscribingNotification()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    BlockingPartialUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    session.handleCommand("CTRL_DOWN");
+    const auto callback = pipeline.callback();
+
+    auto partial = std::async(std::launch::async, [callback] { callback("blocked partial"); });
+    ScopeExit releasePartial { [&ui] { ui.releasePartial(); } };
+    const bool partialEntered = ui.waitForPartialEntered();
+    auto stopResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CTRL_DOWN"); });
+    const bool transcribingPublishedWhilePartialBlocked
+        = ui.waitForMessage("TRANSCRIBING", 250ms);
+
+    ui.releasePartial();
+    partial.get();
+    const auto result = stopResult.get();
+    const bool transcribingPublished = ui.waitForMessage("TRANSCRIBING");
+    const auto messages = ui.messages();
+    const auto partialPosition
+        = std::find(messages.begin(), messages.end(), "STREAM_TEXT blocked partial");
+    const auto transcribingPosition
+        = std::find(messages.begin(), messages.end(), "TRANSCRIBING");
+
+    QVERIFY(partialEntered);
+    QVERIFY2(!transcribingPublishedWhilePartialBlocked,
+        "TRANSCRIBING overtook an admitted partial notification");
+    QCOMPARE(QString::fromStdString(result), QStringLiteral("TRANSCRIBING"));
+    QVERIFY(transcribingPublished);
+    QVERIFY(partialPosition != messages.end());
+    QVERIFY(transcribingPosition != messages.end());
+    QVERIFY(partialPosition < transcribingPosition);
+}
+
+void TestVoiceSession::partialCompletesBeforeRecordingCancelIdle()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    BlockingPartialUi ui;
+    VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+    session.handleCommand("CTRL_DOWN");
+    const auto callback = pipeline.callback();
+
+    auto partial = std::async(std::launch::async, [callback] { callback("blocked partial"); });
+    ScopeExit releasePartial { [&ui] { ui.releasePartial(); } };
+    const bool partialEntered = ui.waitForPartialEntered();
+    auto cancelResult
+        = std::async(std::launch::async, [&session] { return session.handleCommand("CANCEL"); });
+    const bool idlePublishedWhilePartialBlocked = ui.waitForMessage("IDLE", 250ms);
+
+    ui.releasePartial();
+    partial.get();
+    const auto result = cancelResult.get();
+    const bool idlePublished = ui.waitForMessage("IDLE");
+    const auto messages = ui.messages();
+    const auto partialPosition
+        = std::find(messages.begin(), messages.end(), "STREAM_TEXT blocked partial");
+    const auto idlePosition = std::find(messages.begin(), messages.end(), "IDLE");
+
+    QVERIFY(partialEntered);
+    QVERIFY2(!idlePublishedWhilePartialBlocked,
+        "recording cancellation IDLE overtook an admitted partial notification");
+    QCOMPARE(QString::fromStdString(result), QStringLiteral("CANCELLED"));
+    QVERIFY(idlePublished);
+    QVERIFY(partialPosition != messages.end());
+    QVERIFY(idlePosition != messages.end());
+    QVERIFY(partialPosition < idlePosition);
+}
+
 void TestVoiceSession::destructorWaitsForBlockedPartialNotification()
 {
     FakeLivePipeline pipeline;
@@ -992,6 +1086,7 @@ void TestVoiceSession::destructorWaitsForBlockedPartialNotification()
     QVERIFY(callback);
 
     auto partial = std::async(std::launch::async, [callback] { callback("blocked partial"); });
+    ScopeExit releasePartial { [&ui] { ui.releasePartial(); } };
     QVERIFY(ui.waitForPartialEntered());
     auto destruction = std::async(std::launch::async,
         [owned = std::move(session)]() mutable { owned.reset(); });
@@ -1003,6 +1098,24 @@ void TestVoiceSession::destructorWaitsForBlockedPartialNotification()
     destruction.get();
 
     QVERIFY2(destructorWaited, "VoiceSession outlived neither an active partial nor its notifier");
+}
+
+void TestVoiceSession::copiedPartialCallbackIsSafeAfterDestruction()
+{
+    FakeLivePipeline pipeline;
+    FakeCommitter committer;
+    FakeUi ui;
+    std::function<void(const std::string&)> copiedCallback;
+    {
+        VoiceSession session(Config::defaultConfig(), pipeline, committer, ui);
+        session.handleCommand("CTRL_DOWN");
+        copiedCallback = pipeline.callback();
+        QVERIFY(copiedCallback);
+    }
+
+    ui.clear();
+    copiedCallback("late copied callback");
+    QVERIFY(ui.messages().empty());
 }
 
 void TestVoiceSession::threadLaunchFailureRestoresRecording()
