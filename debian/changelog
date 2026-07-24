@@ -1,3 +1,17 @@
+echoflow (0.2.7) unstable; urgency=medium
+
+  * Add a tray toggle that keeps the recording capsule available on keyboards
+    without a right Ctrl key, with an idle microphone action for starting
+    dictation.
+  * Keep capsule controls responsive while transcription finishes and let
+    users cancel and discard in-flight sessions without stale status updates.
+  * Harden release benchmarks by rebuilding baselines whenever the current
+    benchmark identity differs from the recorded evidence.
+  * Document the feasibility and integration paths for Intel NPU and GPU
+    acceleration.
+
+ -- Hualet Wang <hualet@deepin.org>  Fri, 24 Jul 2026 19:19:33 +0800
+
 echoflow (0.2.6) unstable; urgency=medium
 
   * Stabilize Debian release validation by waiting for offscreen onboarding
