@@ -57,6 +57,26 @@ class ReleasePerformanceDriverTest(unittest.TestCase):
         )
         self.assertEqual([item.role for item in plan], ["baseline", "candidate"])
 
+    def test_previous_baseline_is_not_reused_when_identity_mismatches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence_path = Path(directory) / "previous.json"
+            baseline = copy.deepcopy(IDENTITY)
+            evidence_path.write_text(json.dumps({
+                "version": "0.2.1",
+                "candidate": {
+                    "identity": baseline,
+                    "result": {"samples": []},
+                },
+            }), encoding="utf-8")
+            current = copy.deepcopy(IDENTITY)
+            current["config_sha256"] = "f" * 64
+
+            identity, result = driver._previous_baseline(
+                evidence_path, "v0.2.1", current)
+
+            self.assertIsNone(identity)
+            self.assertIsNone(result)
+
     def test_iterations_below_three_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least 3"):
             driver.validate_iterations(2)

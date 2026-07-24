@@ -305,7 +305,7 @@ def _benchmark_build(build, *, config, manifest_path, entries, iterations, threa
     }
 
 
-def _previous_baseline(path, baseline_ref):
+def _previous_baseline(path, baseline_ref, current_identity):
     if path is None:
         return None, None
     with Path(path).open(encoding="utf-8") as stream:
@@ -313,7 +313,10 @@ def _previous_baseline(path, baseline_ref):
     if evidence.get("version") != baseline_ref.removeprefix("v"):
         return None, None
     candidate = evidence.get("candidate", {})
-    return candidate.get("identity"), candidate.get("result")
+    baseline_identity = candidate.get("identity")
+    if not identities_match(baseline_identity, current_identity):
+        return None, None
+    return baseline_identity, candidate.get("result")
 
 
 def run_release_check(args):
@@ -330,7 +333,8 @@ def run_release_check(args):
         threads=args.threads,
         openblas_threads=args.openblas_threads,
     )
-    baseline_identity, reused_result = _previous_baseline(args.previous_evidence, args.baseline_ref)
+    baseline_identity, reused_result = _previous_baseline(
+        args.previous_evidence, args.baseline_ref, current_identity)
     plan = make_build_plan(
         baseline_identity=baseline_identity,
         current_identity=current_identity,
