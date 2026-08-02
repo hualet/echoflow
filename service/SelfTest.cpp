@@ -3,6 +3,8 @@
 
 #include "SelfTest.h"
 
+#include "SileroVadBackend.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -52,12 +54,26 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
          uiSocketPath(cfg).string()},
     };
     if (cfg.vadBackend == "silero") {
-        const bool vadOk = !cfg.vadModelPath.empty() && fs::exists(cfg.vadModelPath);
+        const bool vadOk = !cfg.vadModelPath.empty()
+            && fs::is_regular_file(cfg.vadModelPath);
         checks.push_back({"silero VAD model available", vadOk,
                           vadOk ? cfg.vadModelPath
                                 : (cfg.vadModelPath.empty()
                                        ? std::string("silero VAD model path not set")
-                                       : "missing: " + cfg.vadModelPath)});
+                                       : "missing: " + cfg.vadModelPath
+                                           + " (not a regular file)")});
+        bool loadable = false;
+        std::string loadDetail = vadOk ? cfg.vadModelPath : "model file unavailable";
+        if (vadOk) {
+            try {
+                SileroVadBackend backend(cfg.vadModelPath, cfg.vadThreshold,
+                                         cfg.vadMinSpeechMs, cfg.vadMinSilenceMs);
+                loadable = true;
+            } catch (const std::exception& error) {
+                loadDetail = error.what();
+            }
+        }
+        checks.push_back({"silero VAD model loadable", loadable, loadDetail});
     }
     return checks;
 }

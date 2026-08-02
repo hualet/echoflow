@@ -15,6 +15,7 @@ namespace echoflow {
 struct SileroLiveSegmenterConfig {
     int sampleRate = 16000;
     int analysisCadenceMs = 100;
+    int minSpeechMs = 100;
     int endSilenceMs = 300;
     int prePaddingMs = 200;
     int postPaddingMs = 200;
@@ -44,6 +45,7 @@ private:
     std::unique_ptr<IVadBackend> backend_;
     size_t analysisCadenceSamples_ = 0;
     size_t endSilenceSamples_ = 0;
+    size_t retainedHistorySamples_ = 0;
     size_t prePaddingSamples_ = 0;
     size_t postPaddingSamples_ = 0;
     size_t maxSegmentSamples_ = 0;

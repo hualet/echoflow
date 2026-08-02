@@ -24,6 +24,9 @@ SileroLiveSegmenter::SileroLiveSegmenter(
     , backend_(std::move(backend))
     , analysisCadenceSamples_(samplesForMs(config_.analysisCadenceMs))
     , endSilenceSamples_(samplesForMs(config_.endSilenceMs))
+    , retainedHistorySamples_(std::max(
+          samplesForMs(config_.prePaddingMs),
+          samplesForMs(config_.minSpeechMs) + samplesForMs(32)))
     , prePaddingSamples_(samplesForMs(config_.prePaddingMs))
     , postPaddingSamples_(samplesForMs(config_.postPaddingMs))
     , maxSegmentSamples_(samplesForMs(config_.maxSegmentMs))
@@ -36,6 +39,7 @@ SileroLiveSegmenter::SileroLiveSegmenter(
         throw std::invalid_argument("Silero live VAD requires 16000 Hz audio");
     }
     if (analysisCadenceSamples_ == 0 || endSilenceSamples_ == 0
+        || config_.minSpeechMs <= 0
         || maxSegmentSamples_ == 0) {
         throw std::invalid_argument("Silero live VAD durations must be positive");
     }
@@ -56,7 +60,7 @@ std::vector<AudioSegment> SileroLiveSegmenter::append(
         && buffer_.size() < maxSegmentSamples_) {
         return {};
     }
-    samplesSinceAnalysis_ = 0;
+    samplesSinceAnalysis_ %= analysisCadenceSamples_;
 
     std::vector<AudioSegment> emitted;
     while (!buffer_.empty()) {
@@ -177,8 +181,8 @@ std::vector<AudioSegment> SileroLiveSegmenter::analyze()
     }
 
     if (firstSpeech == buffer_.size()) {
-        if (buffer_.size() > prePaddingSamples_) {
-            erasePrefix(buffer_.size() - prePaddingSamples_);
+        if (buffer_.size() > retainedHistorySamples_) {
+            erasePrefix(buffer_.size() - retainedHistorySamples_);
         }
         return {};
     }

@@ -20,6 +20,8 @@ private slots:
     void runtimeChecksActionableWhenCrispModelPathEmpty();
     void runtimeChecksPassesWhenCrispModelExists();
     void runtimeChecksReportsMissingSelectedVadModel();
+    void runtimeChecksRejectsVadModelDirectory();
+    void runtimeChecksRejectsCorruptVadModel();
     void runtimeChecksRejectsUnknownVadBackend();
 };
 
@@ -52,6 +54,39 @@ void TestSelfTest::runtimeChecksRejectsUnknownVadBackend() {
     QVERIFY(it != checks.end());
     QVERIFY(!it->passed);
     QCOMPARE(QString::fromStdString(it->detail), QStringLiteral("unknown"));
+}
+
+void TestSelfTest::runtimeChecksRejectsVadModelDirectory() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    Config c;
+    c.vadBackend = "silero";
+    c.vadModelPath = dir.path().toStdString();
+    const auto checks = runtimeChecks(c);
+    const auto it = std::find_if(checks.begin(), checks.end(),
+                                 [](const RuntimeCheck& r) {
+                                     return r.name == "silero VAD model loadable";
+                                 });
+    QVERIFY(it != checks.end());
+    QVERIFY(!it->passed);
+}
+
+void TestSelfTest::runtimeChecksRejectsCorruptVadModel() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto modelPath = std::filesystem::path(dir.path().toStdString()) / "vad.bin";
+    std::ofstream(modelPath).put('x');
+    Config c;
+    c.vadBackend = "silero";
+    c.vadModelPath = modelPath.string();
+    const auto checks = runtimeChecks(c);
+    const auto it = std::find_if(checks.begin(), checks.end(),
+                                 [](const RuntimeCheck& r) {
+                                     return r.name == "silero VAD model loadable";
+                                 });
+    QVERIFY(it != checks.end());
+    QVERIFY(!it->passed);
+    QVERIFY(it->detail.find("failed to load") != std::string::npos);
 }
 
 void TestSelfTest::canCreateDirectoryOnTmp() {

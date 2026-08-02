@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -42,6 +43,64 @@ public:
     bool resetCalled = false;
 };
 
+struct BlockingState {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool entered = false;
+    bool released = false;
+};
+
+class BlockingSegmenter : public ILiveSegmenter {
+public:
+    explicit BlockingSegmenter(std::shared_ptr<BlockingState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    std::vector<AudioSegment> append(const int16_t*, size_t) override
+    {
+        std::unique_lock<std::mutex> lock(state_->mutex);
+        state_->entered = true;
+        state_->changed.notify_all();
+        state_->changed.wait(lock, [this] { return state_->released; });
+        return {};
+    }
+
+    std::optional<AudioSegment> flush() override { return std::nullopt; }
+    void reset() override {}
+    std::string name() const override { return "blocking"; }
+    std::string diagnosticSummary() const override { return "blocked=false"; }
+
+private:
+    std::shared_ptr<BlockingState> state_;
+};
+
+class ThrowingSegmenter : public ILiveSegmenter {
+public:
+    explicit ThrowingSegmenter(std::shared_ptr<BlockingState> state)
+        : state_(std::move(state))
+    {
+    }
+
+    std::vector<AudioSegment> append(const int16_t*, size_t) override
+    {
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            state_->entered = true;
+            state_->changed.notify_all();
+        }
+        throw std::runtime_error("VAD inference failed");
+    }
+
+    std::optional<AudioSegment> flush() override { return std::nullopt; }
+    void reset() override {}
+    std::string name() const override { return "throwing"; }
+    std::string diagnosticSummary() const override { return "failed=true"; }
+
+private:
+    std::shared_ptr<BlockingState> state_;
+};
+
 }  // namespace
 
 class TestSegmentAsrWorker : public QObject {
@@ -53,6 +112,9 @@ private slots:
     void completedSegmentsPublishAccumulatedTextBeforeFinish();
     void debugRecorderWritesExactPcmAndMetrics();
     void coordinatorAcceptsInjectedLiveSegmenter();
+    void slowSegmentationDoesNotBlockCapture();
+    void segmentationBackpressureFailsClosed();
+    void segmentationFailurePropagatesAndStopsCapture();
 };
 
 void TestSegmentAsrWorker::coordinatorAcceptsInjectedLiveSegmenter()
@@ -66,6 +128,80 @@ void TestSegmentAsrWorker::coordinatorAcceptsInjectedLiveSegmenter()
     const std::vector<int16_t> pcm(1600, 7);
     QVERIFY(coordinator.append(pcm.data(), pcm.size()));
     QCOMPARE(coordinator.finish(), std::vector<std::string>({"1600"}));
+}
+
+void TestSegmentAsrWorker::slowSegmentationDoesNotBlockCapture()
+{
+    auto state = std::make_shared<BlockingState>();
+    LiveSegmentCoordinator coordinator(
+        std::make_unique<BlockingSegmenter>(state),
+        [](const AudioSegment&) { return std::string(); });
+    coordinator.start();
+
+    const std::vector<int16_t> pcm(1600, 7);
+    auto appendResult = std::async(std::launch::async, [&] {
+        return coordinator.append(pcm.data(), pcm.size());
+    });
+    const bool returnedPromptly =
+        appendResult.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->released = true;
+        state->changed.notify_all();
+    }
+
+    QVERIFY(returnedPromptly);
+    QVERIFY(appendResult.get());
+    coordinator.finish();
+}
+
+void TestSegmentAsrWorker::segmentationBackpressureFailsClosed()
+{
+    auto state = std::make_shared<BlockingState>();
+    LiveSegmentCoordinator coordinator(
+        std::make_unique<BlockingSegmenter>(state),
+        [](const AudioSegment&) { return std::string(); }, {}, 1600);
+    coordinator.start();
+
+    const std::vector<int16_t> pcm(1600, 7);
+    QVERIFY(coordinator.append(pcm.data(), pcm.size()));
+    {
+        std::unique_lock<std::mutex> lock(state->mutex);
+        QVERIFY(state->changed.wait_for(lock, std::chrono::seconds(1), [&] {
+            return state->entered;
+        }));
+    }
+    QVERIFY(coordinator.append(pcm.data(), pcm.size()));
+    QVERIFY(!coordinator.append(pcm.data(), pcm.size()));
+
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->released = true;
+        state->changed.notify_all();
+    }
+    coordinator.cancel();
+    QVERIFY(coordinator.metrics().audioDropped);
+}
+
+void TestSegmentAsrWorker::segmentationFailurePropagatesAndStopsCapture()
+{
+    auto state = std::make_shared<BlockingState>();
+    LiveSegmentCoordinator coordinator(
+        std::make_unique<ThrowingSegmenter>(state),
+        [](const AudioSegment&) { return std::string(); });
+    coordinator.start();
+
+    const std::vector<int16_t> pcm(1600, 7);
+    QVERIFY(coordinator.append(pcm.data(), pcm.size()));
+    {
+        std::unique_lock<std::mutex> lock(state->mutex);
+        QVERIFY(state->changed.wait_for(lock, std::chrono::seconds(1), [&] {
+            return state->entered;
+        }));
+    }
+    QVERIFY_EXCEPTION_THROWN(coordinator.finish(), std::runtime_error);
+    QVERIFY(!coordinator.append(pcm.data(), pcm.size()));
+    QVERIFY(coordinator.metrics().audioDropped);
 }
 
 void TestSegmentAsrWorker::slowTranscriberPreservesOrderAndEverySegment()
@@ -162,7 +298,7 @@ void TestSegmentAsrWorker::sustainedInputIsPreservedWhileTranscriptionIsSlow()
     LiveSegmentCoordinator coordinator(config, [](const AudioSegment& segment) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         return std::to_string(segment.sampleCount());
-    });
+    }, {}, 40 * 16000);
     coordinator.start();
 
     std::vector<int16_t> block(16000);
