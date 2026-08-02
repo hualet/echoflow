@@ -5,10 +5,12 @@
 #define ECHOFLOW_LIVE_SEGMENT_COORDINATOR_H
 
 #include "AudioSegmenter.h"
+#include "LiveSegmenter.h"
 #include "SegmentAsrWorker.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -25,6 +27,9 @@ struct LivePipelineMetrics {
 
 class LiveSegmentCoordinator {
 public:
+    LiveSegmentCoordinator(std::unique_ptr<ILiveSegmenter> segmenter,
+                           SegmentAsrWorker::Transcribe transcribe,
+                           SegmentAsrWorker::ResultCallback callback = {});
     LiveSegmentCoordinator(AudioSegmenterConfig config,
                            SegmentAsrWorker::Transcribe transcribe,
                            SegmentAsrWorker::ResultCallback callback = {});
@@ -38,7 +43,7 @@ public:
 private:
     bool enqueue(AudioSegment segment);
 
-    AudioSegmenter segmenter_;
+    std::unique_ptr<ILiveSegmenter> segmenter_;
     SegmentAsrWorker worker_;
     mutable std::mutex mutex_;
     LivePipelineMetrics metrics_;

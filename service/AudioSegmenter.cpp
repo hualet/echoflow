@@ -8,18 +8,6 @@
 
 namespace echoflow {
 
-size_t AudioSegment::sampleCount() const {
-    return samples.size();
-}
-
-double AudioSegment::durationSeconds() const {
-    if (sampleRate <= 0) {
-        return 0.0;
-    }
-
-    return static_cast<double>(samples.size()) / static_cast<double>(sampleRate);
-}
-
 AudioSegmenter::AudioSegmenter(AudioSegmenterConfig config)
     : config_(config),
       frameSamples_(samplesForMs(config_.frameMs)),
@@ -183,6 +171,20 @@ void AudioSegmenter::reset() {
 
 AudioSegmenterDiagnostics AudioSegmenter::diagnostics() const {
     return diagnostics_;
+}
+
+std::string AudioSegmenter::name() const {
+    return "energy";
+}
+
+std::string AudioSegmenter::diagnosticSummary() const {
+    return "frames=" + std::to_string(diagnostics_.frameCount)
+        + ", min_rms=" + std::to_string(diagnostics_.minFrameRms)
+        + ", max_rms=" + std::to_string(diagnostics_.maxFrameRms)
+        + ", below40_ms=" + std::to_string(diagnostics_.longestBelow40Ms)
+        + ", below80_ms=" + std::to_string(diagnostics_.longestBelow80Ms)
+        + ", below120_ms=" + std::to_string(diagnostics_.longestBelow120Ms)
+        + ", below200_ms=" + std::to_string(diagnostics_.longestBelow200Ms);
 }
 
 size_t AudioSegmenter::samplesForMs(int milliseconds) const {

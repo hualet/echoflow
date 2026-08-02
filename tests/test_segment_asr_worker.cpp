@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "SegmentAsrWorker.h"
+#include "LiveSegmenter.h"
 #include "LiveSegmentCoordinator.h"
 #include "LiveDebugRecorder.h"
 
@@ -11,6 +12,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -18,6 +20,29 @@
 #include <vector>
 
 using namespace echoflow;
+
+namespace {
+
+class OneShotSegmenter : public ILiveSegmenter {
+public:
+    std::vector<AudioSegment> append(const int16_t* samples, size_t count) override
+    {
+        AudioSegment segment;
+        segment.beginSample = 0;
+        segment.endSample = count;
+        segment.samples.assign(samples, samples + count);
+        return {std::move(segment)};
+    }
+
+    std::optional<AudioSegment> flush() override { return std::nullopt; }
+    void reset() override { resetCalled = true; }
+    std::string name() const override { return "fake"; }
+    std::string diagnosticSummary() const override { return "calls=1"; }
+
+    bool resetCalled = false;
+};
+
+}  // namespace
 
 class TestSegmentAsrWorker : public QObject {
     Q_OBJECT
@@ -27,7 +52,21 @@ private slots:
     void sustainedInputIsPreservedWhileTranscriptionIsSlow();
     void completedSegmentsPublishAccumulatedTextBeforeFinish();
     void debugRecorderWritesExactPcmAndMetrics();
+    void coordinatorAcceptsInjectedLiveSegmenter();
 };
+
+void TestSegmentAsrWorker::coordinatorAcceptsInjectedLiveSegmenter()
+{
+    auto segmenter = std::make_unique<OneShotSegmenter>();
+    LiveSegmentCoordinator coordinator(
+        std::move(segmenter),
+        [](const AudioSegment& segment) { return std::to_string(segment.sampleCount()); });
+    coordinator.start();
+
+    const std::vector<int16_t> pcm(1600, 7);
+    QVERIFY(coordinator.append(pcm.data(), pcm.size()));
+    QCOMPARE(coordinator.finish(), std::vector<std::string>({"1600"}));
+}
 
 void TestSegmentAsrWorker::slowTranscriberPreservesOrderAndEverySegment()
 {

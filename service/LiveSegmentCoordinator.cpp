@@ -5,20 +5,35 @@
 
 #include "log.h"
 
+#include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace echoflow {
 
 LiveSegmentCoordinator::LiveSegmentCoordinator(
+    std::unique_ptr<ILiveSegmenter> segmenter,
+    SegmentAsrWorker::Transcribe transcribe,
+    SegmentAsrWorker::ResultCallback callback)
+    : segmenter_(std::move(segmenter))
+    , worker_(std::move(transcribe), std::move(callback))
+{
+    if (!segmenter_) {
+        throw std::invalid_argument("live segmenter must not be null");
+    }
+}
+
+LiveSegmentCoordinator::LiveSegmentCoordinator(
     AudioSegmenterConfig config, SegmentAsrWorker::Transcribe transcribe,
     SegmentAsrWorker::ResultCallback callback)
-    : segmenter_(config)
-    , worker_(std::move(transcribe), std::move(callback))
+    : LiveSegmentCoordinator(std::make_unique<AudioSegmenter>(config),
+                             std::move(transcribe), std::move(callback))
 {
 }
 
 void LiveSegmentCoordinator::start()
 {
+    log("live VAD backend: " + segmenter_->name());
     worker_.start();
     active_ = true;
 }
@@ -32,7 +47,7 @@ bool LiveSegmentCoordinator::append(const int16_t* samples, size_t count)
         std::lock_guard<std::mutex> lock(mutex_);
         metrics_.inputSamples += count;
     }
-    for (AudioSegment& segment : segmenter_.append(samples, count)) {
+    for (AudioSegment& segment : segmenter_->append(samples, count)) {
         if (!enqueue(std::move(segment))) {
             return false;
         }
@@ -43,15 +58,9 @@ bool LiveSegmentCoordinator::append(const int16_t* samples, size_t count)
 std::vector<std::string> LiveSegmentCoordinator::finish()
 {
     if (active_) {
-        const AudioSegmenterDiagnostics diagnostics = segmenter_.diagnostics();
-        log("live VAD energy: frames=" + std::to_string(diagnostics.frameCount)
-            + ", min_rms=" + std::to_string(diagnostics.minFrameRms)
-            + ", max_rms=" + std::to_string(diagnostics.maxFrameRms)
-            + ", below40_ms=" + std::to_string(diagnostics.longestBelow40Ms)
-            + ", below80_ms=" + std::to_string(diagnostics.longestBelow80Ms)
-            + ", below120_ms=" + std::to_string(diagnostics.longestBelow120Ms)
-            + ", below200_ms=" + std::to_string(diagnostics.longestBelow200Ms));
-        if (auto remaining = segmenter_.flush()) {
+        log("live VAD " + segmenter_->name() + ": "
+            + segmenter_->diagnosticSummary());
+        if (auto remaining = segmenter_->flush()) {
             enqueue(std::move(*remaining));
         }
         active_ = false;
@@ -65,7 +74,7 @@ std::vector<std::string> LiveSegmentCoordinator::finish()
 void LiveSegmentCoordinator::cancel()
 {
     active_ = false;
-    segmenter_.reset();
+    segmenter_->reset();
     worker_.cancel();
 }
 

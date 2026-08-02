@@ -4,6 +4,8 @@
 #ifndef ECHOFLOW_AUDIO_SEGMENTER_H
 #define ECHOFLOW_AUDIO_SEGMENTER_H
 
+#include "LiveSegmenter.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -25,16 +27,6 @@ struct AudioSegmenterConfig {
     double minActiveSpeechRms = 80.0;
 };
 
-struct AudioSegment {
-    int sampleRate = 16000;
-    uint64_t beginSample = 0;
-    uint64_t endSample = 0;
-    std::vector<int16_t> samples;
-
-    size_t sampleCount() const;
-    double durationSeconds() const;
-};
-
 struct AudioSegmenterDiagnostics {
     size_t frameCount = 0;
     double minFrameRms = 0.0;
@@ -45,13 +37,15 @@ struct AudioSegmenterDiagnostics {
     int longestBelow200Ms = 0;
 };
 
-class AudioSegmenter {
+class AudioSegmenter final : public ILiveSegmenter {
 public:
     explicit AudioSegmenter(AudioSegmenterConfig config);
 
-    std::vector<AudioSegment> append(const int16_t* samples, size_t count);
-    std::optional<AudioSegment> flush();
-    void reset();
+    std::vector<AudioSegment> append(const int16_t* samples, size_t count) override;
+    std::optional<AudioSegment> flush() override;
+    void reset() override;
+    std::string name() const override;
+    std::string diagnosticSummary() const override;
     AudioSegmenterDiagnostics diagnostics() const;
 
 private:

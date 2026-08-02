@@ -63,6 +63,10 @@ void TestAudioSegmenter::defaultConfigPinsSegmenterParameters() {
     QCOMPARE(config.speechRatio, 3.0);
     QCOMPARE(config.minSpeechRms, 40.0);
     QCOMPARE(config.minActiveSpeechRms, 80.0);
+
+    AudioSegmenter segmenter(config);
+    QCOMPARE(QString::fromStdString(segmenter.name()), QStringLiteral("energy"));
+    QVERIFY(QString::fromStdString(segmenter.diagnosticSummary()).contains("frames=0"));
 }
 
 void TestAudioSegmenter::dcOffsetDoesNotStartSpeech() {
