@@ -39,6 +39,9 @@ struct Config {
     int crispMaxNewTokens = 0;
     std::string vadBackend = "energy";
     std::string vadModelPath;
+    float vadThreshold = 0.10f;
+    int vadMinSpeechMs = 100;
+    int vadMinSilenceMs = 300;
 
     static Config defaultConfig();
 };

@@ -5,6 +5,9 @@
 
 #include "Config.h"
 
+#include <stdexcept>
+#include <vector>
+
 using namespace echoflow;
 
 class TestConfig : public QObject {
@@ -20,6 +23,7 @@ private slots:
     void loadDtkConfReadsLiveDebugAudioFlag();
     void loadDtkConfReadsStreamTranscriptionFlag();
     void loadDtkConfReadsVadSettings();
+    void loadDtkConfRejectsInvalidVadSettings();
     void loadDtkConfIgnoresUnknownSections();
 };
 
@@ -41,13 +45,19 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(c.crispMaxNewTokens, 0);
     QCOMPARE(QString::fromStdString(c.vadBackend), QStringLiteral("energy"));
     QVERIFY(c.vadModelPath.empty());
+    QCOMPARE(c.vadThreshold, 0.10f);
+    QCOMPARE(c.vadMinSpeechMs, 100);
+    QCOMPARE(c.vadMinSilenceMs, 300);
 }
 
 void TestConfig::loadDtkConfReadsVadSettings() {
     QTemporaryFile f;
     QVERIFY(f.open());
     f.write("[advanced.vad.backend]\nvalue=silero\n"
-            "[advanced.vad.model]\nvalue=vad/ggml-silero-v6.2.0.bin\n");
+            "[advanced.vad.model]\nvalue=vad/ggml-silero-v6.2.0.bin\n"
+            "[advanced.vad.threshold]\nvalue=0.25\n"
+            "[advanced.vad.min_speech_ms]\nvalue=120\n"
+            "[advanced.vad.min_silence_ms]\nvalue=450\n");
     f.close();
 
     Config c = loadDtkConf(f.fileName().toStdString());
@@ -55,6 +65,27 @@ void TestConfig::loadDtkConfReadsVadSettings() {
     QCOMPARE(QString::fromStdString(c.vadModelPath),
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
                                      / "vad/ggml-silero-v6.2.0.bin").string()));
+    QCOMPARE(c.vadThreshold, 0.25f);
+    QCOMPARE(c.vadMinSpeechMs, 120);
+    QCOMPARE(c.vadMinSilenceMs, 450);
+}
+
+void TestConfig::loadDtkConfRejectsInvalidVadSettings() {
+    const std::vector<QByteArray> invalid = {
+        "[advanced.vad.backend]\nvalue=unknown\n",
+        "[advanced.vad.threshold]\nvalue=0\n",
+        "[advanced.vad.threshold]\nvalue=1.1\n",
+        "[advanced.vad.min_speech_ms]\nvalue=0\n",
+        "[advanced.vad.min_silence_ms]\nvalue=-1\n",
+    };
+    for (const QByteArray& contents : invalid) {
+        QTemporaryFile file;
+        QVERIFY(file.open());
+        file.write(contents);
+        file.close();
+        QVERIFY_EXCEPTION_THROWN(loadDtkConf(file.fileName().toStdString()),
+                                 std::invalid_argument);
+    }
 }
 
 void TestConfig::expandPathResolvesHome() {

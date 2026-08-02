@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -200,7 +201,23 @@ Config loadDtkConf(const fs::path& path)
             cfg.vadBackend = val;
         } else if (section == "advanced.vad.model") {
             cfg.vadModelPath = val;
+        } else if (section == "advanced.vad.threshold") {
+            cfg.vadThreshold = std::stof(val);
+        } else if (section == "advanced.vad.min_speech_ms") {
+            cfg.vadMinSpeechMs = std::stoi(val);
+        } else if (section == "advanced.vad.min_silence_ms") {
+            cfg.vadMinSilenceMs = std::stoi(val);
         }
+    }
+
+    if (cfg.vadBackend != "energy" && cfg.vadBackend != "silero") {
+        throw std::invalid_argument("unsupported VAD backend: " + cfg.vadBackend);
+    }
+    if (!(cfg.vadThreshold > 0.0f && cfg.vadThreshold <= 1.0f)) {
+        throw std::invalid_argument("VAD threshold must be in (0, 1]");
+    }
+    if (cfg.vadMinSpeechMs <= 0 || cfg.vadMinSilenceMs <= 0) {
+        throw std::invalid_argument("VAD durations must be positive");
     }
 
     fs::path base = path.parent_path();

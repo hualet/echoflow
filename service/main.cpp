@@ -62,6 +62,9 @@ void printDefaultConfig()
                  "  \"crisp_max_new_tokens\": %d,\n"
                  "  \"vad_backend\": \"%s\",\n"
                  "  \"vad_model_path\": \"%s\",\n"
+                 "  \"vad_threshold\": %.2f,\n"
+                 "  \"vad_min_speech_ms\": %d,\n"
+                 "  \"vad_min_silence_ms\": %d,\n"
                  "  \"energy_speech_ratio\": %.1f,\n"
                  "  \"energy_min_speech_rms\": %.1f,\n"
                  "  \"forced_segment_overlap_ms\": %d\n"
@@ -77,6 +80,8 @@ void printDefaultConfig()
                  cfg.crispModelPath.c_str(), cfg.crispBackend.c_str(),
                  cfg.crispThreads, cfg.crispMaxNewTokens,
                  cfg.vadBackend.c_str(), cfg.vadModelPath.c_str(),
+                 static_cast<double>(cfg.vadThreshold),
+                 cfg.vadMinSpeechMs, cfg.vadMinSilenceMs,
                  segmenter.speechRatio, segmenter.minSpeechRms,
                  segmenter.forceOverlapMs);
 }
