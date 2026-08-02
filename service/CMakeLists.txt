@@ -13,6 +13,7 @@ add_library(echoflow_service STATIC
     Recorder.cpp
     SegmentAsrWorker.cpp
     SelfTest.cpp
+    SileroLiveSegmenter.cpp
     SileroVadBackend.cpp
     Server.cpp
     SingleInstance.cpp
