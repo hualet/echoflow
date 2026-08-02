@@ -183,6 +183,8 @@ assert_contains "$ROOT/service/main.cpp" '\"vad_backend\"' "default config repor
 assert_contains "$ROOT/service/main.cpp" '\"energy_min_speech_rms\"' "default config reports energy VAD floor"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.h" "readerError_" "live pipeline retains capture thread failures"
 assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "rethrow_exception(readerError_)" "live pipeline rejects partial text after capture failure"
+assert_contains "$ROOT/service/CrispLiveVoicePipeline.h" "cleanupAfterFinish" "live pipeline declares exception-safe finish cleanup"
+assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "cleanupAfterFinish();" "live pipeline releases resources after finish failures"
 # The capsule renders explicit controller phases and keeps the idle action
 # available without bringing back focus-tracking fade timers.
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' "capsule defaults to the idle phase"

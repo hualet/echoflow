@@ -220,29 +220,36 @@ std::string CrispLiveVoicePipeline::finish()
 
     if (readerError_) {
         if (coordinator_) coordinator_->cancel();
-        active_ = false;
-        coordinator_.reset();
-        debugRecorder_.reset();
-        session_.reset();
+        cleanupAfterFinish();
         std::rethrow_exception(readerError_);
     }
 
     std::string finalText;
-    if (!cancelled_ && coordinator_) {
-        const std::vector<std::string> results = coordinator_->finish();
-        finalText = joinText(results);
-        if (debugRecorder_) {
-            debugRecorder_->finish(coordinator_->metrics(), results);
-            log("live debug audio saved: " + debugRecorder_->wavPath().string());
+    try {
+        if (!cancelled_ && coordinator_) {
+            const std::vector<std::string> results = coordinator_->finish();
+            finalText = joinText(results);
+            if (debugRecorder_) {
+                debugRecorder_->finish(coordinator_->metrics(), results);
+                log("live debug audio saved: " + debugRecorder_->wavPath().string());
+            }
         }
+    } catch (...) {
+        cleanupAfterFinish();
+        throw;
     }
+    cleanupAfterFinish();
+    log("crisp live finish in " + std::to_string(elapsedSeconds(finishStarted)) +
+        "s, chars=" + std::to_string(finalText.size()));
+    return finalText;
+}
+
+void CrispLiveVoicePipeline::cleanupAfterFinish()
+{
     active_ = false;
     debugRecorder_.reset();
     coordinator_.reset();
     session_.reset();
-    log("crisp live finish in " + std::to_string(elapsedSeconds(finishStarted)) +
-        "s, chars=" + std::to_string(finalText.size()));
-    return finalText;
 }
 
 void CrispLiveVoicePipeline::cancel()

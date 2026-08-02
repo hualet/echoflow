@@ -112,6 +112,8 @@ void LiveDebugRecorder::finish(const LivePipelineMetrics& metrics,
              << ",\"segment_samples\":" << metrics.segmentSamples
              << ",\"enqueued_segments\":" << metrics.enqueuedSegments
              << ",\"asr_queue_high_water_mark\":" << metrics.asrQueueHighWaterMark
+             << ",\"segmentation_queue_high_water_samples\":"
+             << metrics.segmentationQueueHighWaterSamples
              << ",\"audio_dropped\":" << (metrics.audioDropped ? "true" : "false")
              << ",\"final_text\":\"" << jsonEscape(joinText(results)) << "\"}\n";
     active_ = false;

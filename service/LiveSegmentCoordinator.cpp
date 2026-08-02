@@ -5,6 +5,7 @@
 
 #include "log.h"
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -77,18 +78,28 @@ bool LiveSegmentCoordinator::append(const int16_t* samples, size_t count)
     }
     std::vector<int16_t> copy(samples, samples + count);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!active_ || !acceptingAudio_ || cancelled_ || segmentationError_) {
+    if (segmentationError_) {
+        std::rethrow_exception(segmentationError_);
+    }
+    if (!active_ || !acceptingAudio_ || cancelled_) {
         return false;
     }
     metrics_.inputSamples += count;
     if (pendingAudioSamples_ > maxPendingAudioSamples_
         || count > maxPendingAudioSamples_ - pendingAudioSamples_) {
+        segmentationError_ = std::make_exception_ptr(
+            std::runtime_error("live segmentation audio queue overflow"));
         metrics_.audioDropped = true;
         acceptingAudio_ = false;
+        cancelled_ = true;
+        audioQueue_.clear();
+        pendingAudioSamples_ = 0;
         audioReady_.notify_all();
-        return false;
+        std::rethrow_exception(segmentationError_);
     }
     pendingAudioSamples_ += count;
+    metrics_.segmentationQueueHighWaterSamples = std::max(
+        metrics_.segmentationQueueHighWaterSamples, pendingAudioSamples_);
     audioQueue_.push_back(std::move(copy));
     audioReady_.notify_one();
     return true;
@@ -105,8 +116,15 @@ std::vector<std::string> LiveSegmentCoordinator::finish()
     if (segmentationThread_.joinable()) {
         segmentationThread_.join();
     }
+    size_t segmentationQueuePeak = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        segmentationQueuePeak = metrics_.segmentationQueueHighWaterSamples;
+    }
     log("live VAD " + segmenter_->name() + ": "
-        + segmenter_->diagnosticSummary());
+        + segmenter_->diagnosticSummary()
+        + ", segmentation_queue_peak_samples="
+        + std::to_string(segmentationQueuePeak));
 
     std::exception_ptr segmentationError;
     {
@@ -212,6 +230,7 @@ void LiveSegmentCoordinator::recordSegmentationError(std::exception_ptr error)
     std::lock_guard<std::mutex> lock(mutex_);
     if (!segmentationError_) segmentationError_ = std::move(error);
     acceptingAudio_ = false;
+    cancelled_ = true;
     audioQueue_.clear();
     pendingAudioSamples_ = 0;
     metrics_.audioDropped = true;

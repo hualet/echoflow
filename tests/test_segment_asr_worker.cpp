@@ -172,14 +172,20 @@ void TestSegmentAsrWorker::segmentationBackpressureFailsClosed()
         }));
     }
     QVERIFY(coordinator.append(pcm.data(), pcm.size()));
-    QVERIFY(!coordinator.append(pcm.data(), pcm.size()));
-
+    bool overflowReported = false;
+    try {
+        coordinator.append(pcm.data(), pcm.size());
+    } catch (const std::runtime_error& error) {
+        overflowReported = std::string(error.what()).find("queue overflow")
+            != std::string::npos;
+    }
     {
         std::lock_guard<std::mutex> lock(state->mutex);
         state->released = true;
         state->changed.notify_all();
     }
-    coordinator.cancel();
+    QVERIFY(overflowReported);
+    QVERIFY_EXCEPTION_THROWN(coordinator.finish(), std::runtime_error);
     QVERIFY(coordinator.metrics().audioDropped);
 }
 
@@ -199,8 +205,15 @@ void TestSegmentAsrWorker::segmentationFailurePropagatesAndStopsCapture()
             return state->entered;
         }));
     }
-    QVERIFY_EXCEPTION_THROWN(coordinator.finish(), std::runtime_error);
-    QVERIFY(!coordinator.append(pcm.data(), pcm.size()));
+    bool rootCausePreserved = false;
+    try {
+        coordinator.finish();
+    } catch (const std::runtime_error& error) {
+        rootCausePreserved = std::string(error.what()) == "VAD inference failed";
+    }
+    QVERIFY(rootCausePreserved);
+    QVERIFY_EXCEPTION_THROWN(coordinator.append(pcm.data(), pcm.size()),
+                             std::runtime_error);
     QVERIFY(coordinator.metrics().audioDropped);
 }
 
@@ -239,6 +252,7 @@ void TestSegmentAsrWorker::debugRecorderWritesExactPcmAndMetrics()
     metrics.segmentSamples = samples.size();
     metrics.enqueuedSegments = 2;
     metrics.asrQueueHighWaterMark = 1;
+    metrics.segmentationQueueHighWaterSamples = 4321;
     recorder.finish(metrics, {"第一段", "第二段"});
 
     QFile wav(QString::fromStdString(recorder.wavPath().string()));
@@ -255,6 +269,7 @@ void TestSegmentAsrWorker::debugRecorderWritesExactPcmAndMetrics()
     QVERIFY(json.contains("\"captured_samples\":32000"));
     QVERIFY(json.contains("\"segment_samples\":32000"));
     QVERIFY(json.contains("\"audio_dropped\":false"));
+    QVERIFY(json.contains("\"segmentation_queue_high_water_samples\":4321"));
     QVERIFY(json.contains("第一段 第二段"));
 }
 

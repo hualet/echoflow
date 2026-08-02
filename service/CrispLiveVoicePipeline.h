@@ -41,6 +41,7 @@ private:
     void stopRecorder();
     void reapChild(pid_t& child);
     void emitText(const std::string& text);
+    void cleanupAfterFinish();
 
     Config cfg_;
     std::unique_ptr<CrispSession> session_;

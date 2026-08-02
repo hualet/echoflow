@@ -26,6 +26,7 @@ struct LivePipelineMetrics {
     uint64_t segmentSamples = 0;
     size_t enqueuedSegments = 0;
     size_t asrQueueHighWaterMark = 0;
+    size_t segmentationQueueHighWaterSamples = 0;
     bool audioDropped = false;
 };
 
