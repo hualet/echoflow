@@ -19,13 +19,14 @@ class TestVadBackend : public QObject {
 private slots:
     void missingModelFailsExplicitly();
     void corruptModelFailsExplicitly();
+    void rejectsInvalidParameters();
 };
 
 void TestVadBackend::missingModelFailsExplicitly()
 {
-    SileroVadBackend backend("/definitely/missing/ggml-silero.bin");
-    const std::vector<int16_t> silence(16000, 0);
-    QVERIFY_EXCEPTION_THROWN(backend.detect(silence.data(), silence.size()), std::runtime_error);
+    QVERIFY_EXCEPTION_THROWN(
+        SileroVadBackend("/definitely/missing/ggml-silero.bin", 0.1f, 100, 300),
+        std::runtime_error);
 }
 
 void TestVadBackend::corruptModelFailsExplicitly()
@@ -35,9 +36,19 @@ void TestVadBackend::corruptModelFailsExplicitly()
     const std::filesystem::path path =
         std::filesystem::path(dir.path().toStdString()) / "ggml-silero.bin";
     std::ofstream(path) << "not a model";
-    SileroVadBackend backend(path);
-    const std::vector<int16_t> silence(16000, 0);
-    QVERIFY_EXCEPTION_THROWN(backend.detect(silence.data(), silence.size()), std::runtime_error);
+    QVERIFY_EXCEPTION_THROWN(
+        SileroVadBackend(path, 0.1f, 100, 300),
+        std::runtime_error);
+}
+
+void TestVadBackend::rejectsInvalidParameters()
+{
+    QVERIFY_EXCEPTION_THROWN(
+        SileroVadBackend("/unused", 0.0f, 100, 300), std::invalid_argument);
+    QVERIFY_EXCEPTION_THROWN(
+        SileroVadBackend("/unused", 0.1f, 0, 300), std::invalid_argument);
+    QVERIFY_EXCEPTION_THROWN(
+        SileroVadBackend("/unused", 0.1f, 100, 0), std::invalid_argument);
 }
 
 QTEST_GUILESS_MAIN(TestVadBackend)

@@ -110,6 +110,12 @@ int main(int argc, char** argv)
             if (!language.empty()) session->setLanguage(language == "Chinese" ? "zh" : language);
         }
 
+        std::unique_ptr<echoflow::SileroVadBackend> silero;
+        if (backend == "silero") {
+            silero = std::make_unique<echoflow::SileroVadBackend>(
+                *vadModelPath, vadThreshold, 100, endSilenceMs);
+        }
+
         double totalSpeech = 0.0;
         double totalMissed = 0.0;
         double totalFalse = 0.0;
@@ -138,8 +144,7 @@ int main(int argc, char** argv)
                 segments = segmenter.append(pcm.data(), pcm.size());
                 if (auto tail = segmenter.flush()) segments.push_back(std::move(*tail));
             } else {
-                echoflow::SileroVadBackend vad(*vadModelPath, vadThreshold);
-                for (const auto& interval : vad.detect(pcm.data(), pcm.size())) {
+                for (const auto& interval : silero->detect(pcm.data(), pcm.size())) {
                     echoflow::AudioSegment segment;
                     segment.beginSample = interval.beginSample;
                     segment.endSample = interval.endSample;
