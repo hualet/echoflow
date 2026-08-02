@@ -108,6 +108,7 @@ set(ECHOFLOW_TESTS
     test_recorder_command
     test_segment_asr_worker
     test_silero_live_segmenter
+    test_live_segmenter_factory
     test_text_joiner
     test_vad_metrics
     test_vad_backend

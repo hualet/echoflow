@@ -42,6 +42,8 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         {"recordings dir can be created", canCreateDirectory(cfg.recordingsDir), cfg.recordingsDir},
         {"pw-record available", std::system("command -v pw-record >/dev/null 2>&1") == 0, "pw-record"},
         {"crisp model available", modelOk, modelDetail},
+        {"VAD backend supported", cfg.vadBackend == "energy" || cfg.vadBackend == "silero",
+         cfg.vadBackend},
         {"control socket path parent", fs::exists(controlSocketPath(cfg).parent_path()),
          controlSocketPath(cfg).string()},
         {"fcitx socket path parent", fs::exists(fcitxSocketPath(cfg).parent_path()),

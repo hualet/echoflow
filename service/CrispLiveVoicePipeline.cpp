@@ -6,6 +6,7 @@
 #include "CrispAsrEngine.h"
 #include "CrispSession.h"
 #include "LiveDebugRecorder.h"
+#include "LiveSegmenterFactory.h"
 #include "Recorder.h"
 #include "TextJoiner.h"
 #include "log.h"
@@ -95,10 +96,9 @@ void CrispLiveVoicePipeline::start()
     if (!lang.empty()) session_->setLanguage(lang);
     if (cfg_.crispMaxNewTokens > 0) session_->setMaxNewTokens(cfg_.crispMaxNewTokens);
 
-    AudioSegmenterConfig segCfg;
-    segCfg.sampleRate = 16000;
+    auto segmenter = makeLiveSegmenter(cfg_);
     coordinator_ = std::make_unique<LiveSegmentCoordinator>(
-        segCfg,
+        std::move(segmenter),
         [this](const AudioSegment& segment) {
             auto f32 = toFloat32(segment.samples);
             return session_->transcribe(f32.data(), static_cast<int>(f32.size()));

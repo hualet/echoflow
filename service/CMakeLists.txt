@@ -10,6 +10,7 @@ add_library(echoflow_service STATIC
     CrispSession.cpp
     LiveDebugRecorder.cpp
     LiveSegmentCoordinator.cpp
+    LiveSegmenterFactory.cpp
     Recorder.cpp
     SegmentAsrWorker.cpp
     SelfTest.cpp

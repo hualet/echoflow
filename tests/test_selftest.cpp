@@ -20,6 +20,7 @@ private slots:
     void runtimeChecksActionableWhenCrispModelPathEmpty();
     void runtimeChecksPassesWhenCrispModelExists();
     void runtimeChecksReportsMissingSelectedVadModel();
+    void runtimeChecksRejectsUnknownVadBackend();
 };
 
 void TestSelfTest::resolveModelDirIsTrivial() {
@@ -38,6 +39,19 @@ void TestSelfTest::runtimeChecksReportsMissingSelectedVadModel() {
     QVERIFY(it != checks.end());
     QVERIFY(!it->passed);
     QVERIFY(it->detail.find("missing:") != std::string::npos);
+}
+
+void TestSelfTest::runtimeChecksRejectsUnknownVadBackend() {
+    Config c;
+    c.vadBackend = "unknown";
+    const auto checks = runtimeChecks(c);
+    const auto it = std::find_if(checks.begin(), checks.end(),
+                                 [](const RuntimeCheck& r) {
+                                     return r.name == "VAD backend supported";
+                                 });
+    QVERIFY(it != checks.end());
+    QVERIFY(!it->passed);
+    QCOMPARE(QString::fromStdString(it->detail), QStringLiteral("unknown"));
 }
 
 void TestSelfTest::canCreateDirectoryOnTmp() {
