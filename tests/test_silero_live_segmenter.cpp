@@ -67,6 +67,24 @@ private:
     size_t minimumRunSamples_;
 };
 
+class ConfirmedSilenceVadBackend final : public IVadBackend {
+public:
+    std::vector<SpeechInterval> detect(const int16_t*, size_t count) override
+    {
+        constexpr size_t kSpeechBegin = 3200;
+        constexpr size_t kPaddedSpeechEnd = 16480;
+        constexpr size_t kEndpointConfirmedAt = 20800;
+
+        if (count <= kSpeechBegin) return {};
+        if (count < kEndpointConfirmedAt) {
+            return {{kSpeechBegin, count, 1.0f}};
+        }
+        return {{kSpeechBegin, kPaddedSpeechEnd, 1.0f}};
+    }
+
+    std::string name() const override { return "confirmed-silence"; }
+};
+
 std::vector<int16_t> pcm(int milliseconds, int16_t value)
 {
     return std::vector<int16_t>(static_cast<size_t>(milliseconds * 16), value);
@@ -90,7 +108,8 @@ class TestSileroLiveSegmenter : public QObject {
 
 private slots:
     void naturalPauseEmitsBeforeMaximum();
-    void unfinishedIntervalWaitsForEndpointSilence();
+    void unfinishedIntervalWaitsForBackendClosure();
+    void backendConfirmedSilenceEmitsImmediately();
     void flushRetainsShortUtterance();
     void flushDiscardsNonSpeech();
     void continuousSpeechUsesForcedOverlap();
@@ -119,15 +138,33 @@ void TestSileroLiveSegmenter::naturalPauseEmitsBeforeMaximum()
     QVERIFY(diagnostics.contains("analysis_ms="));
 }
 
-void TestSileroLiveSegmenter::unfinishedIntervalWaitsForEndpointSilence()
+void TestSileroLiveSegmenter::unfinishedIntervalWaitsForBackendClosure()
 {
-    auto segmenter = makeSegmenter();
+    SileroLiveSegmenter segmenter(
+        SileroLiveSegmenterConfig{},
+        std::make_unique<ConfirmedSilenceVadBackend>());
     std::vector<int16_t> input = pcm(200, 0);
     appendPcm(input, pcm(800, 1200));
     appendPcm(input, pcm(200, 0));
 
-    QCOMPARE(segmenter->append(input.data(), input.size()).size(), size_t(0));
-    QVERIFY(segmenter->flush().has_value());
+    QCOMPARE(segmenter.append(input.data(), input.size()).size(), size_t(0));
+    QVERIFY(segmenter.flush().has_value());
+}
+
+void TestSileroLiveSegmenter::backendConfirmedSilenceEmitsImmediately()
+{
+    SileroLiveSegmenter segmenter(
+        SileroLiveSegmenterConfig{},
+        std::make_unique<ConfirmedSilenceVadBackend>());
+    std::vector<int16_t> input = pcm(200, 0);
+    appendPcm(input, pcm(800, 1200));
+    appendPcm(input, pcm(300, 0));
+
+    const auto segments = segmenter.append(input.data(), input.size());
+
+    QCOMPARE(segments.size(), size_t(1));
+    QCOMPARE(segments[0].beginSample, uint64_t(0));
+    QCOMPARE(segments[0].endSample, uint64_t(19680));
 }
 
 void TestSileroLiveSegmenter::flushRetainsShortUtterance()
