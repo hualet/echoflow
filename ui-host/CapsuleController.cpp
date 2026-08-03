@@ -51,14 +51,14 @@ void CapsuleController::setPersistent(bool persistent) {
     sendCommand_("CANCEL");
 }
 
-void CapsuleController::applyServiceMessage(QString message) {
+bool CapsuleController::applyServiceMessage(QString message) {
     if (message == QStringLiteral("RECORDING")) {
         phase_ = Phase::Recording;
         message_ = QStringLiteral("正在聆听");
     } else if (message.startsWith(QStringLiteral("STREAM_TEXT "))) {
         const QString streamText = message.sliced(12);
         if (phase_ != Phase::Recording || streamText.isEmpty()) {
-            return;
+            return false;
         }
         message_ = streamText;
     } else if (message == QStringLiteral("TRANSCRIBING")) {
@@ -72,10 +72,11 @@ void CapsuleController::applyServiceMessage(QString message) {
         phase_ = Phase::Idle;
         message_.clear();
     } else {
-        return;
+        return false;
     }
 
     publish();
+    return true;
 }
 
 void CapsuleController::requestToggle() {

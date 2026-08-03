@@ -21,7 +21,7 @@ public:
 
 public slots:
     void setPersistent(bool persistent);
-    void applyServiceMessage(QString message);
+    bool applyServiceMessage(QString message);
     void requestToggle();
     void requestCancel();
 

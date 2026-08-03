@@ -286,7 +286,18 @@ private:
         if (message.startsWith(QStringLiteral("SHOW_TOOLTIP"))) {
             return;
         }
-        controller_->applyServiceMessage(message);
+        const qsizetype separator = message.indexOf(QLatin1Char(' '));
+        const QString type = separator < 0 ? message : message.first(separator);
+        const qsizetype payloadCharacters =
+            message.startsWith(QStringLiteral("STREAM_TEXT "))
+                ? message.size() - 12
+                : 0;
+        const bool accepted = controller_->applyServiceMessage(message);
+        qInfo("EchoFlow UI message: type=%s, bytes=%lld, payload_chars=%lld, accepted=%s",
+              qPrintable(type),
+              static_cast<long long>(message.toUtf8().size()),
+              static_cast<long long>(payloadCharacters),
+              accepted ? "true" : "false");
     }
 
     QString path_;

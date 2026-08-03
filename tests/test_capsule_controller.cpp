@@ -188,12 +188,12 @@ void CapsuleControllerTest::streamTextOnlyUpdatesRecording() {
     CapsuleController controller([](std::string_view) { return true; });
     QSignalSpy capsuleSpy(&controller, &CapsuleController::capsuleChanged);
 
-    controller.applyServiceMessage(QStringLiteral("STREAM_TEXT ignored"));
-    controller.applyServiceMessage(QStringLiteral("RECORDING"));
-    controller.applyServiceMessage(QStringLiteral("STREAM_TEXT "));
-    controller.applyServiceMessage(QStringLiteral("STREAM_TEXT 实时文字"));
-    controller.applyServiceMessage(QStringLiteral("TRANSCRIBING"));
-    controller.applyServiceMessage(QStringLiteral("STREAM_TEXT late"));
+    QVERIFY(!controller.applyServiceMessage(QStringLiteral("STREAM_TEXT ignored")));
+    QVERIFY(controller.applyServiceMessage(QStringLiteral("RECORDING")));
+    QVERIFY(!controller.applyServiceMessage(QStringLiteral("STREAM_TEXT ")));
+    QVERIFY(controller.applyServiceMessage(QStringLiteral("STREAM_TEXT 实时文字")));
+    QVERIFY(controller.applyServiceMessage(QStringLiteral("TRANSCRIBING")));
+    QVERIFY(!controller.applyServiceMessage(QStringLiteral("STREAM_TEXT late")));
 
     QCOMPARE(capsuleSpy.count(), 3);
     QCOMPARE(stateAt(capsuleSpy, 0).message, QStringLiteral("正在聆听"));
