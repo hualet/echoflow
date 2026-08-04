@@ -8,7 +8,6 @@ extern "C" {
 }
 
 #include <algorithm>
-#include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -148,27 +147,33 @@ std::vector<SpeechInterval> segmentByDualThreshold(const float* probs, int nProb
             continue;
         }
 
-        // In speech.
+        // In speech. A frame back at or above the start gate is still active
+        // speech and clears any trailing-silence timer.
         if (prob >= startThreshold) {
             trailingSilence = false;
             continue;
         }
-        if (prob < endThreshold) {
-            if (!trailingSilence) {
+
+        // Below the start gate. Start the silence timer only once the
+        // probability has actually dropped under the end gate, so the tail of
+        // a loud syllable does not begin counting prematurely. Once started,
+        // every frame below the start gate (including the hysteresis band
+        // between end and start) keeps accumulating toward the close.
+        if (!trailingSilence) {
+            if (prob < endThreshold) {
                 trailingSilence = true;
                 silenceStart = begin;
             }
-            // Close once the trailing silence reaches the configured duration.
-            if (frameEnd(i) - silenceStart >= minSilenceSamples) {
-                if (silenceStart - speechStart >= minSpeechSamples) {
-                    segments.push_back({speechStart, silenceStart, prob});
-                }
-                inSpeech = false;
-                trailingSilence = false;
-            }
+            continue;
         }
-        // Frames in [endThreshold, startThreshold) keep the current state
-        // without resetting or accumulating silence.
+
+        if (frameEnd(i) - silenceStart >= minSilenceSamples) {
+            if (silenceStart - speechStart >= minSpeechSamples) {
+                segments.push_back({speechStart, silenceStart, prob});
+            }
+            inSpeech = false;
+            trailingSilence = false;
+        }
     }
 
     if (inSpeech) {

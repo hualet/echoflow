@@ -56,6 +56,7 @@ private slots:
     void weakSpeechBetweenThresholdsOpens();
     void pauseAboveNoiseClosesAfterSilence();
     void briefWobbleDoesNotFragment();
+    void hysteresisBandAccumulatesTowardClose();
     void openSpeechEndsAtTotalSamples();
     void tooShortClosedSegmentDropped();
     void defaultsDoNotMergeAdjacentGaps();
@@ -169,8 +170,28 @@ void TestVadBackend::briefWobbleDoesNotFragment()
     QCOMPARE(segments.size(), size_t(1));
 }
 
-// Speech still in progress at the end of the buffer is returned as an open
-// segment whose end touches totalSamples so the live segmenter waits.
+// A real pause does not drop straight to silence — probability hovers in the
+// hysteresis band between the end and start gates with occasional dips below.
+// Those mid frames must keep the silence timer running so the pause closes.
+void TestVadBackend::hysteresisBandAccumulatesTowardClose()
+{
+    const float start = 0.15f;
+    const float end = 0.10f;
+    const int speechFrames = 1000 * kWindow / (kSamplesPerMs * 1000);
+
+    // Pause: below, mid, below, mid, mid, below... — interleaved, totalling
+    // well over 300ms below the start gate.
+    std::string frames(speechFrames, 's');
+    frames += "emmememmeee";  // 11 frames, ~352ms, interleaved
+
+    const auto probs = probsFromString(frames, start, end);
+    const size_t total = static_cast<size_t>(probs.size()) * kWindow;
+    const auto segments = segmentByDualThreshold(
+        probs.data(), static_cast<int>(probs.size()), kWindow, total, start, end, 100, 300);
+
+    QCOMPARE(segments.size(), size_t(1));
+    QVERIFY(segments[0].endSample < total);
+}
 void TestVadBackend::openSpeechEndsAtTotalSamples()
 {
     const float start = 0.15f;
