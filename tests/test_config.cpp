@@ -45,7 +45,8 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(c.crispMaxNewTokens, 0);
     QCOMPARE(QString::fromStdString(c.vadBackend), QStringLiteral("energy"));
     QVERIFY(c.vadModelPath.empty());
-    QCOMPARE(c.vadThreshold, 0.10f);
+    QCOMPARE(c.vadThreshold, 0.15f);
+    QCOMPARE(c.vadEndThreshold, 0.10f);
     QCOMPARE(c.vadMinSpeechMs, 100);
     QCOMPARE(c.vadMinSilenceMs, 300);
 }
@@ -56,6 +57,7 @@ void TestConfig::loadDtkConfReadsVadSettings() {
     f.write("[advanced.vad.backend]\nvalue=silero\n"
             "[advanced.vad.model]\nvalue=vad/ggml-silero-v6.2.0.bin\n"
             "[advanced.vad.threshold]\nvalue=0.25\n"
+            "[advanced.vad.end_threshold]\nvalue=0.18\n"
             "[advanced.vad.min_speech_ms]\nvalue=120\n"
             "[advanced.vad.min_silence_ms]\nvalue=450\n");
     f.close();
@@ -66,6 +68,7 @@ void TestConfig::loadDtkConfReadsVadSettings() {
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
                                      / "vad/ggml-silero-v6.2.0.bin").string()));
     QCOMPARE(c.vadThreshold, 0.25f);
+    QCOMPARE(c.vadEndThreshold, 0.18f);
     QCOMPARE(c.vadMinSpeechMs, 120);
     QCOMPARE(c.vadMinSilenceMs, 450);
 }
@@ -75,6 +78,11 @@ void TestConfig::loadDtkConfRejectsInvalidVadSettings() {
         "[advanced.vad.backend]\nvalue=unknown\n",
         "[advanced.vad.threshold]\nvalue=0\n",
         "[advanced.vad.threshold]\nvalue=1.1\n",
+        "[advanced.vad.end_threshold]\nvalue=0\n",
+        "[advanced.vad.end_threshold]\nvalue=1.1\n",
+        // end_threshold must not exceed the start threshold.
+        "[advanced.vad.threshold]\nvalue=0.2\n"
+        "[advanced.vad.end_threshold]\nvalue=0.3\n",
         "[advanced.vad.min_speech_ms]\nvalue=0\n",
         "[advanced.vad.min_silence_ms]\nvalue=-1\n",
     };

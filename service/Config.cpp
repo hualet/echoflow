@@ -203,6 +203,8 @@ Config loadDtkConf(const fs::path& path)
             cfg.vadModelPath = val;
         } else if (section == "advanced.vad.threshold") {
             cfg.vadThreshold = std::stof(val);
+        } else if (section == "advanced.vad.end_threshold") {
+            cfg.vadEndThreshold = std::stof(val);
         } else if (section == "advanced.vad.min_speech_ms") {
             cfg.vadMinSpeechMs = std::stoi(val);
         } else if (section == "advanced.vad.min_silence_ms") {
@@ -215,6 +217,13 @@ Config loadDtkConf(const fs::path& path)
     }
     if (!(cfg.vadThreshold > 0.0f && cfg.vadThreshold <= 1.0f)) {
         throw std::invalid_argument("VAD threshold must be in (0, 1]");
+    }
+    if (!(cfg.vadEndThreshold > 0.0f && cfg.vadEndThreshold <= 1.0f)) {
+        throw std::invalid_argument("VAD end threshold must be in (0, 1]");
+    }
+    if (cfg.vadEndThreshold > cfg.vadThreshold) {
+        throw std::invalid_argument(
+            "VAD end threshold must not exceed the start threshold");
     }
     if (cfg.vadMinSpeechMs <= 0 || cfg.vadMinSilenceMs <= 0) {
         throw std::invalid_argument("VAD durations must be positive");
