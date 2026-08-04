@@ -24,7 +24,7 @@ std::unique_ptr<ILiveSegmenter> makeLiveSegmenter(const Config& config)
         live.sampleRate = config.pwRecord.rate;
         live.minSpeechMs = config.vadMinSpeechMs;
         auto backend = std::make_unique<SileroVadBackend>(
-            config.vadModelPath, config.vadThreshold,
+            config.vadModelPath, config.vadThreshold, config.vadEndThreshold,
             config.vadMinSpeechMs, config.vadMinSilenceMs);
         return std::make_unique<SileroLiveSegmenter>(live, std::move(backend));
     }

@@ -67,6 +67,7 @@ std::vector<RuntimeCheck> runtimeChecks(const Config& cfg)
         if (vadOk) {
             try {
                 SileroVadBackend backend(cfg.vadModelPath, cfg.vadThreshold,
+                                         cfg.vadEndThreshold,
                                          cfg.vadMinSpeechMs, cfg.vadMinSilenceMs);
                 loadable = true;
             } catch (const std::exception& error) {

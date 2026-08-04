@@ -75,6 +75,7 @@ int main(int argc, char** argv)
     std::optional<fs::path> vadModelPath;
     std::string backend = "energy";
     float vadThreshold = 0.5f;
+    float vadEndThreshold = 0.35f;
     double speechRatio = 4.0;
     double minSpeechRms = 50.0;
     int endSilenceMs = 500;
@@ -85,6 +86,7 @@ int main(int argc, char** argv)
         else if (arg == "--backend" && i + 1 < argc) backend = argv[++i];
         else if (arg == "--vad-model" && i + 1 < argc) vadModelPath = fs::path(argv[++i]);
         else if (arg == "--threshold" && i + 1 < argc) vadThreshold = std::stof(argv[++i]);
+        else if (arg == "--end-threshold" && i + 1 < argc) vadEndThreshold = std::stof(argv[++i]);
         else if (arg == "--speech-ratio" && i + 1 < argc) speechRatio = std::stod(argv[++i]);
         else if (arg == "--min-speech-rms" && i + 1 < argc) minSpeechRms = std::stod(argv[++i]);
         else if (arg == "--end-silence-ms" && i + 1 < argc) endSilenceMs = std::stoi(argv[++i]);
@@ -113,7 +115,7 @@ int main(int argc, char** argv)
         std::unique_ptr<echoflow::SileroVadBackend> silero;
         if (backend == "silero") {
             silero = std::make_unique<echoflow::SileroVadBackend>(
-                *vadModelPath, vadThreshold, 100, endSilenceMs);
+                *vadModelPath, vadThreshold, vadEndThreshold, 100, endSilenceMs);
         }
 
         double totalSpeech = 0.0;
@@ -190,6 +192,7 @@ int main(int argc, char** argv)
                 {"type", "clip"}, {"backend", QString::fromStdString(backend)},
                 {"id", entry.id}, {"sha256", entry.sha256},
                 {"vad_threshold", vadThreshold},
+                {"vad_end_threshold", vadEndThreshold},
                 {"speech_ratio", speechRatio}, {"min_speech_rms", minSpeechRms},
                 {"end_silence_ms", endSilenceMs},
                 {"audio", QString::fromStdString(entry.audio.string())},
@@ -219,6 +222,7 @@ int main(int argc, char** argv)
         writeJsonLine(QJsonObject {
             {"type", "summary"}, {"backend", QString::fromStdString(backend)},
             {"vad_threshold", vadThreshold},
+            {"vad_end_threshold", vadEndThreshold},
             {"speech_ratio", speechRatio}, {"min_speech_rms", minSpeechRms},
             {"end_silence_ms", endSilenceMs},
             {"clips", clips},

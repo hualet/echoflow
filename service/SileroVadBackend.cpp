@@ -8,21 +8,41 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
 namespace echoflow {
 
-SileroVadBackend::SileroVadBackend(std::filesystem::path modelPath, float threshold,
-                                   int minSpeechMs, int minSilenceMs)
+namespace {
+
+constexpr int kSampleRate = 16000;
+
+int ceilDiv(int a, int b)
+{
+    return (a + b - 1) / b;
+}
+
+}  // namespace
+
+SileroVadBackend::SileroVadBackend(std::filesystem::path modelPath, float startThreshold,
+                                   float endThreshold, int minSpeechMs, int minSilenceMs)
     : modelPath_(std::move(modelPath))
-    , threshold_(threshold)
+    , startThreshold_(startThreshold)
+    , endThreshold_(endThreshold)
     , minSpeechMs_(minSpeechMs)
     , minSilenceMs_(minSilenceMs)
 {
-    if (!(threshold_ > 0.0f && threshold_ <= 1.0f)) {
-        throw std::invalid_argument("Silero VAD threshold must be in (0, 1]");
+    if (!(startThreshold_ > 0.0f && startThreshold_ <= 1.0f)) {
+        throw std::invalid_argument("Silero VAD start threshold must be in (0, 1]");
+    }
+    if (!(endThreshold_ > 0.0f && endThreshold_ <= 1.0f)) {
+        throw std::invalid_argument("Silero VAD end threshold must be in (0, 1]");
+    }
+    if (endThreshold_ > startThreshold_) {
+        throw std::invalid_argument(
+            "Silero VAD end threshold must not exceed the start threshold");
     }
     if (minSpeechMs_ <= 0 || minSilenceMs_ <= 0) {
         throw std::invalid_argument("Silero VAD durations must be positive");
@@ -38,6 +58,23 @@ SileroVadBackend::SileroVadBackend(std::filesystem::path modelPath, float thresh
     context_ = whisper_vad_init_from_file_with_params(modelPath_.c_str(), params);
     if (!context_) {
         throw std::runtime_error("failed to load Silero VAD model: " + modelPath_.string());
+    }
+
+    // Recover the model's per-window sample count without a public getter. The
+    // identity ceil(N / ceil(N / W)) == W holds for N >= W, so one inference
+    // pass over a full second of audio pins nWindow_ exactly.
+    std::vector<float> probe(static_cast<size_t>(kSampleRate), 0.0f);
+    if (whisper_vad_detect_speech(context_, probe.data(), kSampleRate)) {
+        const int nProbs = whisper_vad_n_probs(context_);
+        if (nProbs >= 2) {
+            nWindow_ = ceilDiv(kSampleRate, nProbs);
+        }
+    }
+    if (nWindow_ <= 0) {
+        whisper_vad_free(context_);
+        context_ = nullptr;
+        throw std::runtime_error("failed to probe Silero VAD window size: "
+                                 + modelPath_.string());
     }
 }
 
@@ -58,37 +95,86 @@ std::vector<SpeechInterval> SileroVadBackend::detect(const int16_t* pcm, size_t 
         throw std::runtime_error("failed to run Silero VAD model: " + modelPath_.string());
     }
 
-    whisper_vad_params params = whisper_vad_default_params();
-    params.threshold = threshold_;
-    params.min_speech_duration_ms = minSpeechMs_;
-    params.min_silence_duration_ms = minSilenceMs_;
-    using SegmentsPtr = std::unique_ptr<whisper_vad_segments,
-                                        decltype(&whisper_vad_free_segments)>;
-    SegmentsPtr segments(whisper_vad_segments_from_probs(context_, params),
-                         &whisper_vad_free_segments);
-    if (!segments) {
-        throw std::runtime_error("failed to segment Silero VAD probabilities: "
-                                 + modelPath_.string());
-    }
+    const int nProbs = whisper_vad_n_probs(context_);
+    const float* probs = whisper_vad_probs(context_);
+    if (nProbs <= 0 || !probs) return {};
 
-    std::vector<SpeechInterval> intervals;
-    const int detected = whisper_vad_segments_n_segments(segments.get());
-    intervals.reserve(static_cast<size_t>(detected));
-    for (int i = 0; i < detected; ++i) {
-        const double beginSeconds =
-            whisper_vad_segments_get_segment_t0(segments.get(), i) / 100.0;
-        const double endSeconds =
-            whisper_vad_segments_get_segment_t1(segments.get(), i) / 100.0;
-        const size_t begin = std::min(count, static_cast<size_t>(beginSeconds * 16000.0));
-        const size_t end = std::min(count, static_cast<size_t>(endSeconds * 16000.0));
-        if (end > begin) intervals.push_back({begin, end, 1.0f});
-    }
-    return intervals;
+    return segmentByDualThreshold(probs, nProbs, nWindow_, count,
+                                  startThreshold_, endThreshold_,
+                                  minSpeechMs_, minSilenceMs_);
 }
 
 std::string SileroVadBackend::name() const
 {
     return "silero";
+}
+
+std::vector<SpeechInterval> segmentByDualThreshold(const float* probs, int nProbs,
+                                                   int nWindow, size_t totalSamples,
+                                                   float startThreshold, float endThreshold,
+                                                   int minSpeechMs, int minSilenceMs)
+{
+    std::vector<SpeechInterval> segments;
+    if (!probs || nProbs <= 0 || nWindow <= 0 || totalSamples == 0) return segments;
+
+    const size_t minSilenceSamples =
+        static_cast<size_t>(static_cast<int64_t>(kSampleRate) * minSilenceMs / 1000);
+    const size_t minSpeechSamples =
+        static_cast<size_t>(static_cast<int64_t>(kSampleRate) * minSpeechMs / 1000);
+
+    bool inSpeech = false;
+    bool trailingSilence = false;
+    size_t speechStart = 0;
+    size_t silenceStart = 0;
+
+    auto frameStart = [&](int i) {
+        return std::min(totalSamples, static_cast<size_t>(i) * static_cast<size_t>(nWindow));
+    };
+    auto frameEnd = [&](int i) {
+        return std::min(totalSamples,
+                        (static_cast<size_t>(i) + 1) * static_cast<size_t>(nWindow));
+    };
+
+    for (int i = 0; i < nProbs; ++i) {
+        const float prob = probs[i];
+        const size_t begin = frameStart(i);
+
+        if (!inSpeech) {
+            if (prob >= startThreshold) {
+                inSpeech = true;
+                trailingSilence = false;
+                speechStart = begin;
+            }
+            continue;
+        }
+
+        // In speech.
+        if (prob >= startThreshold) {
+            trailingSilence = false;
+            continue;
+        }
+        if (prob < endThreshold) {
+            if (!trailingSilence) {
+                trailingSilence = true;
+                silenceStart = begin;
+            }
+            // Close once the trailing silence reaches the configured duration.
+            if (frameEnd(i) - silenceStart >= minSilenceSamples) {
+                if (silenceStart - speechStart >= minSpeechSamples) {
+                    segments.push_back({speechStart, silenceStart, prob});
+                }
+                inSpeech = false;
+                trailingSilence = false;
+            }
+        }
+        // Frames in [endThreshold, startThreshold) keep the current state
+        // without resetting or accumulating silence.
+    }
+
+    if (inSpeech) {
+        segments.push_back({speechStart, totalSamples, 1.0f});
+    }
+    return segments;
 }
 
 }  // namespace echoflow
