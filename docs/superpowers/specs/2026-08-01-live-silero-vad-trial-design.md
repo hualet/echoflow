@@ -222,3 +222,44 @@ requires same-machine replay or labeled evaluation covering sentence
 boundaries, missed speech, false activation, CER, first stable-text latency,
 and stop latency. Manual preference alone is useful for this trial but is not
 enough to change the default.
+
+## Dual-Threshold Extension (2026-08-04)
+
+The single-threshold trial surfaced a hard regression: dictating three short
+sentences with roughly one-second pauses dropped the middle sentence entirely.
+Root cause is in the CrispASR segmenter that `SileroVadBackend` delegated to.
+`whisper_vad_segments_from_probs` derives the end gate as
+`max(threshold - 0.15, 0.01)`, so one knob cannot both catch weak speech and
+close on a natural pause:
+
+- A low start threshold (`0.15`) left the end gate at `0.01`. Microphone noise
+  kept probabilities above 1%, so pauses never closed and segments ran to the
+  eight-second forced split.
+- A high start threshold (`0.3`, `0.5`) closed easily but dropped any sentence
+  whose peak probability stayed below the start gate.
+
+The fix decouples the two gates inside EchoFlow without modifying CrispASR or
+its public ABI. `SileroVadBackend` now reads the raw per-window probabilities
+from `whisper_vad_probs` / `whisper_vad_n_probs` and runs its own state machine
+in `segmentByDualThreshold`:
+
+- `prob >= startThreshold` opens a speech segment;
+- a run of `prob < endThreshold` lasting at least `minSilenceMs` closes it;
+- speech still open at the buffer tail returns `end == totalSamples`, preserving
+  the live segmenter's "wait for closure" contract.
+
+The model's per-window sample count (`n_window`) has no public getter. The
+constructor recovers it once via the identity `ceil(N / ceil(N / W)) == W` over
+a one-second probe buffer (Silero v6.2.0 reports `n_window = 512`). The
+decoupled segmenter does not perform CrispASR's 200 ms gap merge; the live
+segmenter's rolling buffer and overlap policy own that responsibility, so
+double-merge semantics are avoided.
+
+Configuration adds `advanced.vad.end_threshold` (default `0.10`), validated to
+`0 < end_threshold <= start_threshold <= 1`. The compiled start-threshold
+default rises from `0.10` to `0.15` to restore weak-speech detection; the
+repository default backend remains `energy`. Deterministic tests in
+`test_vad_backend.cpp` exercise the pure probability segmenter without model
+weights: weak-speech activation, silence closure above the noise floor, wobble
+resilience, open-speech retention, short-segment dropping, and illegal
+configuration rejection.
