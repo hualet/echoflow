@@ -73,3 +73,6 @@ __pycache__/
 # Worktrees
 .worktrees/
 
+# agents
+.codex
+.zcode
