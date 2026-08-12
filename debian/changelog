@@ -1,3 +1,11 @@
+echoflow (0.2.9) unstable; urgency=medium
+
+  * Fix the release CI spec that verified systemd user-unit handling so it
+    no longer depends on a runtime debhelper probe that fails on a clean
+    checkout.
+
+ -- Hualet Wang <wangyaohua@uniontech.com>  Tue, 12 Aug 2026 17:25:00 +0800
+
 echoflow (0.2.8) unstable; urgency=medium
 
   * Add an optional Silero neural VAD for live recording with dual start and
