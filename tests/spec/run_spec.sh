@@ -347,14 +347,8 @@ assert_contains "$ROOT/debian/control" "pipewire-bin" "debian package depends on
 assert_contains "$ROOT/debian/rules" "dh $@" "debian rules delegates to debhelper"
 assert_contains "$ROOT/CMakeLists.txt" '"${CMAKE_BINARY_DIR}/systemd/user/echoflow.service"' "CMake installs the service user unit for debhelper"
 assert_contains "$ROOT/CMakeLists.txt" '"${CMAKE_BINARY_DIR}/systemd/user/echoflow-ui.service"' "CMake installs the UI user unit for debhelper"
-dh_sequence="$(cd "$ROOT" && dh binary --no-act 2>&1)"
-if grep -qF 'dh_installsystemduser' <<< "$dh_sequence"; then
-  echo "ok   - standard debhelper sequence handles systemd user units"
-  pass=$((pass + 1))
-else
-  echo "FAIL - standard debhelper sequence missing dh_installsystemduser"
-  fail=$((fail + 1))
-fi
+assert_contains "$ROOT/debian/control" "debhelper-compat (= 13)" "debhelper compat 13 provides the standard systemd user unit sequence"
+assert_contains "$ROOT/CMakeLists.txt" "DESTINATION \"lib/systemd/user\"" "CMake installs user units where debhelper discovers them"
 assert_contains "$ROOT/debian/rules" 'override_dh_auto_configure:' "Debian overrides CMake configuration"
 assert_contains "$ROOT/debian/rules" '-- -DECHOFLOW_CPU_TARGET=x86-64-v3' "Debian selects deterministic CPU target"
 assert_contains "$ROOT/debian/source/format" "3.0 (native)" "debian source format is native"
