@@ -1,3 +1,15 @@
+echoflow (0.2.8) unstable; urgency=medium
+
+  * Add an optional Silero neural VAD for live recording with dual start and
+    end thresholds, so dictation splits into sentences at natural pauses
+    without dropping soft speech that the single-threshold path missed.
+  * Keep one Silero model context alive across detection passes to avoid
+    reloading it for every audio block in the real-time path.
+  * Fail closed when VAD inference or live-pipeline errors occur, preventing
+    invalid speech boundaries from reaching ASR.
+
+ -- Hualet Wang <wangyaohua@uniontech.com>  Tue, 12 Aug 2026 16:50:00 +0800
+
 echoflow (0.2.7) unstable; urgency=medium
 
   * Add a tray toggle that keeps the recording capsule available on keyboards
