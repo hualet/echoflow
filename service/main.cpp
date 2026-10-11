@@ -167,7 +167,7 @@ int main(int argc, char** argv)
         // a downloaded model can be checked before enabling it.
         // "-" reads one transcript per stdin line through a single session,
         // which shows warm latency once the prompt prefix is cached.
-        echoflow::LocalLlmPolisher polisher(cfg.polishModelPath, cfg.crispThreads);
+        echoflow::LocalLlmPolisher polisher(cfg.polishModelPath, cfg.crispThreads, true);
         polisher.preload();
         std::vector<std::string> inputs;
         if (*polishInput == "-") {
@@ -198,7 +198,7 @@ int main(int argc, char** argv)
             std::fprintf(stderr, "unknown polish model: %s\n", cfg.polishModelName.c_str());
         } else {
             polisher = std::make_unique<echoflow::LocalLlmPolisher>(
-                cfg.polishModelPath, cfg.crispThreads);
+                cfg.polishModelPath, cfg.crispThreads, cfg.logTranscripts);
         }
     }
 

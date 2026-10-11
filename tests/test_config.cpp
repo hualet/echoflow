@@ -26,6 +26,7 @@ private slots:
     void loadDtkConfReadsVadSettings();
     void loadDtkConfReadsPolishSettings();
     void loadDtkConfDropsUnknownPolishModel();
+    void loadDtkConfReadsLogTranscriptsFlag();
     void loadDtkConfRejectsInvalidVadSettings();
     void loadDtkConfIgnoresUnknownSections();
 };
@@ -71,6 +72,16 @@ void TestConfig::loadDtkConfReadsPolishSettings() {
              QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
                                      / "qwen3-1.7b"
                                      / "Qwen3-1.7B-Q4_K_M.gguf").string()));
+}
+
+void TestConfig::loadDtkConfReadsLogTranscriptsFlag() {
+    QVERIFY(!Config::defaultConfig().logTranscripts);
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[advanced.storage.log_transcripts]\nvalue=true\n");
+    f.close();
+
+    QVERIFY(loadDtkConf(f.fileName().toStdString()).logTranscripts);
 }
 
 void TestConfig::loadDtkConfDropsUnknownPolishModel() {

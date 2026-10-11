@@ -44,9 +44,10 @@ std::vector<crispasr_chat_message> chatMessages(const std::vector<PolishMessage>
 
 }  // namespace
 
-LocalLlmPolisher::LocalLlmPolisher(std::string modelPath, int threads)
+LocalLlmPolisher::LocalLlmPolisher(std::string modelPath, int threads, bool logOutput)
     : modelPath_(std::move(modelPath))
     , threads_(threads)
+    , logOutput_(logOutput)
 {
 }
 
@@ -172,6 +173,9 @@ std::string LocalLlmPolisher::polish(const std::string& text,
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started);
     log("polish generated in " + std::to_string(elapsed.count()) + " ms");
+    if (logOutput_) {
+        log("polish model output: " + raw);
+    }
 
     std::string polished = cleanPolishedText(raw);
     if (!isPlausiblePolish(text, polished)) {

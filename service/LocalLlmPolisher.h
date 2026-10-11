@@ -18,7 +18,8 @@ namespace echoflow {
 // in-process chat ABI. Keep crispasr_chat.h usage isolated to this class.
 class LocalLlmPolisher : public ITextPolisher {
 public:
-    LocalLlmPolisher(std::string modelPath, int threads);
+    // logOutput writes the model's raw reply to the log for prompt tuning.
+    LocalLlmPolisher(std::string modelPath, int threads, bool logOutput = false);
     ~LocalLlmPolisher() override;
 
     // Loads the model on a background thread so the first dictation does not
@@ -35,6 +36,7 @@ private:
 
     std::string modelPath_;
     int threads_;
+    bool logOutput_;
 
     std::mutex mutex_;
     crispasr_chat_session* session_ = nullptr;

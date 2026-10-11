@@ -346,11 +346,17 @@ void VoiceSession::finalize(std::uint64_t generation)
             log(std::string("asr transcribe failed: ") + e.what());
         }
     }
+    if (cfg_.logTranscripts) {
+        log("transcript: " + text);
+    }
     if (polisher_ && !text.empty()) {
         text = polishText(text);
     }
     if (cfg_.stripTrailingPunctuation) {
         text = stripPunctuation(text);
+    }
+    if (cfg_.logTranscripts) {
+        log("commit text: " + text);
     }
 
     bool commitClaimed = false;

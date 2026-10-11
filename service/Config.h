@@ -55,6 +55,8 @@ struct Config {
     bool polishEnabled = false;
     std::string polishModelName = "qwen3-0.6b";
     std::string polishModelPath;
+    // Debug aid: log each transcript, raw polish output, and committed text.
+    bool logTranscripts = false;
 
     static Config defaultConfig();
 };
