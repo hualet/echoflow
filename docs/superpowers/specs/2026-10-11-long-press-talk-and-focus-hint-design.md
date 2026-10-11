@@ -20,9 +20,10 @@ of WeChat's input box:
 
 ### Focus Hint
 
-When an input context gains focus and reports a caret rectangle, a small,
-non-interactive pill appears just below the caret line (above it when there is
-no room below). It reads `长按鼠标或右 Ctrl 说话`, or `按住右 Ctrl 说话` when
+When an input context gains focus and reports a caret rectangle, a system
+tooltip (`QToolTip`, drawn by the desktop's widget style) appears just below
+the caret line (above it when there is no room below). It uses the native
+style rather than a custom blurred pill so it reads as a light, ordinary hint. It reads `长按鼠标或右 Ctrl 说话`, or `按住右 Ctrl 说话` when
 long-press is disabled or unavailable.
 
 The hint disappears after about 3 seconds, as soon as the user types, when

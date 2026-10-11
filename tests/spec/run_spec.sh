@@ -195,7 +195,8 @@ assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "cleanupAfterFinish()
 # available without bringing back focus-tracking fade timers.
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' "capsule defaults to the idle phase"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY)" "capsule consumes explicit controller phases"
-assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "Qt.WindowTransparentForInput" "focus hint lets clicks reach the text field"
+assert_contains "$ROOT/ui-host/main.cpp" "QToolTip::showText" "focus hint uses the system tooltip"
+assert_contains "$ROOT/ui-host/main.cpp" "Qt::WindowTransparentForInput" "focus hint lets clicks reach the text field"
 assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "long_press_to_talk"' "settings schema has long-press option"
 assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "focus_hint"' "settings schema has focus hint option"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "idle capsule has a microphone action"
