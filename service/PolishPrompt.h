@@ -27,8 +27,9 @@ int polishMaxTokens(const std::string& transcript);
 // Removes <think>...</think> blocks and surrounding whitespace.
 std::string cleanPolishedText(const std::string& text);
 
-// Rejects outputs that look like the model answered the transcript instead of
-// rewriting it, so the raw transcript is committed rather than a reply.
+// Rejects outputs that look like the model answered, translated, or dropped
+// most of the transcript instead of cleaning it up, so the raw transcript is
+// committed instead.
 bool isPlausiblePolish(const std::string& raw, const std::string& polished);
 
 std::size_t utf8CodePointCount(const std::string& text);

@@ -15,7 +15,32 @@ private slots:
     void maxTokensScalesWithTranscript();
     void stripsThinkBlocks();
     void rejectsRepliesMuchLongerThanTranscript();
+    void rejectsAnswersAndDroppedContent();
+    void acceptsTypicalCleanups();
 };
+
+void TestPolishPrompt::rejectsAnswersAndDroppedContent()
+{
+    // Seen live: Qwen3-0.6B answered the transcript.
+    QVERIFY(!isPlausiblePolish("到底是不是弄润色啊？ 是。", "是的。"));
+    QVERIFY(!isPlausiblePolish("你知道明天北京的天气怎么样吗", "明天北京晴，最高气温二十度左右。"));
+    QVERIFY(!isPlausiblePolish("OK，那个，let me check一下，我们的deadline是不是下周三。",
+        "好的，让我查一下，我们的截止日期是不是在下周三。"));
+    QVERIFY(!isPlausiblePolish("第一句话说完了。然后我又说了第二句话，还有第三句话。", "第一句话说完了。"));
+}
+
+void TestPolishPrompt::acceptsTypicalCleanups()
+{
+    QVERIFY(isPlausiblePolish("嗯，那个，我想问一下，就是，这个周五的会议是几点开始的？",
+        "这个周五的会议是几点开始的？"));
+    QVERIFY(isPlausiblePolish("我们下周一，啊不对，下周二去上海出差，然后住两个晚上。",
+        "我们下周二去上海出差，住两个晚上。"));
+    QVERIFY(isPlausiblePolish("你是不是能忍色啊？能不能忍色？", "你是不是能润色啊？"));
+    QVERIFY(isPlausiblePolish("今天要做的事情有，第一个是修那个登录的bug，第二个是写周报，然后还要跟产品开个会。",
+        "今天要做的事情有：\n1. 修登录的bug\n2. 写周报\n3. 跟产品开个会"));
+    QVERIFY(isPlausiblePolish("OK，那个，let me check一下", "OK，let me check一下"));
+    QVERIFY(isPlausiblePolish("好的", "好的。"));
+}
 
 void TestPolishPrompt::messagesShareAFixedPrefix()
 {
@@ -31,8 +56,9 @@ void TestPolishPrompt::messagesShareAFixedPrefix()
         QCOMPARE(first[i].content, second[i].content);
     }
     QCOMPARE(QString::fromStdString(first.back().role), QStringLiteral("user"));
-    QCOMPARE(first.back().content, std::string("第一句"));
-    QCOMPARE(second.back().content, std::string("第二句"));
+    QVERIFY(first.back().content.size() > std::string("第一句").size());
+    QVERIFY(first.back().content.compare(first.back().content.size() - 9, 9, "第一句") == 0);
+    QVERIFY(second.back().content.compare(second.back().content.size() - 9, 9, "第二句") == 0);
 }
 
 void TestPolishPrompt::maxTokensScalesWithTranscript()
