@@ -378,6 +378,14 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
                  qPrintable(page.illustrationObjectName));
         QVERIFY2(!illustration->pixmap(Qt::ReturnByValue).isNull(),
                  qPrintable(page.illustrationObjectName));
+        // Hidden stack pages are not laid out, so geometry checks below
+        // would see default widget sizes.
+        for (int index = 0; index < stackedPages->count(); ++index) {
+            if (stackedPages->widget(index)->isAncestorOf(illustration)) {
+                stackedPages->setCurrentIndex(index);
+            }
+        }
+        QApplication::processEvents();
         QCOMPARE(illustration->pixmap(Qt::ReturnByValue).size(),
                  QSize(768, 768));
         illustration->resize(180, 220);
@@ -422,6 +430,8 @@ void TestOnboardingDialog::usesApprovedVisualStoryAndAccessibleImages()
         QVERIFY(tag->contentsRect().width()
                 >= metrics.horizontalAdvance(tag->text()));
     }
+    stackedPages->setCurrentIndex(0);
+    QApplication::processEvents();
 
     auto *setupIllustration =
         dialog.findChild<QLabel *>(QStringLiteral("setupIllustration"));
