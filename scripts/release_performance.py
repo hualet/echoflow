@@ -149,6 +149,27 @@ def clone_local_submodule(source, destination, commit):
     _run(["git", "update-ref", "refs/echoflow/historical-baseline", commit],
          cwd=destination)
     _run(["git", "checkout", "--detach", commit], cwd=destination)
+    # Nested submodules (CrispASR vendors ggml) come from the source's own
+    # checkouts; ones absent locally are optional and left uninitialized.
+    for path, nested_commit in _gitlinks(destination, commit):
+        nested_source = find_local_submodule_source([source / path], nested_commit)
+        if nested_source is None:
+            continue
+        nested_destination = destination / path
+        if nested_destination.exists():
+            shutil.rmtree(nested_destination)
+        clone_local_submodule(nested_source, nested_destination, nested_commit)
+
+
+def _gitlinks(repository, commit):
+    output = _run(["git", "ls-tree", "-r", commit], cwd=repository)
+    links = []
+    for line in output.splitlines():
+        meta, _, path = line.partition("\t")
+        fields = meta.split()
+        if len(fields) == 3 and fields[1] == "commit":
+            links.append((path, fields[2]))
+    return links
 
 
 def _local_submodule_candidates(root):

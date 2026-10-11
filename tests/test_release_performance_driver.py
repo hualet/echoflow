@@ -185,6 +185,38 @@ class ReleasePerformanceDriverTest(unittest.TestCase):
             self.assertEqual(checked_out, historical)
             self.assertEqual((destination / "historical").read_text(encoding="utf-8"), "old tree")
 
+    def test_local_clone_initializes_nested_submodules_present_locally(self):
+        def git(cwd, *args):
+            return subprocess.run(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                 "-c", "protocol.file.allow=always", *args],
+                cwd=cwd, check=True, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL).stdout.strip()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "nested"
+            nested.mkdir()
+            git(nested, "init", "-q")
+            (nested / "CMakeLists.txt").write_text("nested", encoding="utf-8")
+            git(nested, "add", "CMakeLists.txt")
+            git(nested, "commit", "-q", "-m", "nested")
+            source = root / "source"
+            source.mkdir()
+            git(source, "init", "-q")
+            git(source, "submodule", "add", "-q", str(nested), "ggml")
+            git(source, "commit", "-q", "-m", "parent")
+            commit = git(source, "rev-parse", "HEAD")
+            nested_commit = git(nested, "rev-parse", "HEAD")
+            destination = root / "destination"
+
+            driver.clone_local_submodule(source, destination, commit)
+
+            self.assertEqual(git(destination / "ggml", "rev-parse", "HEAD"), nested_commit)
+            self.assertEqual(
+                (destination / "ggml" / "CMakeLists.txt").read_text(encoding="utf-8"),
+                "nested")
+
 
 if __name__ == "__main__":
     unittest.main()
