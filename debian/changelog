@@ -1,3 +1,18 @@
+echoflow (0.2.10) unstable; urgency=medium
+
+  * Hold the left mouse button inside a text field to dictate, and hold
+    right Ctrl to talk instead of pressing it twice, so both triggers
+    record only while held.
+  * Show a native tooltip below the caret when a text field gains focus
+    to advertise voice input, with a setting to turn it off.
+  * Keep the recording capsule at the lower center of the screen so it no
+    longer covers the text being dictated or jumps between fields.
+  * Speed up Qwen3-ASR transcription on CPU by using all physical cores
+    and a leaner attention path, cutting release-to-text latency
+    by about 40% on the release benchmark.
+
+ -- Hualet Wang <wangyaohua@uniontech.com>  Sun, 11 Oct 2026 12:40:06 +0800
+
 echoflow (0.2.9) unstable; urgency=medium
 
   * Fix the release CI spec that verified systemd user-unit handling so it

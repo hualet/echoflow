@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "version": "0.2.10",
+  "baseline": {
+    "ref": "v0.2.9",
+    "commit": "e868c9a2116a34b8dc8d48eda3cbedf623e48f7b",
+    "mode": "rebuilt",
+    "identity": {
+      "cpu_model": "AMD Ryzen 7 6800H with Radeon Graphics",
+      "architecture": "x86_64",
+      "cpu_flags": [
+        "avx",
+        "avx2",
+        "bmi2",
+        "f16c",
+        "fma",
+        "sse4_2"
+      ],
+      "build_profile": "x86-64-v3",
+      "benchmark_schema": 1,
+      "model_sha256": "4c67426908a518c28c24bc780df27175fcf84ce4d6dbd678133a4531904bbcc9",
+      "manifest_sha256": "46eda524d274f278ca64163b583fdf8dfc9f2ac5dceaa6b1bb540490efc46ddd",
+      "config_sha256": "fc424b07596878c0ce59a0d8d9523211ea07055cb54a0dd37272a4cff726c1d1",
+      "threads": 6,
+      "openblas_threads": 4
+    },
+    "result": {
+      "samples": [
+        {
+          "id": "paraformer-zh",
+          "sha256": "732f28a4445eb2b656675b946695e59752b7df824d475c4bc531c441f43b30f9",
+          "condition": "clean-zh",
+          "required": true,
+          "latency_ms": [
+            3926.11,
+            3984.483,
+            3989.648
+          ],
+          "transcript": "正是因为存在绝对正义，所以我们接受现实的相对正义。但是，不要因为现实的相对正义，我们就认为这个世界没有正义。因为如果当你认为这个世界没有正义",
+          "reference": "正是因为存在绝对正义所以我们接受现实的相对正义但是不要因为现实的相对正义我们就认为这个世界没有正义因为如果当你认为这个世界没有正义",
+          "cer": 0.07692307692307693
+        }
+      ],
+      "aggregate_cer": 0.07692307692307693,
+      "vad": [
+        {
+          "audio": "/home/hualet/projects/hualet/echoflow/third_party/crispasr/samples/paraformer_zh.wav",
+          "backend": "energy",
+          "cer": 0.2,
+          "condition": "clean-zh",
+          "decode_ms": 4134.835146,
+          "duration_s": 13.052,
+          "end_silence_ms": 500,
+          "first_stable_text_ms": 5953.7315610000005,
+          "id": "paraformer-zh",
+          "min_speech_rms": 50,
+          "segment_decode_ms": [
+            1413.731561,
+            2314.141263,
+            406.962322
+          ],
+          "segments": [
+            [
+              0.22,
+              4.54
+            ],
+            [
+              4.68,
+              12.68
+            ],
+            [
+              12.18,
+              13.052
+            ]
+          ],
+          "sha256": "732f28a4445eb2b656675b946695e59752b7df824d475c4bc531c441f43b30f9",
+          "speech_ratio": 4,
+          "stop_latency_ms": 2349.103584999999,
+          "transcript": "正是因为存在绝对正义，所以我们接受现实的相对正义。 但是不要因为现实的相对正义，我们就认为这个世界没有正义。因为如果当你认为这个世界没有正义， 界没有正义。",
+          "type": "clip",
+          "vad_end_threshold": 0.3499999940395355,
+          "vad_threshold": 0.5
+        },
+        {
+          "backend": "energy",
+          "cer": 0.2,
+          "clips": 1,
+          "end_silence_ms": 500,
+          "false_activation_s": 0,
+          "labelled_clips": 0,
+          "min_speech_rms": 50,
+          "miss_rate": 0,
+          "speech_ratio": 4,
+          "type": "summary",
+          "vad_end_threshold": 0.3499999940395355,
+          "vad_threshold": 0.5
+        }
+      ],
+      "identity": {
+        "cpu_model": "AMD Ryzen 7 6800H with Radeon Graphics",
+        "architecture": "x86_64",
+        "cpu_flags": [
+          "avx",
+          "avx2",
+          "bmi2",
+          "f16c",
+          "fma",
+          "sse4_2"
+        ],
+        "build_profile": "x86-64-v3",
+        "benchmark_schema": 1,
+        "model_sha256": "4c67426908a518c28c24bc780df27175fcf84ce4d6dbd678133a4531904bbcc9",
+        "manifest_sha256": "46eda524d274f278ca64163b583fdf8dfc9f2ac5dceaa6b1bb540490efc46ddd",
+        "config_sha256": "fc424b07596878c0ce59a0d8d9523211ea07055cb54a0dd37272a4cff726c1d1",
+        "threads": 6,
+        "openblas_threads": 4
+      },
+      "commit": "e868c9a2116a34b8dc8d48eda3cbedf623e48f7b"
+    }
+  },
+  "candidate": {
+    "ref": "HEAD",
+    "commit": "9f4cdc991d29b42457c4a0dd7e35829efaf87e05",
+    "identity": {
+      "cpu_model": "AMD Ryzen 7 6800H with Radeon Graphics",
+      "architecture": "x86_64",
+      "cpu_flags": [
+        "avx",
+        "avx2",
+        "bmi2",
+        "f16c",
+        "fma",
+        "sse4_2"
+      ],
+      "build_profile": "x86-64-v3",
+      "benchmark_schema": 1,
+      "model_sha256": "4c67426908a518c28c24bc780df27175fcf84ce4d6dbd678133a4531904bbcc9",
+      "manifest_sha256": "46eda524d274f278ca64163b583fdf8dfc9f2ac5dceaa6b1bb540490efc46ddd",
+      "config_sha256": "fc424b07596878c0ce59a0d8d9523211ea07055cb54a0dd37272a4cff726c1d1",
+      "threads": 6,
+      "openblas_threads": 4
+    },
+    "result": {
+      "samples": [
+        {
+          "id": "paraformer-zh",
+          "sha256": "732f28a4445eb2b656675b946695e59752b7df824d475c4bc531c441f43b30f9",
+          "condition": "clean-zh",
+          "required": true,
+          "latency_ms": [
+            2387.562,
+            2272.063,
+            2199.865
+          ],
+          "transcript": "正是因为存在绝对正义，所以我们接受现实的相对正义。但是不要因为现实的相对正义，我们就认为这个世界没有正义。因为如果当你认为这个世界没有正义",
+          "reference": "正是因为存在绝对正义所以我们接受现实的相对正义但是不要因为现实的相对正义我们就认为这个世界没有正义因为如果当你认为这个世界没有正义",
+          "cer": 0.06153846153846154
+        }
+      ],
+      "aggregate_cer": 0.06153846153846154,
+      "vad": [
+        {
+          "audio": "/home/hualet/projects/hualet/echoflow/third_party/crispasr/samples/paraformer_zh.wav",
+          "backend": "energy",
+          "cer": 0.2,
+          "condition": "clean-zh",
+          "decode_ms": 2080.4073009999997,
+          "duration_s": 13.052,
+          "end_silence_ms": 500,
+          "first_stable_text_ms": 5230.117393,
+          "id": "paraformer-zh",
+          "min_speech_rms": 50,
+          "segment_decode_ms": [
+            690.117393,
+            1170.067717,
+            220.222191
+          ],
+          "segments": [
+            [
+              0.22,
+              4.54
+            ],
+            [
+              4.68,
+              12.68
+            ],
+            [
+              12.18,
+              13.052
+            ]
+          ],
+          "sha256": "732f28a4445eb2b656675b946695e59752b7df824d475c4bc531c441f43b30f9",
+          "speech_ratio": 4,
+          "stop_latency_ms": 1018.2899080000007,
+          "transcript": "正是因为存在绝对正义，所以我们接受现实的相对正义。 但是不要因为现实的相对正义，我们就认为这个世界没有正义。因为如果当你认为这个世界没有正义， 界没有正义。",
+          "type": "clip",
+          "vad_end_threshold": 0.3499999940395355,
+          "vad_threshold": 0.5
+        },
+        {
+          "backend": "energy",
+          "cer": 0.2,
+          "clips": 1,
+          "end_silence_ms": 500,
+          "false_activation_s": 0,
+          "labelled_clips": 0,
+          "min_speech_rms": 50,
+          "miss_rate": 0,
+          "speech_ratio": 4,
+          "type": "summary",
+          "vad_end_threshold": 0.3499999940395355,
+          "vad_threshold": 0.5
+        }
+      ],
+      "identity": {
+        "cpu_model": "AMD Ryzen 7 6800H with Radeon Graphics",
+        "architecture": "x86_64",
+        "cpu_flags": [
+          "avx",
+          "avx2",
+          "bmi2",
+          "f16c",
+          "fma",
+          "sse4_2"
+        ],
+        "build_profile": "x86-64-v3",
+        "benchmark_schema": 1,
+        "model_sha256": "4c67426908a518c28c24bc780df27175fcf84ce4d6dbd678133a4531904bbcc9",
+        "manifest_sha256": "46eda524d274f278ca64163b583fdf8dfc9f2ac5dceaa6b1bb540490efc46ddd",
+        "config_sha256": "fc424b07596878c0ce59a0d8d9523211ea07055cb54a0dd37272a4cff726c1d1",
+        "threads": 6,
+        "openblas_threads": 4
+      },
+      "commit": "9f4cdc991d29b42457c4a0dd7e35829efaf87e05"
+    }
+  },
+  "comparison": {
+    "passed": true,
+    "failures": [],
+    "metrics": {
+      "aggregate_latency_limit": 1.1,
+      "sample_latency_limit": 1.2,
+      "baseline_median_ms": 3984.483,
+      "candidate_median_ms": 2272.063,
+      "aggregate_ratio": 0.5702278062172683,
+      "sample_ratios": {
+        "paraformer-zh": 0.5702278062172683
+      },
+      "baseline_cer": 0.07692307692307693,
+      "candidate_cer": 0.06153846153846154
+    }
+  }
+}
