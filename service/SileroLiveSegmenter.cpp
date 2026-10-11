@@ -23,13 +23,15 @@ SileroLiveSegmenter::SileroLiveSegmenter(
     : config_(config)
     , backend_(std::move(backend))
     , analysisCadenceSamples_(samplesForMs(config_.analysisCadenceMs))
-    , retainedHistorySamples_(std::max(
+    , retainedHistorySamples_(std::max({
           samplesForMs(config_.prePaddingMs),
-          samplesForMs(config_.minSpeechMs) + samplesForMs(32)))
+          samplesForMs(config_.minSpeechMs) + samplesForMs(32),
+          samplesForMs(config_.leadInMs)}))
     , prePaddingSamples_(samplesForMs(config_.prePaddingMs))
     , postPaddingSamples_(samplesForMs(config_.postPaddingMs))
     , maxSegmentSamples_(samplesForMs(config_.maxSegmentMs))
     , forceOverlapSamples_(samplesForMs(config_.forceOverlapMs))
+    , leadInSamples_(samplesForMs(config_.leadInMs))
 {
     if (!backend_) {
         throw std::invalid_argument("Silero live VAD backend must not be null");
@@ -42,7 +44,8 @@ SileroLiveSegmenter::SileroLiveSegmenter(
         throw std::invalid_argument("Silero live VAD durations must be positive");
     }
     if (config_.prePaddingMs < 0 || config_.postPaddingMs < 0
-        || config_.forceOverlapMs < 0 || forceOverlapSamples_ >= maxSegmentSamples_) {
+        || config_.forceOverlapMs < 0 || config_.leadInMs < 0
+        || forceOverlapSamples_ >= maxSegmentSamples_) {
         throw std::invalid_argument("invalid Silero live VAD padding or overlap");
     }
 }
@@ -75,42 +78,62 @@ std::vector<AudioSegment> SileroLiveSegmenter::append(
 std::optional<AudioSegment> SileroLiveSegmenter::flush()
 {
     if (buffer_.empty()) {
-        reset();
+        clearBuffer();
         return std::nullopt;
     }
 
     const std::vector<SpeechInterval> intervals = detect();
+    const size_t consumed = emittedOffset();
     size_t first = buffer_.size();
     size_t last = 0;
     for (const SpeechInterval& raw : intervals) {
-        const size_t begin = std::min(raw.beginSample, buffer_.size());
+        const size_t begin = std::max(consumed, std::min(raw.beginSample, buffer_.size()));
         const size_t end = std::min(raw.endSample, buffer_.size());
         if (end <= begin) continue;
         first = std::min(first, begin);
         last = std::max(last, end);
     }
+    if (openSpeechBegin_) {
+        // Speech seen earlier but no longer reported is still speech; the
+        // key was released before the backend could close it.
+        const size_t open = std::max(consumed, static_cast<size_t>(
+            std::max(*openSpeechBegin_, bufferStartSample_) - bufferStartSample_));
+        if (open < buffer_.size()) {
+            if (last <= first) last = buffer_.size();
+            first = std::min(first, open);
+        }
+    }
     if (last <= first) {
-        reset();
+        clearBuffer();
         return std::nullopt;
     }
 
-    const size_t begin = first > prePaddingSamples_ ? first - prePaddingSamples_ : 0;
+    const size_t begin = std::max(
+        consumed, first > prePaddingSamples_ ? first - prePaddingSamples_ : size_t(0));
     const size_t end = std::min(buffer_.size(), last + postPaddingSamples_);
     AudioSegment segment = makeSegment(begin, end);
     log("Silero VAD boundary: reason=flush, begin_ms="
         + std::to_string(segment.beginSample * 1000 / config_.sampleRate)
         + ", end_ms=" + std::to_string(segment.endSample * 1000 / config_.sampleRate));
-    reset();
+    clearBuffer();
     return segment;
 }
 
 void SileroLiveSegmenter::reset()
 {
+    clearBuffer();
+    analysisCount_ = 0;
+    analysisMilliseconds_ = 0.0;
+}
+
+// Flush keeps the analysis counters so the end-of-session summary is useful.
+void SileroLiveSegmenter::clearBuffer()
+{
     samplesSinceAnalysis_ = 0;
     bufferStartSample_ = 0;
     buffer_.clear();
-    analysisCount_ = 0;
-    analysisMilliseconds_ = 0.0;
+    emittedEndSample_ = 0;
+    openSpeechBegin_.reset();
 }
 
 std::string SileroLiveSegmenter::name() const
@@ -148,15 +171,18 @@ std::vector<AudioSegment> SileroLiveSegmenter::analyze()
 {
     const std::vector<SpeechInterval> intervals = detect();
     std::vector<AudioSegment> emitted;
-    size_t consumed = 0;
-    size_t firstSpeech = buffer_.size();
+    size_t consumed = emittedOffset();
+    size_t openAt = buffer_.size();
 
     for (const SpeechInterval& raw : intervals) {
-        const size_t begin = std::min(raw.beginSample, buffer_.size());
+        const size_t begin = std::max(consumed, std::min(raw.beginSample, buffer_.size()));
         const size_t end = std::min(raw.endSample, buffer_.size());
+        // Empty, or lies in kept lead-in that was already emitted.
         if (end <= begin) continue;
-        firstSpeech = std::min(firstSpeech, begin);
-        if (end >= buffer_.size()) continue;
+        if (end >= buffer_.size()) {
+            openAt = std::min(openAt, begin);
+            continue;
+        }
 
         const size_t paddedBegin = std::max(
             consumed, begin > prePaddingSamples_ ? begin - prePaddingSamples_ : size_t(0));
@@ -168,34 +194,51 @@ std::vector<AudioSegment> SileroLiveSegmenter::analyze()
     }
 
     if (!emitted.empty()) {
+        emittedEndSample_ = bufferStartSample_ + consumed;
+        if (openSpeechBegin_ && *openSpeechBegin_ < emittedEndSample_) {
+            openSpeechBegin_.reset();
+        }
+    }
+    if (openAt < buffer_.size() && openAt >= consumed) {
+        const uint64_t open = bufferStartSample_ + openAt;
+        if (!openSpeechBegin_ || open < *openSpeechBegin_) openSpeechBegin_ = open;
+    }
+
+    if (!emitted.empty()) {
         for (const AudioSegment& segment : emitted) {
             log("Silero VAD boundary: reason=natural, begin_ms="
                 + std::to_string(segment.beginSample * 1000 / config_.sampleRate)
                 + ", end_ms="
                 + std::to_string(segment.endSample * 1000 / config_.sampleRate));
         }
-        erasePrefix(consumed);
+        keepLeadInBefore(consumed);
         return emitted;
     }
 
-    if (firstSpeech == buffer_.size()) {
+    if (!openSpeechBegin_) {
         if (buffer_.size() > retainedHistorySamples_) {
             erasePrefix(buffer_.size() - retainedHistorySamples_);
         }
         return {};
     }
 
-    if (firstSpeech > prePaddingSamples_) {
-        erasePrefix(firstSpeech - prePaddingSamples_);
-    }
-    if (buffer_.size() < maxSegmentSamples_) return {};
+    const size_t openOffset = static_cast<size_t>(*openSpeechBegin_ - bufferStartSample_);
+    const size_t paddedOpen = openOffset > prePaddingSamples_
+        ? openOffset - prePaddingSamples_ : size_t(0);
+    const uint64_t segmentBeginSample = bufferStartSample_ + std::max(consumed, paddedOpen);
+    keepLeadInBefore(static_cast<size_t>(segmentBeginSample - bufferStartSample_));
+    const size_t segmentBegin = static_cast<size_t>(segmentBeginSample - bufferStartSample_);
+    if (buffer_.size() - segmentBegin < maxSegmentSamples_) return {};
 
-    AudioSegment forced = makeSegment(0, maxSegmentSamples_);
+    AudioSegment forced = makeSegment(segmentBegin, segmentBegin + maxSegmentSamples_);
     log("Silero VAD boundary: reason=forced, begin_ms="
         + std::to_string(forced.beginSample * 1000 / config_.sampleRate)
         + ", end_ms=" + std::to_string(forced.endSample * 1000 / config_.sampleRate));
     emitted.push_back(std::move(forced));
-    erasePrefix(maxSegmentSamples_ - forceOverlapSamples_);
+    // The next segment overlaps this one so the text joiner can stitch them.
+    emittedEndSample_ = emitted.back().beginSample + maxSegmentSamples_ - forceOverlapSamples_;
+    openSpeechBegin_ = emittedEndSample_;
+    keepLeadInBefore(static_cast<size_t>(emittedEndSample_ - bufferStartSample_));
     return emitted;
 }
 
@@ -211,6 +254,20 @@ AudioSegment SileroLiveSegmenter::makeSegment(size_t begin, size_t end) const
         buffer_.begin() + static_cast<std::ptrdiff_t>(clampedBegin),
         buffer_.begin() + static_cast<std::ptrdiff_t>(clampedEnd));
     return segment;
+}
+
+void SileroLiveSegmenter::keepLeadInBefore(size_t position)
+{
+    if (position > leadInSamples_) {
+        erasePrefix(position - leadInSamples_);
+    }
+}
+
+size_t SileroLiveSegmenter::emittedOffset() const
+{
+    if (emittedEndSample_ <= bufferStartSample_) return 0;
+    return static_cast<size_t>(
+        std::min<uint64_t>(emittedEndSample_ - bufferStartSample_, buffer_.size()));
 }
 
 void SileroLiveSegmenter::erasePrefix(size_t count)

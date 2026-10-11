@@ -85,6 +85,49 @@ public:
     std::string name() const override { return "confirmed-silence"; }
 };
 
+// Like Silero, misses speech that starts too close to the beginning of the
+// analysed buffer: its recurrent state needs lead-in audio before an onset.
+class LeadInVadBackend final : public IVadBackend {
+public:
+    explicit LeadInVadBackend(size_t leadInSamples)
+        : leadInSamples_(leadInSamples)
+    {
+    }
+
+    std::vector<SpeechInterval> detect(const int16_t* pcm, size_t count) override
+    {
+        std::vector<SpeechInterval> out;
+        for (const auto& interval : marker_.detect(pcm, count)) {
+            if (interval.beginSample >= leadInSamples_) out.push_back(interval);
+        }
+        return out;
+    }
+
+    std::string name() const override { return "lead-in"; }
+
+private:
+    MarkerVadBackend marker_;
+    size_t leadInSamples_;
+};
+
+// Reports open speech once, then nothing, as Silero can on a noisy onset.
+class FlickeringVadBackend final : public IVadBackend {
+public:
+    std::vector<SpeechInterval> detect(const int16_t* pcm, size_t count) override
+    {
+        auto intervals = marker_.detect(pcm, count);
+        if (intervals.empty() || reported_) return {};
+        reported_ = true;
+        return intervals;
+    }
+
+    std::string name() const override { return "flickering"; }
+
+private:
+    MarkerVadBackend marker_;
+    bool reported_ = false;
+};
+
 std::vector<int16_t> pcm(int milliseconds, int16_t value)
 {
     return std::vector<int16_t>(static_cast<size_t>(milliseconds * 16), value);
@@ -117,7 +160,69 @@ private slots:
     void resetDiscardsPendingSpeech();
     void retainsEnoughHistoryForConfiguredMinimumSpeech();
     void preservesAnalysisCadenceRemainder();
+    void followUpSpeechSurvivesBackendLeadIn();
+    void flushKeepsSpeechTheBackendStoppedReporting();
+    void diagnosticsSurviveFlush();
 };
+
+void TestSileroLiveSegmenter::followUpSpeechSurvivesBackendLeadIn()
+{
+    // A second sentence starts right after the first is emitted and the key
+    // is released before it ends. Trimming the buffer to the onset used to
+    // starve the backend of lead-in, so the whole sentence was dropped.
+    SileroLiveSegmenter segmenter(
+        SileroLiveSegmenterConfig{}, std::make_unique<LeadInVadBackend>(4800));
+    std::vector<int16_t> input = pcm(400, 0);
+    appendPcm(input, pcm(800, 1200));
+    appendPcm(input, pcm(400, 0));
+    appendPcm(input, pcm(900, 1200));
+
+    std::vector<AudioSegment> segments;
+    for (size_t offset = 0; offset < input.size(); offset += 2048) {
+        const size_t count = std::min(size_t(2048), input.size() - offset);
+        for (auto& segment : segmenter.append(input.data() + offset, count)) {
+            segments.push_back(std::move(segment));
+        }
+    }
+    QCOMPARE(segments.size(), size_t(1));
+    QCOMPARE(segments[0].beginSample, uint64_t(3200));
+    QCOMPARE(segments[0].endSample, uint64_t(20480));
+
+    const auto tail = segmenter.flush();
+    QVERIFY(tail.has_value());
+    // Pre-padded onset of the second sentence, after the first segment: kept
+    // lead-in is never emitted twice.
+    QCOMPARE(tail->beginSample, uint64_t(22400));
+    QVERIFY(tail->beginSample >= segments[0].endSample);
+    QCOMPARE(tail->endSample, uint64_t(input.size()));
+}
+
+void TestSileroLiveSegmenter::flushKeepsSpeechTheBackendStoppedReporting()
+{
+    SileroLiveSegmenter segmenter(
+        SileroLiveSegmenterConfig{}, std::make_unique<FlickeringVadBackend>());
+    std::vector<int16_t> input = pcm(300, 0);
+    appendPcm(input, pcm(1200, 1200));
+    for (size_t offset = 0; offset < input.size(); offset += 1600) {
+        const size_t count = std::min(size_t(1600), input.size() - offset);
+        QCOMPARE(segmenter.append(input.data() + offset, count).size(), size_t(0));
+    }
+
+    const auto tail = segmenter.flush();
+    QVERIFY(tail.has_value());
+    QCOMPARE(tail->beginSample, uint64_t(1600));
+    QCOMPARE(tail->endSample, uint64_t(input.size()));
+}
+
+void TestSileroLiveSegmenter::diagnosticsSurviveFlush()
+{
+    auto segmenter = makeSegmenter();
+    const auto silence = pcm(300, 0);
+    segmenter->append(silence.data(), silence.size());
+    segmenter->flush();
+    const QString diagnostics = QString::fromStdString(segmenter->diagnosticSummary());
+    QVERIFY2(!diagnostics.contains("analyses=0"), qPrintable(diagnostics));
+}
 
 void TestSileroLiveSegmenter::naturalPauseEmitsBeforeMaximum()
 {
