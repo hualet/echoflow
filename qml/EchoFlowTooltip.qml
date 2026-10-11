@@ -23,6 +23,7 @@ Window {
     property string phase: "idle"
     property int targetX: 0
     property int targetY: 0
+    property bool anchorTopLeft: false
     readonly property color capsuleBackground: typeof theme !== "undefined" ? theme.capsuleBackground : "#232629"
     readonly property color capsuleBlend: Qt.rgba(capsuleBackground.r,
                                                    capsuleBackground.g,
@@ -51,18 +52,22 @@ Window {
     readonly property bool cancelling: root.phase === "cancelling"
     readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
 
-    // (targetX, targetY) is the capsule's bottom-center anchor.
+    // (targetX, targetY) is the capsule's bottom-center anchor, or its
+    // top-left anchor beside the caret, kept on the caret's screen.
     width: capsule.width
     height: capsule.height
-    x: targetX - width / 2
-    y: targetY - height
+    x: anchorTopLeft
+       ? Math.max(Screen.virtualX, Math.min(targetX, Screen.virtualX + Screen.width - width))
+       : targetX - width / 2
+    y: anchorTopLeft ? targetY : targetY - height
 
     Connections {
         target: tooltipController
-        function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY) {
+        function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY, topLeft) {
             root.phase = newPhase
             root.message = msg
             if (hasPosition) {
+                root.anchorTopLeft = topLeft
                 root.targetX = moveX
                 root.targetY = moveY
             }
@@ -446,5 +451,123 @@ Window {
     QtObject {
         id: waveAnim
         property var amplitudes: [0.5, 0.5, 0.5, 0.5, 0.5]
+    }
+
+    // Focus hint: a quiet pill below the caret telling the user voice input is
+    // available. It never takes focus or mouse input, so clicks and long
+    // presses reach the text field underneath.
+    Window {
+        id: hintWindow
+        // A transient of the usually hidden capsule window would be hidden
+        // along with it by the window manager.
+        transientParent: null
+        flags: Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+               | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput
+        color: "transparent"
+        D.DWindow.enableBlurWindow: hintWindow.visible
+        D.DWindow.enabled: true
+        D.DWindow.windowRadius: hintPill.radius
+        visible: false
+
+        property int targetX: 0
+        width: hintPill.width
+        height: hintPill.height
+        x: Math.max(Screen.virtualX, Math.min(targetX, Screen.virtualX + Screen.width - width))
+
+        Connections {
+            target: tooltipController
+            function onHintChanged(visibility, text, moveX, moveY) {
+                hintLabel.text = text
+                if (visibility) {
+                    hintWindow.targetX = moveX
+                    hintWindow.y = moveY
+                }
+                hintWindow.visible = visibility
+            }
+        }
+
+        Rectangle {
+            id: hintPill
+            readonly property int kHPad: 10
+            readonly property int kGap: 6
+            height: 28
+            radius: height / 2
+            width: kHPad + hintIcon.width + kGap + hintLabel.implicitWidth + kHPad
+            color: "transparent"
+
+            D.StyledBehindWindowBlur {
+                anchors.fill: parent
+                control: hintWindow
+                cornerRadius: hintPill.radius
+                blendColor: root.capsuleBlend
+            }
+
+            D.OutsideBoxBorder {
+                anchors.fill: parent
+                radius: hintPill.radius
+                color: root.capsuleOutsideBorder
+                z: D.DTK.AboveOrder
+            }
+
+            D.InsideBoxBorder {
+                anchors.fill: parent
+                radius: hintPill.radius
+                color: root.capsuleInsideBorder
+                z: D.DTK.AboveOrder
+            }
+
+            // symbolic microphone, matching the idle capsule button glyph
+            Canvas {
+                id: hintIcon
+                width: 14
+                height: 14
+                anchors {
+                    left: parent.left
+                    leftMargin: hintPill.kHPad
+                    verticalCenter: parent.verticalCenter
+                }
+                Connections {
+                    target: root
+                    function onAccentChanged() { hintIcon.requestPaint() }
+                }
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.strokeStyle = root.accent
+                    ctx.lineWidth = 1.6
+                    ctx.lineCap = "round"
+                    ctx.lineJoin = "round"
+                    ctx.beginPath()
+                    ctx.moveTo(7, 1.5)
+                    ctx.bezierCurveTo(5.3, 1.5, 4.5, 2.7, 4.5, 4.2)
+                    ctx.lineTo(4.5, 6.5)
+                    ctx.bezierCurveTo(4.5, 8, 5.3, 9.2, 7, 9.2)
+                    ctx.bezierCurveTo(8.7, 9.2, 9.5, 8, 9.5, 6.5)
+                    ctx.lineTo(9.5, 4.2)
+                    ctx.bezierCurveTo(9.5, 2.7, 8.7, 1.5, 7, 1.5)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.moveTo(2.5, 6.5)
+                    ctx.bezierCurveTo(2.5, 9.3, 4.3, 11, 7, 11)
+                    ctx.bezierCurveTo(9.7, 11, 11.5, 9.3, 11.5, 6.5)
+                    ctx.moveTo(7, 11)
+                    ctx.lineTo(7, 13)
+                    ctx.moveTo(4.5, 13)
+                    ctx.lineTo(9.5, 13)
+                    ctx.stroke()
+                }
+            }
+
+            Label {
+                id: hintLabel
+                anchors {
+                    left: hintIcon.right
+                    leftMargin: hintPill.kGap
+                    verticalCenter: parent.verticalCenter
+                }
+                color: root.capsuleText
+                font.pixelSize: 12
+            }
+        }
     }
 }

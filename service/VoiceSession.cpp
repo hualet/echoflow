@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <exception>
+#include <sstream>
 
 namespace echoflow {
 
@@ -28,6 +29,27 @@ std::string upper(std::string value)
     std::transform(value.begin(), value.end(), value.begin(),
         [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     return value;
+}
+
+// Normalizes "x y w h" caret geometry. Malformed geometry is dropped so the UI
+// host treats the message as focus without a known caret.
+std::string focusMessage(const std::string& verb, const std::string& argument)
+{
+    if (verb == "TYPED") {
+        return verb;
+    }
+    std::istringstream stream(argument);
+    long x = 0;
+    long y = 0;
+    long width = 0;
+    long height = 0;
+    std::string rest;
+    if (!(stream >> x >> y >> width >> height) || (stream >> rest) || width < 0
+        || height <= 0) {
+        return verb;
+    }
+    return verb + " " + std::to_string(x) + " " + std::to_string(y) + " "
+        + std::to_string(width) + " " + std::to_string(height);
 }
 
 VoiceSession::ThreadLauncher defaultThreadLauncher()
@@ -141,18 +163,38 @@ std::string VoiceSession::handleCommand(const std::string& command)
     std::string verb = upper(space == std::string::npos ? cmd : cmd.substr(0, space));
     std::string argument = trim(space == std::string::npos ? std::string() : cmd.substr(space + 1));
 
-    // The capsule no longer tracks input focus, so FOCUS/TYPED no longer show
-    // or hide anything. We keep accepting them for backward compatibility with
-    // older fcitx addons; they are now harmless no-ops.
-    if (verb == "FOCUS" || verb == "TYPED") {
-        return "IGNORED";
+    // Focus and caret reports from the fcitx addon drive the UI host's focus
+    // hint, caret-anchored capsule and long-press detection. The service only
+    // relays them; they never change the session state.
+    if (verb == "FOCUS" || verb == "CARET" || verb == "TYPED") {
+        ui_.send(focusMessage(verb, argument));
+        return "OK";
     }
 
     if (verb == "BLUR") {
         // Focus left the input context: discard any live recording the same way
         // the X button does, then hide the capsule.
+        ui_.send("BLUR");
         cancelActiveSession();
         return "TOOLTIP hide";
+    }
+
+    // START/STOP back the press-and-hold trigger. Unlike CTRL_DOWN they never
+    // toggle, so a hold cannot stop a session it did not start from idle or
+    // start a new one while finishing.
+    if (verb == "START") {
+        const auto currentState = state();
+        if (currentState == SessionState::Idle) {
+            return startRecording();
+        }
+        return phaseName(currentState);
+    }
+
+    if (verb == "STOP") {
+        if (state() == SessionState::Recording) {
+            return startFinalization();
+        }
+        return phaseName(state());
     }
 
     if (verb == "CANCEL") {

@@ -75,7 +75,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(test_capsule_controller
         test_capsule_controller.cpp
-        ../ui-host/CapsuleController.cpp)
+        ../ui-host/CapsuleController.cpp
+        ../ui-host/ScreenGeometry.cpp)
     target_include_directories(test_capsule_controller PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
     target_link_libraries(test_capsule_controller PRIVATE
@@ -83,6 +84,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_test(NAME test_capsule_controller COMMAND test_capsule_controller)
     set_tests_properties(test_capsule_controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(test_long_press_detector
+        test_long_press_detector.cpp
+        ../ui-host/LongPressDetector.cpp)
+    target_include_directories(test_long_press_detector PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+    target_link_libraries(test_long_press_detector PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME test_long_press_detector COMMAND test_long_press_detector)
     return()
 endif()
 
@@ -189,7 +197,8 @@ set_tests_properties(test_onboarding_dialog PROPERTIES
 
 add_executable(test_capsule_controller
     test_capsule_controller.cpp
-    ../ui-host/CapsuleController.cpp)
+    ../ui-host/CapsuleController.cpp
+    ../ui-host/ScreenGeometry.cpp)
 target_include_directories(test_capsule_controller PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
 target_link_libraries(test_capsule_controller PRIVATE
@@ -198,6 +207,15 @@ echoflow_enable_dead_strip(test_capsule_controller)
 add_test(NAME test_capsule_controller COMMAND test_capsule_controller)
 set_tests_properties(test_capsule_controller PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_long_press_detector
+    test_long_press_detector.cpp
+    ../ui-host/LongPressDetector.cpp)
+target_include_directories(test_long_press_detector PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ui-host)
+target_link_libraries(test_long_press_detector PRIVATE Qt6::Core Qt6::Test)
+echoflow_enable_dead_strip(test_long_press_detector)
+add_test(NAME test_long_press_detector COMMAND test_long_press_detector)
 
 target_include_directories(test_benchmark_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks)
 target_sources(test_benchmark_manifest PRIVATE benchmarks/BenchmarkManifest.cpp)

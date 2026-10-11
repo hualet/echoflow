@@ -19,6 +19,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QCursor>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
@@ -43,14 +44,18 @@
 
 #include "CapsuleController.h"
 #include "EchoFlowSettings.h"
+#include "LongPressDetector.h"
 #include "ModelDownloadCoordinator.h"
 #include "ModelSetupAdapter.h"
 #include "OnboardingDialog.h"
 #include "OnboardingSetupController.h"
 #include "OnboardingState.h"
+#include "ScreenGeometry.h"
 #include "SettingsDialog.h"
 #include "SetupCommandRunner.h"
 #include "UiActivationHost.h"
+#include "X11ActiveWindow.h"
+#include "XEventMonitorSource.h"
 
 namespace {
 
@@ -398,6 +403,65 @@ int main(int argc, char **argv) {
         qCritical("%s", qPrintable(error));
         return 1;
     }
+
+    // Press-and-hold in a text field records until the button is released.
+    XEventMonitorSource buttonSource;
+    LongPressDetector longPress(
+        [] { return QCursor::pos(); },
+        [&controller] { return controller.idle(); });
+    longPress.setPointerInActiveWindow(&echoflow::pointerInActiveWindow);
+    QObject::connect(&controller, &CapsuleController::inputFocusChanged,
+                     &longPress, &LongPressDetector::handleInputFocus);
+    QObject::connect(&buttonSource, &XEventMonitorSource::leftPressed, &longPress,
+                     [&controller, &longPress](QPoint position) {
+                         const QPoint logical = echoflow::nativeToLogical(position);
+                         controller.notePointerPress(logical);
+                         longPress.handlePress(logical);
+                     });
+    QObject::connect(&buttonSource, &XEventMonitorSource::leftReleased, &longPress,
+                     [&longPress](QPoint position) {
+                         longPress.handleRelease(echoflow::nativeToLogical(position));
+                     });
+    QObject::connect(&longPress, &LongPressDetector::holdStarted, &app,
+                     [controlPath] { sendControlCommand(controlPath, "START"); });
+    QObject::connect(&longPress, &LongPressDetector::holdFinished, &app,
+                     [controlPath] { sendControlCommand(controlPath, "STOP"); });
+    QObject::connect(&longPress, &LongPressDetector::holdCancelled, &app,
+                     [controlPath] { sendControlCommand(controlPath, "CANCEL"); });
+    QObject::connect(&buttonSource, &XEventMonitorSource::activeChanged, &app,
+                     [&](bool active) {
+                         longPress.setEnabled(active);
+                         controller.setLongPressHint(active);
+                     });
+
+    auto *interactionSettings = echoflow::EchoFlowSettings::instance()->dsettings();
+    const auto interactionEnabled = [interactionSettings](const QString &key) {
+        auto option = interactionSettings ? interactionSettings->option(key) : nullptr;
+        return !option || option->value().toBool();
+    };
+    const QString longPressKey = QStringLiteral("basic.interaction.long_press_to_talk");
+    const QString focusHintKey = QStringLiteral("basic.interaction.focus_hint");
+    auto applyInteractionSettings = [&] {
+        bool longPressActive = false;
+        if (interactionEnabled(longPressKey)) {
+            longPressActive = buttonSource.start();
+        } else {
+            // Do not keep observing global buttons once the user opts out.
+            buttonSource.stop();
+        }
+        longPress.setEnabled(longPressActive);
+        controller.setLongPressHint(longPressActive);
+        controller.setFocusHintEnabled(interactionEnabled(focusHintKey));
+    };
+    if (interactionSettings) {
+        for (const QString &key : {longPressKey, focusHintKey}) {
+            if (auto option = interactionSettings->option(key)) {
+                QObject::connect(option.data(), &Dtk::Core::DSettingsOption::valueChanged,
+                                 &app, applyInteractionSettings);
+            }
+        }
+    }
+    applyInteractionSettings();
 
     QMenu trayMenu;
     QAction *capsuleAction = trayMenu.addAction(QObject::tr("显示录音胶囊"));
