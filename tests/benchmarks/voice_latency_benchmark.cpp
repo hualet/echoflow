@@ -210,10 +210,13 @@ int runSynthetic(int iterations)
 
 int runTranscribeFile(const fs::path& audio, const std::optional<fs::path>& configPath,
                       const std::optional<fs::path>& modelDir, bool /*preload*/,
-                      int /*threads*/, int /*openBlasThreads*/, bool /*skipSilence*/,
+                      int threads, int /*openBlasThreads*/, bool /*skipSilence*/,
                       bool /*stream*/, int iterations)
 {
     echoflow::Config cfg = loadConfig(configPath, modelDir);
+    if (threads > 0) {
+        cfg.crispThreads = threads;
+    }
     echoflow::CrispAsrEngine asr(cfg);
 
     for (int i = 0; i < iterations; ++i) {
