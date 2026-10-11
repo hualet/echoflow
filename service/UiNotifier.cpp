@@ -43,6 +43,10 @@ void UnixDatagramUiNotifier::send(const std::string& message)
             + ", error=" + std::strerror(sendError));
         return;
     }
+    // Focus traffic follows every keystroke; only log session messages.
+    if (type == "FOCUS" || type == "CARET" || type == "TYPED" || type == "BLUR") {
+        return;
+    }
     log("UI message sent: type=" + type
         + ", bytes=" + std::to_string(static_cast<size_t>(sent)));
 }

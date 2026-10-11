@@ -105,6 +105,24 @@
               "default": "s16"
             }
           ]
+        },
+        {
+          "key": "interaction",
+          "name": "交互",
+          "options": [
+            {
+              "key": "long_press_to_talk",
+              "text": "在输入框中长按鼠标左键说话",
+              "type": "checkbox",
+              "default": true
+            },
+            {
+              "key": "focus_hint",
+              "text": "输入框获得焦点时显示语音提示",
+              "type": "checkbox",
+              "default": true
+            }
+          ]
         }
       ]
     },

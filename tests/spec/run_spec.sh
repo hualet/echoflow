@@ -129,10 +129,13 @@ assert_contains "$ROOT/systemd/user/echoflow-ui.service.in" "@CMAKE_INSTALL_FULL
 assert_contains "$ROOT/service/CrispAsrEngine.h" 'IAsrEngine' "CrispAsrEngine implements IAsrEngine"
 assert_absent "$ROOT/service/Server.cpp" 'qwen_asr' "Server does not touch qwen-asr"
 assert_absent "$ROOT/service/VoiceSession.cpp" 'qwen_asr' "VoiceSession does not touch qwen-asr"
-for verb in FOCUS BLUR CTRL_DOWN TYPED CANCEL STATUS; do
+for verb in FOCUS CARET BLUR CTRL_DOWN TYPED CANCEL STATUS START STOP; do
   assert_contains "$ROOT/service/VoiceSession.cpp" "$verb" "verb $verb handled"
 done
 assert_contains "$ROOT/service/Server.cpp" '"STATUS"' "Server allows STATUS command"
+for verb in CARET START STOP; do
+  assert_contains "$ROOT/service/Server.cpp" "\"$verb\"" "Server allows $verb command"
+done
 
 assert_script_absent() {
   if [[ ! -e "$ROOT/scripts/setup-qwen-asr-0.6b.sh" ]]; then
@@ -189,7 +192,10 @@ assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "cleanupAfterFinish()
 # The capsule renders explicit controller phases and keeps the idle action
 # available without bringing back focus-tracking fade timers.
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' "capsule defaults to the idle phase"
-assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY)" "capsule consumes explicit controller phases"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY, topLeft)" "capsule consumes explicit controller phases"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "Qt.WindowTransparentForInput" "focus hint lets clicks reach the text field"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "long_press_to_talk"' "settings schema has long-press option"
+assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "focus_hint"' "settings schema has focus hint option"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "idle capsule has a microphone action"
 assert_before "$ROOT/qml/EchoFlowTooltip.qml" "id: microphoneButton" "onClicked: tooltipController.requestToggle()" "microphone action toggles recording"
 assert_count "$ROOT/qml/EchoFlowTooltip.qml" "Accessible.role: Accessible.Button" 3 "all capsule icon controls expose the button role"

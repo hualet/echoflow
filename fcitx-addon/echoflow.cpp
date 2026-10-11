@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Hualet Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdlib>
@@ -216,7 +217,7 @@ private:
         auto *icEvent = static_cast<fcitx::InputContextEvent *>(&event);
         focusedInputContext_ = focused ? icEvent->inputContext() : nullptr;
         if (focused && focusedInputContext_) {
-            sendFocusCommand(focusedInputContext_);
+            sendGeometryCommand("FOCUS", focusedInputContext_);
         } else {
             sendControlCommand("BLUR");
         }
@@ -225,20 +226,24 @@ private:
     void handleCursorRectChanged(fcitx::Event &event) {
         auto *icEvent = static_cast<fcitx::InputContextEvent *>(&event);
         if (focusedInputContext_ && icEvent->inputContext() == focusedInputContext_) {
-            sendFocusCommand(focusedInputContext_);
+            sendGeometryCommand("CARET", focusedInputContext_);
         }
     }
 
-    void sendFocusCommand(fcitx::InputContext *ic) {
+    // Caret geometry lets the UI anchor its hint and confirm long presses.
+    // Password fields never expose it, so neither feature engages there.
+    void sendGeometryCommand(const std::string &verb, fcitx::InputContext *ic) {
         const fcitx::Rect &rect = ic->cursorRect();
-        if (rect.isEmpty()) {
-            sendControlCommand("FOCUS");
+        if (rect.height() <= 0 ||
+            ic->capabilityFlags().test(fcitx::CapabilityFlag::Password)) {
+            sendControlCommand(verb);
             return;
         }
         const std::string command =
-            "FOCUS " + std::to_string(rect.left()) + " " +
-            std::to_string(rect.top()) + " " + std::to_string(rect.width()) +
-            " " + std::to_string(rect.height());
+            verb + " " + std::to_string(rect.left()) + " " +
+            std::to_string(rect.top()) + " " +
+            std::to_string(std::max(rect.width(), 0)) + " " +
+            std::to_string(rect.height());
         sendControlCommand(command);
     }
 

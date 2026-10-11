@@ -563,8 +563,11 @@ class TestVoiceSession : public QObject {
 
 private slots:
     void ctrlStartsRecording();
-    void focusIsNowHarmless();
-    void typedIsNowHarmless();
+    void focusIsRelayedToUi();
+    void typedIsRelayedWithoutDisturbingRecording();
+    void blurIsRelayedBeforeCancellation();
+    void startOnlyStartsFromIdle();
+    void stopOnlyFinalizesRecording();
     void secondCtrlStopsTranscribesAndCommits();
     void transcribeExceptionReturnsToIdle();
     void tooShortAudioIsCancelled();
@@ -630,43 +633,104 @@ void TestVoiceSession::ctrlStartsRecording()
     QCOMPARE(QString::fromStdString(ui.messages().back()), QStringLiteral("RECORDING"));
 }
 
-void TestVoiceSession::focusIsNowHarmless()
+void TestVoiceSession::focusIsRelayedToUi()
 {
-    // The capsule no longer tracks input focus, so FOCUS must not emit any UI
-    // message. A subsequent CTRL_DOWN still starts recording normally.
+    // Focus and caret reports only feed the UI host; they never touch the
+    // session. Malformed geometry is relayed as focus without a caret.
     FakeRecorder recorder;
     FakeAsr asr;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS")), QStringLiteral("IGNORED"));
     QCOMPARE(QString::fromStdString(session.handleCommand("FOCUS 120 240 2 18")),
-        QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages().empty());
+        QStringLiteral("OK"));
+    QCOMPARE(QString::fromStdString(session.handleCommand("CARET -5 30 0 20")),
+        QStringLiteral("OK"));
+    session.handleCommand("FOCUS");
+    session.handleCommand("CARET 1 2 three 4");
+    session.handleCommand("CARET 1 2 3 0");
+    QCOMPARE(ui.messages(),
+        (std::vector<std::string> { "FOCUS 120 240 2 18", "CARET -5 30 0 20", "FOCUS",
+            "CARET", "CARET" }));
+    QCOMPARE(session.state(), SessionState::Idle);
+    QCOMPARE(recorder.starts(), 0);
 
     QCOMPARE(
         QString::fromStdString(session.handleCommand("CTRL_DOWN")), QStringLiteral("RECORDING"));
 }
 
-void TestVoiceSession::typedIsNowHarmless()
+void TestVoiceSession::typedIsRelayedWithoutDisturbingRecording()
 {
-    // TYPED no longer hides the capsule; it is accepted and ignored in every
-    // state, never disturbing an active recording.
     FakeRecorder recorder;
     FakeAsr asr;
     FakeCommitter committer;
     FakeUi ui;
     auto session = makeSession(recorder, asr, committer, ui);
 
-    QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages().empty());
+    QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("OK"));
+    QCOMPARE(ui.messages(), std::vector<std::string> { "TYPED" });
 
     session.handleCommand("CTRL_DOWN");
     ui.clear();
-    QCOMPARE(QString::fromStdString(session.handleCommand("TYPED")), QStringLiteral("IGNORED"));
-    QVERIFY(ui.messages().empty());
+    session.handleCommand("TYPED");
+    QCOMPARE(ui.messages(), std::vector<std::string> { "TYPED" });
     QCOMPARE(session.state(), SessionState::Recording);
+}
+
+void TestVoiceSession::blurIsRelayedBeforeCancellation()
+{
+    FakeRecorder recorder;
+    FakeAsr asr;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeSession(recorder, asr, committer, ui);
+
+    session.handleCommand("CTRL_DOWN");
+    ui.clear();
+    session.handleCommand("BLUR");
+    QCOMPARE(ui.messages(), (std::vector<std::string> { "BLUR", "IDLE" }));
+}
+
+void TestVoiceSession::startOnlyStartsFromIdle()
+{
+    FakeRecorder recorder;
+    FakeAsr asr;
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeSession(recorder, asr, committer, ui);
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("START")), QStringLiteral("RECORDING"));
+    QCOMPARE(recorder.starts(), 1);
+
+    // A second START never toggles the running recording off.
+    QCOMPARE(QString::fromStdString(session.handleCommand("START")), QStringLiteral("RECORDING"));
+    QCOMPARE(recorder.starts(), 1);
+    QCOMPARE(recorder.stops(), 0);
+    QCOMPARE(session.state(), SessionState::Recording);
+}
+
+void TestVoiceSession::stopOnlyFinalizesRecording()
+{
+    FakeRecorder recorder;
+    FakeAsr asr("按住说话");
+    FakeCommitter committer;
+    FakeUi ui;
+    auto session = makeSession(recorder, asr, committer, ui);
+
+    // STOP while idle must not start a session.
+    QCOMPARE(QString::fromStdString(session.handleCommand("STOP")), QStringLiteral("IDLE"));
+    QCOMPARE(recorder.starts(), 0);
+    QVERIFY(ui.messages().empty());
+
+    session.handleCommand("START");
+    QCOMPARE(QString::fromStdString(session.handleCommand("STOP")), QStringLiteral("TRANSCRIBING"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(committer.texts(), std::vector<std::string> { "按住说话" });
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("STOP")), QStringLiteral("IDLE"));
+    QCOMPARE(recorder.starts(), 1);
 }
 
 void TestVoiceSession::secondCtrlStopsTranscribesAndCommits()

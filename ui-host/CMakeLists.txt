@@ -11,13 +11,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Widgets Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Widgets Network DBus)
 find_package(Dtk6 COMPONENTS Widget Core Gui REQUIRED)
 include(GNUInstallDirs)
+# Long-press checks the active window through the X server directly.
+find_path(XCB_INCLUDE_DIR xcb/xcb.h)
+find_library(XCB_LIBRARY xcb)
+if(NOT XCB_INCLUDE_DIR OR NOT XCB_LIBRARY)
+    message(FATAL_ERROR "libxcb development files are required")
+endif()
 
 add_executable(echoflow-ui
     main.cpp
     CapsuleController.cpp
+    LongPressDetector.cpp
+    ScreenGeometry.cpp
+    X11ActiveWindow.cpp
+    XEventMonitorSource.cpp
     EchoFlowSettings.cpp
     SettingsDialog.cpp
     ModelDownloader.cpp
@@ -39,6 +49,7 @@ add_executable(echoflow-ui
 
 target_include_directories(echoflow-ui PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../service
+    ${XCB_INCLUDE_DIR}
 )
 
 target_link_libraries(echoflow-ui
@@ -49,6 +60,8 @@ target_link_libraries(echoflow-ui
         Qt6::Quick
         Qt6::Widgets
         Qt6::Network
+        Qt6::DBus
+        ${XCB_LIBRARY}
         Dtk6::Widget
         Dtk6::Core
         Dtk6::Gui
