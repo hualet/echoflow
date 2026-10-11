@@ -17,7 +17,7 @@ shell spec checks in `tests/spec/` and performance benchmarks in
 Initialize fresh clones with:
 
 ```bash
-git submodule update --init --recursive third_party/qwen-asr
+git submodule update --init --recursive third_party/crispasr
 ```
 
 Configure, build, and run the full test suite:

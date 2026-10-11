@@ -50,6 +50,9 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 # .opus/.ogg files. Disabling opus skips FetchContent for libopus/libogg/
 # opusfile and the miniaudio opus backend (~145 .o).
 set(CRISPASR_OPUS OFF CACHE BOOL "" FORCE)
+# EchoFlow never writes signed WAV files, so skip the C2PA signer and its
+# nested submodule.
+set(CRISPASR_NO_C2PA_NATIVE ON CACHE BOOL "" FORCE)
 
 add_subdirectory(third_party/crispasr EXCLUDE_FROM_ALL)
 
@@ -63,12 +66,17 @@ get_target_property(_crispasr_sources crispasr-lib SOURCES)
 list(FILTER _crispasr_sources INCLUDE REGEX "(^|/)(crispasr|crispasr_c_api)\\.cpp$")
 set_property(TARGET crispasr-lib PROPERTY SOURCES "${_crispasr_sources}")
 
+# Link only the qwen3 runtime and its ggml/core dependencies. An allowlist
+# keeps every other backend target unbuilt (EXCLUDE_FROM_ALL) without
+# patching CrispASR's long, frequently changing backend link section.
+set(_crispasr_link_allowlist
+    "^(qwen3_asr|crisp_audio|crispasr-core|ggml|ggml-[a-z]+|Threads::Threads)$")
 get_target_property(_crispasr_links crispasr-lib LINK_LIBRARIES)
-list(FILTER _crispasr_links EXCLUDE REGEX "audioseal|snac|crispasr-llama-core")
+list(FILTER _crispasr_links INCLUDE REGEX "${_crispasr_link_allowlist}")
 set_property(TARGET crispasr-lib PROPERTY LINK_LIBRARIES "${_crispasr_links}")
 
 get_target_property(_crispasr_interface_links crispasr-lib INTERFACE_LINK_LIBRARIES)
-list(FILTER _crispasr_interface_links EXCLUDE REGEX "audioseal|snac|crispasr-llama-core")
+list(FILTER _crispasr_interface_links INCLUDE REGEX "${_crispasr_link_allowlist}")
 set_property(TARGET crispasr-lib PROPERTY INTERFACE_LINK_LIBRARIES "${_crispasr_interface_links}")
 
 target_compile_definitions(crispasr-lib PRIVATE CRISPASR_QWEN3_ONLY)
