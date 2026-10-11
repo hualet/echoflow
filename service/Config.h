@@ -10,6 +10,12 @@
 
 namespace echoflow {
 
+// CrispASR CPU threads for a host with the given physical core count. SMT
+// siblings and threads beyond eight slow qwen3 encoder/prefill on measured
+// hosts, so use one thread per physical core up to that cap.
+int crispThreadsForPhysicalCores(int physicalCores);
+int defaultCrispThreads();
+
 struct PipeWireRecordConfig {
     int rate = 16000;
     int channels = 1;
@@ -35,7 +41,7 @@ struct Config {
 
     std::string crispModelPath;
     std::string crispBackend = "qwen3";
-    int crispThreads = 6;
+    int crispThreads = defaultCrispThreads();
     int crispMaxNewTokens = 0;
     std::string vadBackend = "energy";
     std::string vadModelPath;

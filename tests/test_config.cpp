@@ -15,6 +15,7 @@ class TestConfig : public QObject {
 
 private slots:
     void defaultConfigHasExpectedFields();
+    void crispThreadsFollowPhysicalCores();
     void expandPathResolvesHome();
     void normalizeModelNameMapsVariants();
     void loadDtkConfDerivesModelDirFromName();
@@ -41,7 +42,8 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QVERIFY(c.streamTranscription);
     QVERIFY(!c.saveLiveDebugAudio);
     QCOMPARE(c.openBlasThreads, 4);
-    QCOMPARE(c.crispThreads, 6);
+    QCOMPARE(c.crispThreads, defaultCrispThreads());
+    QVERIFY(c.crispThreads >= 1 && c.crispThreads <= 8);
     QCOMPARE(c.crispMaxNewTokens, 0);
     QCOMPARE(QString::fromStdString(c.vadBackend), QStringLiteral("energy"));
     QVERIFY(c.vadModelPath.empty());
@@ -49,6 +51,15 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(c.vadEndThreshold, 0.10f);
     QCOMPARE(c.vadMinSpeechMs, 100);
     QCOMPARE(c.vadMinSilenceMs, 300);
+}
+
+void TestConfig::crispThreadsFollowPhysicalCores() {
+    QCOMPARE(crispThreadsForPhysicalCores(0), 4);
+    QCOMPARE(crispThreadsForPhysicalCores(-1), 4);
+    QCOMPARE(crispThreadsForPhysicalCores(1), 1);
+    QCOMPARE(crispThreadsForPhysicalCores(4), 4);
+    QCOMPARE(crispThreadsForPhysicalCores(8), 8);
+    QCOMPARE(crispThreadsForPhysicalCores(16), 8);
 }
 
 void TestConfig::loadDtkConfReadsVadSettings() {

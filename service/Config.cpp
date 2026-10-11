@@ -7,6 +7,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <set>
+#include <thread>
+#include <utility>
 #include <sstream>
 #include <stdexcept>
 #include <sys/types.h>
@@ -37,7 +40,48 @@ bool parseBool(const std::string& value)
     return lower == "true" || lower == "1" || lower == "yes" || lower == "on";
 }
 
+int countPhysicalCores()
+{
+    std::set<std::pair<int, int>> cores;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/sys/devices/system/cpu", ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.size() <= 3 || name.compare(0, 3, "cpu") != 0
+            || !std::all_of(name.begin() + 3, name.end(),
+                            [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+            continue;
+        }
+        std::ifstream package(entry.path() / "topology/physical_package_id");
+        std::ifstream core(entry.path() / "topology/core_id");
+        int packageId = 0;
+        int coreId = 0;
+        if (package >> packageId && core >> coreId) {
+            cores.emplace(packageId, coreId);
+        }
+    }
+    if (!cores.empty()) {
+        return static_cast<int>(cores.size());
+    }
+    return static_cast<int>(std::thread::hardware_concurrency() / 2);
+}
+
 }  // namespace
+
+int crispThreadsForPhysicalCores(int physicalCores)
+{
+    constexpr int kFallbackThreads = 4;
+    constexpr int kMaxThreads = 8;
+    if (physicalCores <= 0) {
+        return kFallbackThreads;
+    }
+    return std::min(physicalCores, kMaxThreads);
+}
+
+int defaultCrispThreads()
+{
+    static const int threads = crispThreadsForPhysicalCores(countPhysicalCores());
+    return threads;
+}
 
 Config Config::defaultConfig()
 {
