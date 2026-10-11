@@ -23,7 +23,6 @@ Window {
     property string phase: "idle"
     property int targetX: 0
     property int targetY: 0
-    property bool anchorTopLeft: false
     readonly property color capsuleBackground: typeof theme !== "undefined" ? theme.capsuleBackground : "#232629"
     readonly property color capsuleBlend: Qt.rgba(capsuleBackground.r,
                                                    capsuleBackground.g,
@@ -52,22 +51,18 @@ Window {
     readonly property bool cancelling: root.phase === "cancelling"
     readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
 
-    // (targetX, targetY) is the capsule's bottom-center anchor, or its
-    // top-left anchor beside the caret, kept on the caret's screen.
+    // (targetX, targetY) is the capsule's bottom-center anchor.
     width: capsule.width
     height: capsule.height
-    x: anchorTopLeft
-       ? Math.max(Screen.virtualX, Math.min(targetX, Screen.virtualX + Screen.width - width))
-       : targetX - width / 2
-    y: anchorTopLeft ? targetY : targetY - height
+    x: targetX - width / 2
+    y: targetY - height
 
     Connections {
         target: tooltipController
-        function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY, topLeft) {
+        function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY) {
             root.phase = newPhase
             root.message = msg
             if (hasPosition) {
-                root.anchorTopLeft = topLeft
                 root.targetX = moveX
                 root.targetY = moveY
             }

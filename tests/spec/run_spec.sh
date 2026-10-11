@@ -136,6 +136,8 @@ assert_contains "$ROOT/service/Server.cpp" '"STATUS"' "Server allows STATUS comm
 for verb in CARET START STOP; do
   assert_contains "$ROOT/service/Server.cpp" "\"$verb\"" "Server allows $verb command"
 done
+assert_contains "$ROOT/fcitx-addon/echoflow.cpp" 'sendControlCommand("START")' "right Ctrl press starts push-to-talk"
+assert_contains "$ROOT/fcitx-addon/echoflow.cpp" 'sendControlCommand("STOP")' "right Ctrl release stops push-to-talk"
 
 assert_script_absent() {
   if [[ ! -e "$ROOT/scripts/setup-qwen-asr-0.6b.sh" ]]; then
@@ -192,7 +194,7 @@ assert_contains "$ROOT/service/CrispLiveVoicePipeline.cpp" "cleanupAfterFinish()
 # The capsule renders explicit controller phases and keeps the idle action
 # available without bringing back focus-tracking fade timers.
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" 'property string phase: "idle"' "capsule defaults to the idle phase"
-assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY, topLeft)" "capsule consumes explicit controller phases"
+assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "function onCapsuleChanged(visibility, newPhase, msg, hasPosition, moveX, moveY)" "capsule consumes explicit controller phases"
 assert_contains "$ROOT/qml/EchoFlowTooltip.qml" "Qt.WindowTransparentForInput" "focus hint lets clicks reach the text field"
 assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "long_press_to_talk"' "settings schema has long-press option"
 assert_contains "$ROOT/ui-host/settings-schema.json" '"key": "focus_hint"' "settings schema has focus hint option"

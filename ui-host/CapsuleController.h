@@ -19,7 +19,9 @@ class CapsuleController final : public QObject {
 public:
     using SendCommand = std::function<bool(std::string_view)>;
 
-    static constexpr int kCapsuleHeight = 40;
+    // The capsule's bottom edge sits this fraction of the available screen
+    // height above the screen's bottom edge.
+    static constexpr int kCapsuleBottomDivisor = 8;
     static constexpr int kHintHeight = 28;
     static constexpr int kCaretGap = 6;
     static constexpr int kDefaultHintTimeoutMs = 3000;
@@ -44,11 +46,10 @@ public slots:
     void requestCancel();
 
 signals:
-    // (moveX, moveY) is the bottom-center anchor, or the top-left anchor when
-    // anchorTopLeft is set for a capsule placed beside the caret.
+    // (moveX, moveY) is the bottom-center anchor at the lower middle of the
+    // primary screen; the capsule never follows the caret.
     void capsuleChanged(bool visible, QString phase, QString message,
-                        bool hasPosition, int moveX, int moveY,
-                        bool anchorTopLeft);
+                        bool hasPosition, int moveX, int moveY);
     void hintChanged(bool visible, QString text, int moveX, int moveY);
     void persistentChanged(bool persistent);
     // caret is in logical coordinates and null when unknown.
@@ -81,7 +82,6 @@ private:
     QRect caret_;
     QRect reportedCaret_;
     bool anchoredAtPress_ = false;
-    QRect capsuleAnchor_;
     QElapsedTimer clock_;
     QPoint lastPress_;
     qint64 lastPressAt_ = -1;

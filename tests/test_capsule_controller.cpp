@@ -21,7 +21,6 @@ struct CapsuleState {
     bool hasPosition = false;
     int moveX = 0;
     int moveY = 0;
-    bool anchorTopLeft = false;
 };
 
 struct HintState {
@@ -59,7 +58,6 @@ CapsuleState stateAt(const QSignalSpy &spy, int index) {
         arguments.at(3).toBool(),
         arguments.at(4).toInt(),
         arguments.at(5).toInt(),
-        arguments.at(6).toBool(),
     };
 }
 
@@ -85,9 +83,7 @@ private slots:
     void typingOrBlurHidesHintForGood();
     void hintTextReflectsLongPress();
     void hintSuppressedWhenDisabledPersistentOrBusy();
-    void recordingAnchorsCapsuleBesideCaret();
-    void capsuleWithoutCaretStaysAtBottom();
-    void persistentCapsuleIgnoresCaret();
+    void recordingCapsuleStaysAtLowerCenter();
     void inputFocusIsReportedForLongPress();
     void clickFocusAnchorsAtPress();
     void pressArrivingAfterFocusReanchors();
@@ -116,7 +112,8 @@ void CapsuleControllerTest::persistentIdleIsVisibleAndRequestsStatus() {
         const QRect available = screen->availableGeometry();
         QVERIFY(state.hasPosition);
         QCOMPARE(state.moveX, available.left() + available.width() / 2);
-        QCOMPARE(state.moveY, available.bottom() - 8);
+        QCOMPARE(state.moveY, available.bottom()
+                 - available.height() / CapsuleController::kCapsuleBottomDivisor);
     } else {
         QVERIFY(!state.hasPosition);
     }
@@ -379,13 +376,13 @@ void CapsuleControllerTest::hintTextReflectsLongPress() {
     controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
 
     settleHint();
-    QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text, QStringLiteral("按右 Ctrl 说话"));
+    QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text, QStringLiteral("按住右 Ctrl 说话"));
 
     controller.setLongPressHint(true);
 
     settleHint();
     QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text,
-             QStringLiteral("长按鼠标或按右 Ctrl 说话"));
+             QStringLiteral("长按鼠标或右 Ctrl 说话"));
 }
 
 void CapsuleControllerTest::hintSuppressedWhenDisabledPersistentOrBusy() {
@@ -418,56 +415,34 @@ void CapsuleControllerTest::hintSuppressedWhenDisabledPersistentOrBusy() {
     QVERIFY(!hintAt(busySpy, busySpy.count() - 1).visible);
 }
 
-void CapsuleControllerTest::recordingAnchorsCapsuleBesideCaret() {
+void CapsuleControllerTest::recordingCapsuleStaysAtLowerCenter() {
+    QScreen *screen = QGuiApplication::primaryScreen();
+    if (!screen) {
+        QSKIP("no primary screen");
+    }
+    const QRect available = screen->availableGeometry();
+    const int expectedX = available.left() + available.width() / 2;
+    const int expectedY = available.bottom()
+        - available.height() / CapsuleController::kCapsuleBottomDivisor;
+
     CapsuleController controller(ignoreCommands());
     QSignalSpy capsuleSpy(&controller, &CapsuleController::capsuleChanged);
 
+    // The capsule ignores the caret both when recording starts and while it
+    // moves during the session.
     controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
     controller.applyServiceMessage(QStringLiteral("RECORDING"));
-    // Caret updates during recording do not move the capsule.
     controller.applyServiceMessage(QStringLiteral("CARET 300 400 2 18"));
     controller.applyServiceMessage(QStringLiteral("TRANSCRIBING"));
+    controller.setPersistent(true);
 
-    QCOMPARE(capsuleSpy.count(), 2);
+    QVERIFY(capsuleSpy.count() >= 3);
     for (int i = 0; i < capsuleSpy.count(); ++i) {
         const CapsuleState state = stateAt(capsuleSpy, i);
-        QVERIFY(state.visible);
         QVERIFY(state.hasPosition);
-        QVERIFY(state.anchorTopLeft);
-        QCOMPARE(state.moveX, 100);
-        QCOMPARE(state.moveY, 200 + 18 + CapsuleController::kCaretGap);
+        QCOMPARE(state.moveX, expectedX);
+        QCOMPARE(state.moveY, expectedY);
     }
-}
-
-void CapsuleControllerTest::capsuleWithoutCaretStaysAtBottom() {
-    CapsuleController controller(ignoreCommands());
-    QSignalSpy capsuleSpy(&controller, &CapsuleController::capsuleChanged);
-
-    controller.applyServiceMessage(QStringLiteral("FOCUS"));
-    controller.applyServiceMessage(QStringLiteral("RECORDING"));
-
-    QCOMPARE(capsuleSpy.count(), 1);
-    QVERIFY(!stateAt(capsuleSpy, 0).anchorTopLeft);
-
-    // The anchor is cleared at idle, so a later session without focus is
-    // not placed beside a stale caret.
-    controller.applyServiceMessage(QStringLiteral("CARET 100 200 2 18"));
-    controller.applyServiceMessage(QStringLiteral("IDLE"));
-    controller.applyServiceMessage(QStringLiteral("BLUR"));
-    controller.applyServiceMessage(QStringLiteral("RECORDING"));
-    QVERIFY(!stateAt(capsuleSpy, capsuleSpy.count() - 1).anchorTopLeft);
-}
-
-void CapsuleControllerTest::persistentCapsuleIgnoresCaret() {
-    CapsuleController controller(ignoreCommands());
-    controller.setPersistent(true);
-    QSignalSpy capsuleSpy(&controller, &CapsuleController::capsuleChanged);
-
-    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
-    controller.applyServiceMessage(QStringLiteral("RECORDING"));
-
-    QCOMPARE(capsuleSpy.count(), 1);
-    QVERIFY(!stateAt(capsuleSpy, 0).anchorTopLeft);
 }
 
 void CapsuleControllerTest::inputFocusIsReportedForLongPress() {

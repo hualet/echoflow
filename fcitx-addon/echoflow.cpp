@@ -219,6 +219,9 @@ private:
         if (focused && focusedInputContext_) {
             sendGeometryCommand("FOCUS", focusedInputContext_);
         } else {
+            // BLUR discards the recording, so a later right Ctrl release
+            // must not send a STOP for it.
+            rightCtrlDown_ = false;
             sendControlCommand("BLUR");
         }
     }
@@ -251,16 +254,21 @@ private:
         auto *keyEvent = static_cast<fcitx::KeyEvent *>(&event);
         const fcitx::Key key = keyEvent->key();
 
+        // Right Ctrl is push-to-talk, matching the mouse long press: press
+        // starts recording and release stops it for transcription.
         if (isRightCtrl(key)) {
             if (keyEvent->isRelease()) {
-                rightCtrlDown_ = false;
+                if (rightCtrlDown_) {
+                    rightCtrlDown_ = false;
+                    sendControlCommand("STOP");
+                }
                 return;
             }
             if (rightCtrlDown_) {
                 return;
             }
             rightCtrlDown_ = true;
-            sendControlCommand("CTRL_DOWN");
+            sendControlCommand("START");
             return;
         }
 

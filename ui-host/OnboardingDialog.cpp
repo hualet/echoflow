@@ -362,11 +362,11 @@ QWidget *OnboardingDialog::createShortcutPage()
         QStringLiteral(":/onboarding/shortcut.png"),
         QStringLiteral("shortcutIllustration"),
         QStringLiteral("右 Ctrl 语音输入快捷键示意图"),
-        QStringLiteral("按右 Ctrl，开始说话"),
+        QStringLiteral("按住右 Ctrl，开始说话"),
         QStringLiteral("shortcutHeading"),
-        QStringLiteral("再按一次结束，识别文字会直接进入当前输入框。"),
+        QStringLiteral("松开即结束，识别文字会直接进入当前输入框。"),
         QStringLiteral("shortcutDescriptionLabel"),
-        QStringLiteral("右 Ctrl · 开始 / 结束"),
+        QStringLiteral("右 Ctrl · 按住说话"),
         QStringLiteral("shortcutTagLabel"));
 }
 

@@ -96,7 +96,6 @@ bool CapsuleController::applyServiceMessage(QString message) {
         return applyFocusMessage(verb, separator < 0 ? QString() : message.sliced(separator + 1));
     }
 
-    const Phase previous = phase_;
     if (message == QStringLiteral("RECORDING")) {
         phase_ = Phase::Recording;
         message_ = QStringLiteral("正在聆听");
@@ -120,13 +119,6 @@ bool CapsuleController::applyServiceMessage(QString message) {
         return false;
     }
 
-    if (phase_ == Phase::Recording && previous != Phase::Recording) {
-        // Freeze the anchor so the capsule does not chase caret updates while
-        // the user speaks.
-        capsuleAnchor_ = focused_ ? caret_ : QRect();
-    } else if (phase_ == Phase::Idle) {
-        capsuleAnchor_ = QRect();
-    }
     if (phase_ != Phase::Idle) {
         hintRequested_ = false;
     }
@@ -251,8 +243,8 @@ void CapsuleController::publishHint() {
     const bool visible = hintRequested_ && focusHintEnabled_ && !persistent_
         && phase_ == Phase::Idle && focused_ && hasCaret(caret_);
     const QString text = longPressHint_
-        ? QStringLiteral("长按鼠标或按右 Ctrl 说话")
-        : QStringLiteral("按右 Ctrl 说话");
+        ? QStringLiteral("长按鼠标或右 Ctrl 说话")
+        : QStringLiteral("按住右 Ctrl 说话");
     const QPoint position = visible ? placeBesideCaret(caret_, kHintHeight) : hintPosition_;
 
     if (!visible) {
@@ -275,13 +267,6 @@ void CapsuleController::publish() {
         || phase_ == Phase::Recording
         || phase_ == Phase::Transcribing;
 
-    if (!persistent_ && hasCaret(capsuleAnchor_)) {
-        const QPoint position = placeBesideCaret(capsuleAnchor_, kCapsuleHeight);
-        emit capsuleChanged(visible, phaseName(phase_), message_,
-                            true, position.x(), position.y(), true);
-        return;
-    }
-
     bool hasPosition = false;
     int moveX = 0;
     int moveY = 0;
@@ -289,9 +274,9 @@ void CapsuleController::publish() {
         const QRect available = screen->availableGeometry();
         hasPosition = true;
         moveX = available.left() + available.width() / 2;
-        moveY = available.bottom() - 8;
+        moveY = available.bottom() - available.height() / kCapsuleBottomDivisor;
     }
 
     emit capsuleChanged(visible, phaseName(phase_), message_,
-                        hasPosition, moveX, moveY, false);
+                        hasPosition, moveX, moveY);
 }

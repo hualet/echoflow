@@ -11,10 +11,10 @@ of WeChat's input box:
   releasing the button transcribes and commits it;
 - when a text field gains focus, a small hint near the caret tells the user
   that voice input is available;
-- while recording through the keyboard or the mouse, the capsule sits next to
-  the caret instead of at the bottom of the screen.
-
-Right `Ctrl` keeps its existing toggle behavior.
+- right `Ctrl` follows the same hold-to-talk model: pressing it starts
+  recording and releasing it transcribes and commits;
+- the capsule stays at a fixed spot in the lower middle of the screen rather
+  than following the input field.
 
 ## User Experience
 
@@ -22,7 +22,7 @@ Right `Ctrl` keeps its existing toggle behavior.
 
 When an input context gains focus and reports a caret rectangle, a small,
 non-interactive pill appears just below the caret line (above it when there is
-no room below). It reads `长按鼠标或按右 Ctrl 说话`, or `按右 Ctrl 说话` when
+no room below). It reads `长按鼠标或右 Ctrl 说话`, or `按住右 Ctrl 说话` when
 long-press is disabled or unavailable.
 
 The hint disappears after about 3 seconds, as soon as the user types, when
@@ -44,12 +44,12 @@ moves after recording started, the session is cancelled instead of committed,
 because the application has most likely started a text selection that the
 commit would replace.
 
-### Caret-Anchored Capsule
+### Capsule Position
 
-A transient capsule (recording, transcribing) is placed below the caret that
-was current when recording started, left-aligned with the caret and clamped
-to the screen. When no caret is known, or the capsule is pinned from the
-tray, it keeps the existing bottom-center position.
+The capsule, transient or pinned, is horizontally centered on the primary
+screen with its bottom edge one eighth of the available height above the
+screen's bottom edge. It never follows the caret: an earlier caret-anchored
+placement covered the text being dictated into and jumped between fields.
 
 ## Detecting a Press Inside a Text Field
 
@@ -97,15 +97,15 @@ not make the hint flicker.
 
 - **Fcitx addon** reports `FOCUS x y w h` on focus-in and `CARET x y w h` on
   caret changes, omitting geometry for password fields. It keeps sending
-  `TYPED` and `BLUR`.
+  `TYPED` and `BLUR`, and sends `START` on right `Ctrl` press and `STOP` on
+  its release.
 - **Service** forwards `FOCUS`, `CARET`, `TYPED`, and `BLUR` to the UI socket
   so the UI host has a single input stream, and adds explicit `START` and
   `STOP` commands. `START` only starts from idle and `STOP` only finalizes a
   recording, so a hold cannot accidentally toggle a session in another phase.
 - **UI host** owns presentation and mouse handling:
-  - `CapsuleController` tracks focus and caret, decides hint visibility and
-    capsule anchoring, and converts native caret pixels to Qt logical
-    coordinates;
+  - `CapsuleController` tracks focus and caret, decides hint visibility, and
+    converts native caret pixels to Qt logical coordinates;
   - `LongPressDetector` is a pure state machine fed with presses, releases,
     pointer positions, and caret updates, emitting started, finished, and
     cancelled signals that map to `START`, `STOP`, and `CANCEL`;
@@ -126,8 +126,8 @@ Both apply live in the UI host and are ignored by the service.
 
 - `test_voice_session` covers forwarding of focus messages and the
   `START`/`STOP` semantics in every phase.
-- `test_capsule_controller` covers hint visibility rules, timeout, caret
-  anchoring, press anchoring for click-focused fields, stale caret echoes,
+- `test_capsule_controller` covers hint visibility rules, timeout, the fixed
+  capsule position, press anchoring for click-focused fields, stale caret echoes,
   focus churn, and persistent-mode precedence.
 - `test_long_press_detector` covers the hold threshold, movement
   cancellation, caret qualification, the active-window check, and phase
