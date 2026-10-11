@@ -6,6 +6,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -60,7 +61,23 @@ private slots:
     void openSpeechEndsAtTotalSamples();
     void tooShortClosedSegmentDropped();
     void defaultsDoNotMergeAdjacentGaps();
+    void centeredPcmRemovesDcOffset();
 };
+
+void TestVadBackend::centeredPcmRemovesDcOffset()
+{
+    // A +2150 offset with a small tone on top, as captured from a real mic.
+    std::vector<int16_t> pcm;
+    for (int i = 0; i < 1600; ++i) pcm.push_back(static_cast<int16_t>(2150 + (i % 2 ? 200 : -200)));
+    const std::vector<float> audio = centeredPcmToFloat(pcm.data(), pcm.size());
+    QCOMPARE(audio.size(), pcm.size());
+    double sum = 0.0;
+    for (float v : audio) sum += v;
+    QVERIFY(std::abs(sum / audio.size()) < 1e-6);
+    QVERIFY(std::abs(audio[0] - (-200.0f / 32768.0f)) < 1e-6f);
+    QVERIFY(std::abs(audio[1] - (200.0f / 32768.0f)) < 1e-6f);
+    QVERIFY(centeredPcmToFloat(nullptr, 0).empty());
+}
 
 void TestVadBackend::missingModelFailsExplicitly()
 {

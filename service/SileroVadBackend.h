@@ -53,6 +53,11 @@ std::vector<SpeechInterval> segmentByDualThreshold(const float* probs, int nProb
                                                    float startThreshold, float endThreshold,
                                                    int minSpeechMs, int minSilenceMs);
 
+// Converts PCM to float with the buffer's mean removed. Some microphones add
+// a large constant DC offset; Silero then misses quiet speech almost
+// entirely, while ASR is unaffected, so only the VAD input is centred.
+std::vector<float> centeredPcmToFloat(const int16_t* pcm, size_t count);
+
 }  // namespace echoflow
 
 #endif

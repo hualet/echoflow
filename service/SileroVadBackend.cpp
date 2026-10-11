@@ -86,9 +86,7 @@ std::vector<SpeechInterval> SileroVadBackend::detect(const int16_t* pcm, size_t 
 {
     if (!pcm || count == 0) return {};
 
-    std::vector<float> audio;
-    audio.reserve(count);
-    for (size_t i = 0; i < count; ++i) audio.push_back(pcm[i] / 32768.0f);
+    std::vector<float> audio = centeredPcmToFloat(pcm, count);
 
     if (!whisper_vad_detect_speech(context_, audio.data(), static_cast<int>(audio.size()))) {
         throw std::runtime_error("failed to run Silero VAD model: " + modelPath_.string());
@@ -101,6 +99,20 @@ std::vector<SpeechInterval> SileroVadBackend::detect(const int16_t* pcm, size_t 
     return segmentByDualThreshold(probs, nProbs, nWindow_, count,
                                   startThreshold_, endThreshold_,
                                   minSpeechMs_, minSilenceMs_);
+}
+
+std::vector<float> centeredPcmToFloat(const int16_t* pcm, size_t count)
+{
+    std::vector<float> audio;
+    if (!pcm || count == 0) return audio;
+    double sum = 0.0;
+    for (size_t i = 0; i < count; ++i) sum += pcm[i];
+    const double mean = sum / static_cast<double>(count);
+    audio.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        audio.push_back(static_cast<float>((pcm[i] - mean) / 32768.0));
+    }
+    return audio;
 }
 
 std::string SileroVadBackend::name() const
