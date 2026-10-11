@@ -11,6 +11,8 @@ add_library(echoflow_service STATIC
     LiveDebugRecorder.cpp
     LiveSegmentCoordinator.cpp
     LiveSegmenterFactory.cpp
+    LocalLlmPolisher.cpp
+    PolishPrompt.cpp
     Recorder.cpp
     SegmentAsrWorker.cpp
     SelfTest.cpp
@@ -24,7 +26,9 @@ add_library(echoflow_service STATIC
     VoiceSession.cpp)
 
 target_include_directories(echoflow_service PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(echoflow_service PUBLIC crispasr-lib)
+target_link_libraries(echoflow_service PUBLIC crispasr-lib echoflow_crisp_chat)
+# Only for llama.h's log hook in LocalLlmPolisher.cpp.
+target_link_libraries(echoflow_service PRIVATE crispasr-llama-core)
 
 add_executable(echoflow-service main.cpp)
 target_link_libraries(echoflow-service PRIVATE echoflow_service)

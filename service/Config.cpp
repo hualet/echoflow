@@ -3,6 +3,8 @@
 
 #include "Config.h"
 
+#include "ModelCatalog.h"
+
 #include <cctype>
 #include <algorithm>
 #include <cstdlib>
@@ -102,6 +104,12 @@ std::string normalizeModelName(const std::string& value)
         return "qwen3-asr-1.7b";
     }
     return value;
+}
+
+std::string polishModelPathFor(const fs::path& configDir, const std::string& id)
+{
+    const ModelEntry* entry = findPolishModel(id);
+    return entry ? (configDir / entry->id / entry->files.front()).string() : std::string();
 }
 
 std::string expandPath(const std::string& value, const fs::path& baseDir)
@@ -213,6 +221,10 @@ Config loadDtkConf(const fs::path& path)
             cfg.streamTranscription = parseBool(val);
         } else if (section == "basic.recognition.strip_trailing_punctuation") {
             cfg.stripTrailingPunctuation = parseBool(val);
+        } else if (section == "basic.polish.enabled") {
+            cfg.polishEnabled = parseBool(val);
+        } else if (section == "basic.polish.model_name") {
+            cfg.polishModelName = val;
         } else if (section == "basic.recording.min_record_seconds") {
             cfg.minRecordSeconds = std::stod(val);
         } else if (section == "basic.recording.rate") {
@@ -285,6 +297,7 @@ Config loadDtkConf(const fs::path& path)
     if (!cfg.vadModelPath.empty()) {
         cfg.vadModelPath = expandPath(cfg.vadModelPath, base);
     }
+    cfg.polishModelPath = polishModelPathFor(base, cfg.polishModelName);
     return cfg;
 }
 

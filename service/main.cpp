@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "CrispAsrEngine.h"
 #include "CrispLiveVoicePipeline.h"
+#include "LocalLlmPolisher.h"
 #include "Recorder.h"
 #include "SelfTest.h"
 #include "Server.h"
@@ -14,9 +15,13 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
+#include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -34,7 +39,8 @@ fs::path defaultConfigPath()
 void printUsage()
 {
     std::printf("Usage: echoflow-service [--config PATH] [--self-test] "
-                "[--print-default-config] [--transcribe-file FILE]\n");
+                "[--print-default-config] [--transcribe-file FILE] "
+                "[--polish-text TEXT]\n");
 }
 
 void printDefaultConfig()
@@ -66,6 +72,8 @@ void printDefaultConfig()
                  "  \"vad_end_threshold\": %.2f,\n"
                  "  \"vad_min_speech_ms\": %d,\n"
                  "  \"vad_min_silence_ms\": %d,\n"
+                 "  \"polish_enabled\": %s,\n"
+                 "  \"polish_model_name\": \"%s\",\n"
                  "  \"energy_speech_ratio\": %.1f,\n"
                  "  \"energy_min_speech_rms\": %.1f,\n"
                  "  \"forced_segment_overlap_ms\": %d\n"
@@ -84,8 +92,22 @@ void printDefaultConfig()
                  static_cast<double>(cfg.vadThreshold),
                  static_cast<double>(cfg.vadEndThreshold),
                  cfg.vadMinSpeechMs, cfg.vadMinSilenceMs,
+                 cfg.polishEnabled ? "true" : "false", cfg.polishModelName.c_str(),
                  segmenter.speechRatio, segmenter.minSpeechRms,
                  segmenter.forceOverlapMs);
+}
+
+std::string polishOrRaw(echoflow::ITextPolisher* polisher, const std::string& text)
+{
+    if (!polisher || text.empty()) {
+        return text;
+    }
+    try {
+        return polisher->polish(text, {});
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "text polish failed: %s\n", e.what());
+        return text;
+    }
 }
 
 }  // namespace
@@ -96,6 +118,7 @@ int main(int argc, char** argv)
     bool selfTest = false;
     bool printDefault = false;
     std::optional<fs::path> transcribeFile;
+    std::optional<std::string> polishInput;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -107,6 +130,8 @@ int main(int argc, char** argv)
             printDefault = true;
         } else if (arg == "--transcribe-file" && i + 1 < argc) {
             transcribeFile = argv[++i];
+        } else if (arg == "--polish-text" && i + 1 < argc) {
+            polishInput = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             printUsage();
             return 0;
@@ -129,15 +154,57 @@ int main(int argc, char** argv)
         cfg = echoflow::Config::defaultConfig();
         cfg.modelDir =
             (configPath.parent_path() / echoflow::normalizeModelName(cfg.modelName)).string();
+        cfg.polishModelPath =
+            echoflow::polishModelPathFor(configPath.parent_path(), cfg.polishModelName);
     }
 
     if (selfTest) {
         return echoflow::runSelfTest(cfg);
     }
 
+    if (polishInput.has_value()) {
+        // Runs the configured polish model even when the feature is off, so
+        // a downloaded model can be checked before enabling it.
+        // "-" reads one transcript per stdin line through a single session,
+        // which shows warm latency once the prompt prefix is cached.
+        echoflow::LocalLlmPolisher polisher(cfg.polishModelPath, cfg.crispThreads);
+        polisher.preload();
+        std::vector<std::string> inputs;
+        if (*polishInput == "-") {
+            for (std::string line; std::getline(std::cin, line);) {
+                if (!line.empty()) {
+                    inputs.push_back(line);
+                }
+            }
+        } else {
+            inputs.push_back(*polishInput);
+        }
+        int status = 0;
+        for (const auto& input : inputs) {
+            try {
+                std::printf("%s\n", polisher.polish(input, {}).c_str());
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "text polish failed: %s\n", e.what());
+                status = 1;
+            }
+            std::fflush(stdout);
+        }
+        return status;
+    }
+
+    std::unique_ptr<echoflow::LocalLlmPolisher> polisher;
+    if (cfg.polishEnabled) {
+        if (cfg.polishModelPath.empty()) {
+            std::fprintf(stderr, "unknown polish model: %s\n", cfg.polishModelName.c_str());
+        } else {
+            polisher = std::make_unique<echoflow::LocalLlmPolisher>(
+                cfg.polishModelPath, cfg.crispThreads);
+        }
+    }
+
     if (transcribeFile.has_value()) {
         echoflow::CrispAsrEngine asr(cfg);
-        std::string text = asr.transcribe(*transcribeFile);
+        std::string text = polishOrRaw(polisher.get(), asr.transcribe(*transcribeFile));
         if (cfg.stripTrailingPunctuation) {
             text = echoflow::stripPunctuation(text);
         }
@@ -147,9 +214,13 @@ int main(int argc, char** argv)
 
     echoflow::Committer committer(cfg, echoflow::fcitxSocketPath(cfg));
     echoflow::UnixDatagramUiNotifier ui(echoflow::uiSocketPath(cfg));
+    if (polisher) {
+        polisher->preload();
+    }
     if (cfg.streamTranscription) {
         echoflow::CrispLiveVoicePipeline livePipeline(cfg);
         echoflow::VoiceSession session(cfg, livePipeline, committer, ui);
+        session.setTextPolisher(polisher.get());
         echoflow::Server server(cfg, session);
         return server.run();
     }
@@ -157,6 +228,7 @@ int main(int argc, char** argv)
     echoflow::PipeWireRecorder recorder(cfg);
     echoflow::CrispAsrEngine asr(cfg);
     echoflow::VoiceSession session(cfg, recorder, asr, committer, ui);
+    session.setTextPolisher(polisher.get());
     echoflow::Server server(cfg, session);
     return server.run();
 }

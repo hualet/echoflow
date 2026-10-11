@@ -118,6 +118,7 @@ set(ECHOFLOW_TESTS
     test_silero_live_segmenter
     test_live_segmenter_factory
     test_text_joiner
+    test_polish_prompt
     test_vad_metrics
     test_vad_backend
     test_single_instance

@@ -281,6 +281,61 @@ struct BlockingCommitter : FakeCommitter {
     }
 };
 
+struct FakePolisher : ITextPolisher {
+    mutable std::mutex mutex;
+    std::condition_variable condition;
+    std::vector<std::string> inputs_;
+    bool throwOnPolish = false;
+    bool blockUntilAbort = false;
+    bool entered_ = false;
+    bool sawAbort_ = false;
+
+    std::string polish(const std::string& text,
+        const std::function<bool()>& shouldAbort) override
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            inputs_.push_back(text);
+            entered_ = true;
+            condition.notify_all();
+        }
+        if (throwOnPolish) {
+            throw std::runtime_error("model unavailable");
+        }
+        if (blockUntilAbort) {
+            const auto deadline = std::chrono::steady_clock::now() + 2s;
+            while (!shouldAbort()) {
+                if (std::chrono::steady_clock::now() > deadline) {
+                    throw std::runtime_error("never aborted");
+                }
+                std::this_thread::sleep_for(5ms);
+            }
+            std::lock_guard<std::mutex> lock(mutex);
+            sawAbort_ = true;
+            throw std::runtime_error("aborted");
+        }
+        return "polished:" + text;
+    }
+
+    std::vector<std::string> inputs() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return inputs_;
+    }
+
+    bool waitForEntered(std::chrono::milliseconds timeout = 1000ms)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this] { return entered_; });
+    }
+
+    bool sawAbort() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return sawAbort_;
+    }
+};
+
 struct FakeUi : IUiNotifier {
     mutable std::mutex mutex;
     std::condition_variable condition;
@@ -570,6 +625,9 @@ private slots:
     void stopOnlyFinalizesRecording();
     void secondCtrlStopsTranscribesAndCommits();
     void transcribeExceptionReturnsToIdle();
+    void polisherRewritesTextBeforeCommit();
+    void polisherFailureCommitsRawText();
+    void cancelDuringPolishAbortsAndDiscards();
     void tooShortAudioIsCancelled();
     void cancelDiscardsRecording();
     void blurWhileRecordingCancelsAndDiscards();
@@ -758,6 +816,65 @@ void TestVoiceSession::secondCtrlStopsTranscribesAndCommits()
     QCOMPARE(
         QString::fromStdString(messages.at(messages.size() - 2)), QStringLiteral("TRANSCRIBING"));
     QCOMPARE(QString::fromStdString(messages.back()), QStringLiteral("IDLE"));
+}
+
+void TestVoiceSession::polisherRewritesTextBeforeCommit()
+{
+    FakeRecorder recorder;
+    FakeAsr asr("嗯那个离线语音输入");
+    FakeCommitter committer;
+    FakeUi ui;
+    FakePolisher polisher;
+    auto session = makeSession(recorder, asr, committer, ui);
+    session.setTextPolisher(&polisher);
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(polisher.inputs(), std::vector<std::string> { "嗯那个离线语音输入" });
+    QCOMPARE(committer.texts(), std::vector<std::string> { "polished:嗯那个离线语音输入" });
+}
+
+void TestVoiceSession::polisherFailureCommitsRawText()
+{
+    FakeRecorder recorder;
+    FakeAsr asr("离线语音输入");
+    FakeCommitter committer;
+    FakeUi ui;
+    FakePolisher polisher;
+    polisher.throwOnPolish = true;
+    auto session = makeSession(recorder, asr, committer, ui);
+    session.setTextPolisher(&polisher);
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QCOMPARE(committer.texts(), std::vector<std::string> { "离线语音输入" });
+}
+
+void TestVoiceSession::cancelDuringPolishAbortsAndDiscards()
+{
+    FakeRecorder recorder;
+    FakeAsr asr("must be discarded");
+    FakeCommitter committer;
+    FakeUi ui;
+    FakePolisher polisher;
+    polisher.blockUntilAbort = true;
+    auto session = makeSession(recorder, asr, committer, ui);
+    session.setTextPolisher(&polisher);
+
+    session.handleCommand("CTRL_DOWN");
+    session.handleCommand("CTRL_DOWN");
+    QVERIFY(polisher.waitForEntered());
+
+    QCOMPARE(QString::fromStdString(session.handleCommand("CANCEL")),
+        QStringLiteral("CANCELLED"));
+    QTRY_COMPARE(session.state(), SessionState::Idle);
+    QVERIFY(ui.waitForMessage("IDLE"));
+    QVERIFY(polisher.sawAbort());
+    QVERIFY(committer.texts().empty());
 }
 
 void TestVoiceSession::transcribeExceptionReturnsToIdle()

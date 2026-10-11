@@ -71,6 +71,36 @@
           ]
         },
         {
+          "key": "polish",
+          "name": "AI 润色",
+          "options": [
+            {
+              "key": "enabled",
+              "text": "上屏前用本地大模型整理识别结果（去口头禅、改口、补标点）",
+              "type": "checkbox",
+              "default": false
+            },
+            {
+              "key": "model_name",
+              "name": "润色模型",
+              "type": "combobox",
+              "default": "qwen3-0.6b"
+            },
+            {
+              "key": "download_polish_0.6b",
+              "name": "Qwen3-0.6B",
+              "type": "modeldownload",
+              "default": ""
+            },
+            {
+              "key": "download_polish_1.7b",
+              "name": "Qwen3-1.7B",
+              "type": "modeldownload",
+              "default": ""
+            }
+          ]
+        },
+        {
           "key": "recording",
           "name": "录音",
           "options": [

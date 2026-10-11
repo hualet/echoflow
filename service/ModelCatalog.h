@@ -39,6 +39,31 @@ inline const ModelEntry* findModel(const std::string& id) {
     return nullptr;
 }
 
+// Text models for the optional transcript polish step. Kept separate from
+// modelCatalog() so they never appear as ASR choices or in onboarding.
+inline const std::vector<ModelEntry>& polishModelCatalog() {
+    static const std::vector<ModelEntry> kCatalog = {
+        // Qwen only publishes Q8_0 GGUFs at these sizes; use unsloth's
+        // Q4_K_M builds to keep the download and resident memory small.
+        {"qwen3-0.6b", "Qwen3-0.6B (Q4_K_M GGUF)",
+         "unsloth/Qwen3-0.6B-GGUF",
+         {"Qwen3-0.6B-Q4_K_M.gguf"}},
+        {"qwen3-1.7b", "Qwen3-1.7B (Q4_K_M GGUF)",
+         "unsloth/Qwen3-1.7B-GGUF",
+         {"Qwen3-1.7B-Q4_K_M.gguf"}},
+    };
+    return kCatalog;
+}
+
+inline const ModelEntry* findPolishModel(const std::string& id) {
+    for (const auto& e : polishModelCatalog()) {
+        if (e.id == id) {
+            return &e;
+        }
+    }
+    return nullptr;
+}
+
 // Required files under dir that are not present. Empty vector == fully present.
 inline std::vector<std::string> missingModelFiles(
     const std::filesystem::path& dir, const ModelEntry& e) {

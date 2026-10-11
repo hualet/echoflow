@@ -35,6 +35,10 @@ public:
         ICommitter& committer, IUiNotifier& ui, ThreadLauncher threadLauncher = {});
     ~VoiceSession();
 
+    // Optional; must be set before the first command. The polisher rewrites
+    // the final transcript and falls back to the raw text on any failure.
+    void setTextPolisher(ITextPolisher* polisher);
+
     std::string handleCommand(const std::string& command);
     SessionState state() const;
 
@@ -56,6 +60,7 @@ private:
     std::string startRecording();
     std::string startFinalization();
     void finalize(std::uint64_t generation);
+    std::string polishText(const std::string& text);
     void joinCompletedWorker();
     void setPartialTextAccepting(bool accepting);
     void shutdownPartialTextCallback();
@@ -72,6 +77,7 @@ private:
     IRecorder* recorder_ = nullptr;
     IAsrEngine* asr_ = nullptr;
     ILiveVoicePipeline* livePipeline_ = nullptr;
+    ITextPolisher* polisher_ = nullptr;
     ICommitter& committer_;
     IUiNotifier& ui_;
     ThreadLauncher threadLauncher_;

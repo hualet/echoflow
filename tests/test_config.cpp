@@ -24,6 +24,8 @@ private slots:
     void loadDtkConfReadsLiveDebugAudioFlag();
     void loadDtkConfReadsStreamTranscriptionFlag();
     void loadDtkConfReadsVadSettings();
+    void loadDtkConfReadsPolishSettings();
+    void loadDtkConfDropsUnknownPolishModel();
     void loadDtkConfRejectsInvalidVadSettings();
     void loadDtkConfIgnoresUnknownSections();
 };
@@ -51,6 +53,34 @@ void TestConfig::defaultConfigHasExpectedFields() {
     QCOMPARE(c.vadEndThreshold, 0.10f);
     QCOMPARE(c.vadMinSpeechMs, 100);
     QCOMPARE(c.vadMinSilenceMs, 300);
+    QVERIFY(!c.polishEnabled);
+    QCOMPARE(QString::fromStdString(c.polishModelName), QStringLiteral("qwen3-0.6b"));
+}
+
+void TestConfig::loadDtkConfReadsPolishSettings() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[basic.polish.enabled]\nvalue=true\n"
+            "[basic.polish.model_name]\nvalue=qwen3-1.7b\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QVERIFY(c.polishEnabled);
+    QCOMPARE(QString::fromStdString(c.polishModelName), QStringLiteral("qwen3-1.7b"));
+    QCOMPARE(QString::fromStdString(c.polishModelPath),
+             QString::fromStdString((std::filesystem::path(f.fileName().toStdString()).parent_path()
+                                     / "qwen3-1.7b"
+                                     / "Qwen3-1.7B-Q4_K_M.gguf").string()));
+}
+
+void TestConfig::loadDtkConfDropsUnknownPolishModel() {
+    QTemporaryFile f;
+    QVERIFY(f.open());
+    f.write("[basic.polish.model_name]\nvalue=../../etc/passwd\n");
+    f.close();
+
+    Config c = loadDtkConf(f.fileName().toStdString());
+    QVERIFY(c.polishModelPath.empty());
 }
 
 void TestConfig::crispThreadsFollowPhysicalCores() {

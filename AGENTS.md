@@ -46,8 +46,9 @@ Use C++17 and existing local interfaces. Classes are `PascalCase`, methods are
 `camelCase`, members use trailing underscores, and constants use `kCamelCase`.
 Every source file must include SPDX copyright and GPL license headers. Keep
 qwen-asr C API usage isolated to `service/AsrEngine.*`; do not
-include `qwen_asr.h` elsewhere. Prefer concise comments only for non-obvious
-behavior.
+include `qwen_asr.h` elsewhere. Likewise keep `crispasr_chat.h` (the optional
+transcript polish model) isolated to `service/LocalLlmPolisher.*`. Prefer
+concise comments only for non-obvious behavior.
 
 ## Testing Guidelines
 
@@ -122,5 +123,8 @@ Runtime sockets live under `/run/user/$UID/`: `echoflow-control.sock`,
 `~/.config/echoflow/echoflow.conf`; `Config::modelDir` is derived from the
 selected model and config directory. `service/ModelCatalog.h` is the single
 source of truth for model IDs, display names, Hugging Face repos, and file
-lists. The service must not perform HTTP downloads; model download belongs in
+lists, for both ASR models and the separate polish models
+(`polishModelCatalog()`). Check polish output from the build tree with
+`./build/service/echoflow-service --polish-text "..."` (or `-` for one
+transcript per stdin line). The service must not perform HTTP downloads; model download belongs in
 `ui-host`.

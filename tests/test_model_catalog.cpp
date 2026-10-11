@@ -19,7 +19,21 @@ private slots:
     void missingFilesListsAbsent();
     void presentWhenAllFilesExist();
     void largeModelMissingWhenGgufRemoved();
+    void polishModelsAreSeparateFromAsrModels();
 };
+
+void TestModelCatalog::polishModelsAreSeparateFromAsrModels() {
+    auto& c = polishModelCatalog();
+    QCOMPARE(c.size(), size_t(2));
+    QCOMPARE(QString::fromStdString(c[0].id), QStringLiteral("qwen3-0.6b"));
+    QCOMPARE(QString::fromStdString(c[1].id), QStringLiteral("qwen3-1.7b"));
+    for (const auto& e : c) {
+        QCOMPARE(e.files.size(), size_t(1));
+        QVERIFY(findModel(e.id) == nullptr);
+        QVERIFY(findPolishModel(e.id) == &e);
+    }
+    QVERIFY(findPolishModel("qwen3-asr-0.6b") == nullptr);
+}
 
 void TestModelCatalog::catalogHasTwoModels() {
     auto& c = modelCatalog();

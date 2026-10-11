@@ -156,6 +156,11 @@ SessionState VoiceSession::state() const
     return state_;
 }
 
+void VoiceSession::setTextPolisher(ITextPolisher* polisher)
+{
+    polisher_ = polisher;
+}
+
 std::string VoiceSession::handleCommand(const std::string& command)
 {
     std::string cmd = trim(command);
@@ -341,6 +346,9 @@ void VoiceSession::finalize(std::uint64_t generation)
             log(std::string("asr transcribe failed: ") + e.what());
         }
     }
+    if (polisher_ && !text.empty()) {
+        text = polishText(text);
+    }
     if (cfg_.stripTrailingPunctuation) {
         text = stripPunctuation(text);
     }
@@ -393,6 +401,27 @@ void VoiceSession::finalize(std::uint64_t generation)
     if (notifyIdle) {
         publishPhase(SessionState::Idle, idleVersion);
     }
+}
+
+std::string VoiceSession::polishText(const std::string& text)
+{
+    const auto aborted = [this] {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return cancelRequested_ || shuttingDown_;
+    };
+    if (aborted()) {
+        return text;
+    }
+    try {
+        std::string polished = polisher_->polish(text, aborted);
+        if (!polished.empty()) {
+            return polished;
+        }
+        log("text polish returned empty text; committing raw transcript");
+    } catch (const std::exception& e) {
+        log(std::string("text polish failed; committing raw transcript: ") + e.what());
+    }
+    return text;
 }
 
 void VoiceSession::joinCompletedWorker()

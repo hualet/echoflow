@@ -39,6 +39,15 @@ public:
     virtual std::pair<bool, std::string> commitText(const std::string& text) = 0;
 };
 
+class ITextPolisher {
+public:
+    virtual ~ITextPolisher() = default;
+    // Returns the rewritten text, or throws on failure. shouldAbort is polled
+    // during generation so CANCEL does not wait for the model to finish.
+    virtual std::string polish(const std::string& text,
+        const std::function<bool()>& shouldAbort) = 0;
+};
+
 class IUiNotifier {
 public:
     virtual ~IUiNotifier() = default;

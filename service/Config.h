@@ -50,11 +50,19 @@ struct Config {
     int vadMinSpeechMs = 100;
     int vadMinSilenceMs = 300;
 
+    // Optional rewrite of the final transcript by a local chat model before
+    // it is committed. The model path is derived like the ASR model path.
+    bool polishEnabled = false;
+    std::string polishModelName = "qwen3-0.6b";
+    std::string polishModelPath;
+
     static Config defaultConfig();
 };
 
 Config loadDtkConf(const std::filesystem::path& path);
 std::string normalizeModelName(const std::string& value);
+// <configDir>/<id>/<gguf> for a polish catalog id, or empty when unknown.
+std::string polishModelPathFor(const std::filesystem::path& configDir, const std::string& id);
 std::string expandPath(const std::string& value, const std::filesystem::path& baseDir);
 std::filesystem::path runtimeDir();
 std::filesystem::path controlSocketPath(const Config& cfg);

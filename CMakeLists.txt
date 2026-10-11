@@ -84,6 +84,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(crispasr-lib PRIVATE -ffunction-sections -fdata-sections)
 endif()
 
+# The optional transcript polish step runs a small chat model through
+# CrispASR's text chat ABI. crispasr-lib above is trimmed to the ASR session
+# sources, so build chat.cpp on its own against the vendored llama.cpp core.
+add_library(echoflow_crisp_chat STATIC third_party/crispasr/src/chat.cpp)
+target_include_directories(echoflow_crisp_chat PUBLIC
+    ${CMAKE_SOURCE_DIR}/third_party/crispasr/include)
+target_link_libraries(echoflow_crisp_chat PRIVATE crispasr-llama-core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(echoflow_crisp_chat PRIVATE -ffunction-sections -fdata-sections)
+    target_compile_options(crispasr-llama-core PRIVATE -ffunction-sections -fdata-sections)
+endif()
+
 add_subdirectory(service)
 add_subdirectory(fcitx-addon)
 add_subdirectory(ui-host)

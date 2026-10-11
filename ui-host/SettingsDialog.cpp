@@ -30,6 +30,12 @@ const ModelEntry* entryForOption(Dtk::Core::DSettingsOption* opt) {
     if (key.endsWith(QStringLiteral("download_1.7b"))) {
         return findModel("qwen3-asr-1.7b");
     }
+    if (key.endsWith(QStringLiteral("download_polish_0.6b"))) {
+        return findPolishModel("qwen3-0.6b");
+    }
+    if (key.endsWith(QStringLiteral("download_polish_1.7b"))) {
+        return findPolishModel("qwen3-1.7b");
+    }
     return nullptr;
 }
 

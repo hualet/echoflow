@@ -160,6 +160,8 @@ bool EchoFlowSettings::init(const QString &configPath) {
             QStringLiteral("basic.model.model_name"),
             QStringLiteral("basic.recognition.language"),
             QStringLiteral("basic.recognition.stream_transcription"),
+            QStringLiteral("basic.polish.enabled"),
+            QStringLiteral("basic.polish.model_name"),
             QStringLiteral("basic.recording.min_record_seconds"),
             QStringLiteral("basic.recording.rate"),
             QStringLiteral("basic.recording.channels"),
@@ -211,6 +213,14 @@ void EchoFlowSettings::populateComboBoxes() {
     setComboBoxItems(dsettings_, QStringLiteral("basic.recognition.language"),
                      QStringList{QStringLiteral("Chinese"), QStringLiteral("English"),
                                   QStringLiteral("Japanese"), QStringLiteral("auto")});
+    QStringList polishKeys;
+    QStringList polishValues;
+    for (const ModelEntry &e : polishModelCatalog()) {
+        polishKeys << QString::fromStdString(e.id);
+        polishValues << QString::fromStdString(e.displayName);
+    }
+    setComboBoxItems(dsettings_, QStringLiteral("basic.polish.model_name"),
+                     polishKeys, polishValues);
     setComboBoxItems(dsettings_, QStringLiteral("basic.recording.rate"),
                      QStringList{QStringLiteral("8000"), QStringLiteral("16000"),
                                   QStringLiteral("22050"), QStringLiteral("44100"),
