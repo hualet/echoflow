@@ -44,7 +44,8 @@ void UnixDatagramUiNotifier::send(const std::string& message)
         return;
     }
     // Focus traffic follows every keystroke; only log session messages.
-    if (type == "FOCUS" || type == "CARET" || type == "TYPED" || type == "BLUR") {
+    if (type == "FOCUS" || type == "REFOCUS" || type == "CARET" || type == "TYPED"
+        || type == "BLUR") {
         return;
     }
     log("UI message sent: type=" + type

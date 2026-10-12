@@ -2,5 +2,6 @@
 <RCC version="1.0">
   <qresource prefix="/qml">
     <file alias="EchoFlowTooltip.qml">../qml/EchoFlowTooltip.qml</file>
+    <file alias="EchoFlowHint.qml">../qml/EchoFlowHint.qml</file>
   </qresource>
 </RCC>

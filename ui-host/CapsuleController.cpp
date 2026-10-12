@@ -91,8 +91,9 @@ void CapsuleController::setLongPressHint(bool longPressAvailable) {
 bool CapsuleController::applyServiceMessage(QString message) {
     const qsizetype separator = message.indexOf(QLatin1Char(' '));
     const QString verb = separator < 0 ? message : message.first(separator);
-    if (verb == QStringLiteral("FOCUS") || verb == QStringLiteral("CARET")
-        || verb == QStringLiteral("TYPED") || verb == QStringLiteral("BLUR")) {
+    if (verb == QStringLiteral("FOCUS") || verb == QStringLiteral("REFOCUS")
+        || verb == QStringLiteral("CARET") || verb == QStringLiteral("TYPED")
+        || verb == QStringLiteral("BLUR")) {
         return applyFocusMessage(verb, separator < 0 ? QString() : message.sliced(separator + 1));
     }
 
@@ -159,9 +160,13 @@ bool CapsuleController::applyFocusMessage(const QString &verb, const QString &ge
         }
     }
 
-    if (verb == QStringLiteral("FOCUS")) {
+    if (verb == QStringLiteral("FOCUS") || verb == QStringLiteral("REFOCUS")) {
         focused_ = true;
-        hintRequested_ = true;
+        // REFOCUS is a repeat focus inside a program that already showed
+        // its one hint: it refreshes geometry but never requests another.
+        if (verb == QStringLiteral("FOCUS")) {
+            hintRequested_ = true;
+        }
         hintTimer_.stop();
         reportedCaret_ = caret;
         lastFocusAt_ = clock_.elapsed();
@@ -203,11 +208,6 @@ QRect CapsuleController::caretAtPress() {
         anchoredAtPress_ = false;
         return reportedCaret_;
     }
-    anchoredAtPress_ = true;
-    const int height = reportedCaret_.height();
-    return QRect(lastPress_.x(), lastPress_.y() - height / 2, 0, height);
-}
-
     if (caretNearPress(reportedCaret_)) {
         // The press landed on this caret's line, its field's padding, or the
         // empty space below the last line: it moved the caret itself, so the
@@ -217,17 +217,22 @@ QRect CapsuleController::caretAtPress() {
     }
     // Chromium keeps reporting the previous field's caret when focus moves
     // between its inputs, and only corrects it once the user types.
-void CapsuleController::requestToggle() {
-    sendCommand_("CTRL_DOWN");
+    anchoredAtPress_ = true;
+    const int height = reportedCaret_.height();
+    return QRect(lastPress_.x(), lastPress_.y() - height / 2, 0, height);
 }
 
-void CapsuleController::requestCancel() {
 bool CapsuleController::caretNearPress(const QRect &caret) const {
     return caret
         .adjusted(-kCaretNearX, -kCaretNearAbove, kCaretNearX, kCaretNearBelow)
         .contains(lastPress_);
 }
 
+void CapsuleController::requestToggle() {
+    sendCommand_("CTRL_DOWN");
+}
+
+void CapsuleController::requestCancel() {
     sendCommand_("CANCEL");
 }
 

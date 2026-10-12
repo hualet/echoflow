@@ -20,11 +20,19 @@ of WeChat's input box:
 
 ### Focus Hint
 
-When an input context gains focus and reports a caret rectangle, a system
-tooltip (`QToolTip`, drawn by the desktop's widget style) appears just below
-the caret line (above it when there is no room below). It uses the native
-style rather than a custom blurred pill so it reads as a light, ordinary hint. It reads `长按鼠标或右 Ctrl 说话`, or `按住右 Ctrl 说话` when
-long-press is disabled or unavailable.
+When an input context gains focus and reports a caret rectangle, a small
+DTK-styled pill (`EchoFlowHint.qml`, blurred rounded rect with the DTK
+double border, matching the capsule) appears just below the caret line
+(above it when there is no room below). It reads `长按鼠标或右 Ctrl 说话`,
+or `按住右 Ctrl 说话` when long-press is disabled or unavailable.
+
+The hint shows once per program run: the fcitx addon reports the first
+focus of a program as `FOCUS` and every later focus as `REFOCUS`, which
+refreshes caret geometry without requesting another hint. A program whose
+input contexts have all been destroyed (it quit or restarted) gets one
+more hint on its next focus. Focus reports within 500 ms of a program's
+first focus still count as that first focus, so Chromium's per-click
+blur/refocus churn cannot swallow the one hint.
 
 The hint disappears after about 3 seconds, as soon as the user types, when
 focus leaves the field, or when a voice session starts. It never takes focus
@@ -100,14 +108,17 @@ not make the hint flicker.
 
 ## Component Ownership
 
-- **Fcitx addon** reports `FOCUS x y w h` on focus-in and `CARET x y w h` on
-  caret changes, omitting geometry for password fields. It keeps sending
-  `TYPED` and `BLUR`, and sends `START` on right `Ctrl` press and `STOP` on
-  its release.
-- **Service** forwards `FOCUS`, `CARET`, `TYPED`, and `BLUR` to the UI socket
-  so the UI host has a single input stream, and adds explicit `START` and
-  `STOP` commands. `START` only starts from idle and `STOP` only finalizes a
-  recording, so a hold cannot accidentally toggle a session in another phase.
+- **Fcitx addon** reports `FOCUS x y w h` on a program's first focus-in and
+  `REFOCUS x y w h` on later ones, and `CARET x y w h` on caret changes,
+  omitting geometry for password fields. It tracks the live input contexts
+  per program so a program whose contexts have all gone away regains hint
+  eligibility. It keeps sending `TYPED` and `BLUR`, and sends `START` on
+  right `Ctrl` press and `STOP` on its release.
+- **Service** forwards `FOCUS`, `REFOCUS`, `CARET`, `TYPED`, and `BLUR` to
+  the UI socket so the UI host has a single input stream, and adds explicit
+  `START` and `STOP` commands. `START` only starts from idle and `STOP` only
+  finalizes a recording, so a hold cannot accidentally toggle a session in
+  another phase.
 - **UI host** owns presentation and mouse handling:
   - `CapsuleController` tracks focus and caret, decides hint visibility, and
     converts native caret pixels to Qt logical coordinates;

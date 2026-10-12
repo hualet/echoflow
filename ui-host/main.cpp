@@ -35,9 +35,7 @@
 #include <QString>
 #include <QSystemTrayIcon>
 #include <QTimer>
-#include <QToolTip>
 #include <QUrl>
-#include <QWidget>
 #include <QWindow>
 
 #include <DSettings>
@@ -62,30 +60,9 @@
 
 namespace {
 
-// QToolTip offsets the requested point by this much before placing the tip
-// (see QTipLabel::placeTip on X11), so subtract it to land at the anchor.
-constexpr QPoint kToolTipCursorOffset(2, 16);
-
-// Shows the focus hint as a native tooltip so it follows the system style.
-// The tip is made transparent for input so clicks and long presses below
-// the caret still reach the text field.
-void showFocusHint(bool visible, const QString &text, int x, int y) {
-    if (!visible) {
-        QToolTip::hideText();
-        return;
-    }
-    // The controller hides the hint on its own timeout; keep the tip up
-    // until then rather than using QToolTip's text-length based duration.
-    constexpr int kDisplayMs = CapsuleController::kDefaultHintTimeoutMs * 2;
-    QToolTip::showText(QPoint(x, y) - kToolTipCursorOffset, text, nullptr, QRect(),
-                       kDisplayMs);
-    const QWidgetList topLevels = QApplication::topLevelWidgets();
-    for (QWidget *widget : topLevels) {
-        if (widget->inherits("QTipLabel") && widget->windowHandle()) {
-            widget->windowHandle()->setFlag(Qt::WindowTransparentForInput, true);
-        }
-    }
-}
+// The focus hint is a DTK-styled QML pill (EchoFlowHint.qml) so it matches
+// the capsule; it is transparent for input so the press that starts a long
+// press still reaches the text field under it.
 
 QtMessageHandler previousMessageHandler = nullptr;
 
@@ -424,7 +401,16 @@ int main(int argc, char **argv) {
     if (engine.rootObjects().isEmpty()) {
         return 2;
     }
-    QObject::connect(&controller, &CapsuleController::hintChanged, &app, &showFocusHint);
+    engine.load(QUrl(QStringLiteral("qrc:/qml/EchoFlowHint.qml")));
+    if (engine.rootObjects().size() < 2) {
+        qCritical("failed to load EchoFlowHint.qml");
+        return 2;
+    }
+    // The hint pill floats above the caret line and must never swallow the
+    // press that anchors a long press.
+    if (auto *hintWindow = qobject_cast<QWindow *>(engine.rootObjects().at(1))) {
+        hintWindow->setFlag(Qt::WindowTransparentForInput, true);
+    }
 
     UiSocketServer server(QString::fromStdString(defaultUiSocketPath()), &controller);
     QString error;

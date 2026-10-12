@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -37,6 +38,10 @@ constexpr const char *kControlSocketName = "echoflow-control.sock";
 constexpr const char *kCommitSocketName = "echoflow-fcitx.sock";
 constexpr size_t kMaxMessageSize = 65536;
 constexpr std::string_view kCommitCommand = "COMMIT\n";
+// Chromium blurs and refocuses its input context several times right after a
+// click; focus reports within this window of a program's first focus still
+// count as that first focus, so the one-per-program hint is not lost to churn.
+constexpr int64_t kFocusChurnWindowMs = 500;
 
 bool isUsableRuntimeDirectory(const std::string &path) {
     struct stat st {};
@@ -204,6 +209,18 @@ private:
             fcitx::EventWatcherPhase::Default,
             [this](fcitx::Event &event) { handleFocusEvent(event, false); }));
         eventWatchers_.push_back(instance_->watchEvent(
+            fcitx::EventType::InputContextCreated,
+            fcitx::EventWatcherPhase::Default,
+            [this](fcitx::Event &event) {
+                handleInputContextLifetime(event, true);
+            }));
+        eventWatchers_.push_back(instance_->watchEvent(
+            fcitx::EventType::InputContextDestroyed,
+            fcitx::EventWatcherPhase::Default,
+            [this](fcitx::Event &event) {
+                handleInputContextLifetime(event, false);
+            }));
+        eventWatchers_.push_back(instance_->watchEvent(
             fcitx::EventType::InputContextCursorRectChanged,
             fcitx::EventWatcherPhase::Default,
             [this](fcitx::Event &event) { handleCursorRectChanged(event); }));
@@ -217,13 +234,45 @@ private:
         auto *icEvent = static_cast<fcitx::InputContextEvent *>(&event);
         focusedInputContext_ = focused ? icEvent->inputContext() : nullptr;
         if (focused && focusedInputContext_) {
-            sendGeometryCommand("FOCUS", focusedInputContext_);
+            sendGeometryCommand(focusVerb(focusedInputContext_->program()),
+                                focusedInputContext_);
         } else {
             // BLUR discards the recording, so a later right Ctrl release
             // must not send a STOP for it.
             rightCtrlDown_ = false;
             sendControlCommand("BLUR");
         }
+    }
+
+    // The focus hint shows once per program run: the first focus reports
+    // FOCUS (hint-eligible) and later ones REFOCUS (geometry only). A
+    // program counts as restarted once its last input context is gone, so
+    // quitting and reopening allows one more hint.
+    const char *focusVerb(const std::string &program) {
+        const int64_t now = fcitx::now(CLOCK_MONOTONIC);
+        const auto inserted = hintedPrograms_.try_emplace(program, now);
+        if (inserted.second) {
+            return "FOCUS";
+        }
+        if (now - inserted.first->second <= kFocusChurnWindowMs * 1000 * 1000) {
+            return "FOCUS";
+        }
+        return "REFOCUS";
+    }
+
+    void handleInputContextLifetime(fcitx::Event &event, bool created) {
+        auto *icEvent = static_cast<fcitx::InputContextEvent *>(&event);
+        const std::string program = icEvent->inputContext()->program();
+        if (created) {
+            ++liveInputContexts_[program];
+            return;
+        }
+        const auto count = liveInputContexts_.find(program);
+        if (count == liveInputContexts_.end() || --count->second > 0) {
+            return;
+        }
+        liveInputContexts_.erase(count);
+        hintedPrograms_.erase(program);
     }
 
     void handleCursorRectChanged(fcitx::Event &event) {
@@ -360,6 +409,9 @@ private:
     bool socketBound_ = false;
     bool rightCtrlDown_ = false;
     std::string commitSocketPath_;
+    // program name -> monotonic timestamp of its first FOCUS in this run.
+    std::map<std::string, int64_t> hintedPrograms_;
+    std::map<std::string, int> liveInputContexts_;
     std::unique_ptr<fcitx::EventSourceIO> ioEvent_;
     std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
         eventWatchers_;

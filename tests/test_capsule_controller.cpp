@@ -85,11 +85,12 @@ private slots:
     void hintSuppressedWhenDisabledPersistentOrBusy();
     void recordingCapsuleStaysAtLowerCenter();
     void inputFocusIsReportedForLongPress();
+    void refocusTracksCaretWithoutHinting();
     void clickFocusAnchorsAtPress();
-    void pressArrivingAfterFocusReanchors();
     void clickNearReportedCaretTrustsTheReport();
-    void staleCaretEchoKeepsPressAnchor();
+    void pressArrivingAfterFocusReanchors();
     void pressAfterFocusNearCaretKeepsReportedCaret();
+    void staleCaretEchoKeepsPressAnchor();
     void focusChurnDoesNotFlickerHint();
 };
 
@@ -466,6 +467,33 @@ void CapsuleControllerTest::inputFocusIsReportedForLongPress() {
     QVERIFY(!focusSpy.at(3).at(0).toBool());
 }
 
+void CapsuleControllerTest::refocusTracksCaretWithoutHinting() {
+    // REFOCUS is a repeat focus inside a program that already showed its
+    // one hint: focus and caret tracking continue, but no new hint appears.
+    CapsuleController controller(ignoreCommands());
+    QSignalSpy hintSpy(&controller, &CapsuleController::hintChanged);
+    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
+
+    controller.applyServiceMessage(QStringLiteral("REFOCUS 100 200 2 18"));
+    settleHint();
+    QVERIFY(hintSpy.isEmpty() || !hintAt(hintSpy, hintSpy.count() - 1).visible);
+    QVERIFY(focusSpy.at(focusSpy.count() - 1).at(0).toBool());
+    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), QRect(100, 200, 2, 18));
+
+    // The program's first FOCUS still gets its one hint.
+    controller.applyServiceMessage(QStringLiteral("FOCUS 120 220 2 18"));
+    settleHint();
+    QVERIFY(hintAt(hintSpy, hintSpy.count() - 1).visible);
+
+    // A REFOCUS while the hint is up moves it along with the caret.
+    controller.applyServiceMessage(QStringLiteral("REFOCUS 150 240 2 18"));
+    settleHint();
+    const HintState moved = hintAt(hintSpy, hintSpy.count() - 1);
+    QVERIFY(moved.visible);
+    QCOMPARE(moved.moveX, 150);
+    QCOMPARE(moved.moveY, 240 + 18 + CapsuleController::kCaretGap);
+}
+
 void CapsuleControllerTest::clickFocusAnchorsAtPress() {
     // Chromium reports the previous field's caret when focus moves between
     // its inputs; the click that focused the new field is the better anchor.
@@ -489,34 +517,6 @@ void CapsuleControllerTest::clickFocusAnchorsAtPress() {
     controller.applyServiceMessage(QStringLiteral("BLUR"));
     controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
     QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), QRect(100, 200, 2, 18));
-}
-
-void CapsuleControllerTest::pressArrivingAfterFocusReanchors() {
-    CapsuleController controller(ignoreCommands());
-    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
-
-    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
-    controller.notePointerPress(QPoint(700, 500));
-
-    QCOMPARE(focusSpy.count(), 2);
-    QCOMPARE(focusSpy.at(1).at(1).toRect(), QRect(700, 491, 0, 18));
-}
-
-void CapsuleControllerTest::staleCaretEchoKeepsPressAnchor() {
-    CapsuleController controller(ignoreCommands());
-    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
-
-    controller.notePointerPress(QPoint(700, 500));
-    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
-    const int count = focusSpy.count();
-
-    // The stale value echoed again is ignored...
-    controller.applyServiceMessage(QStringLiteral("CARET 100 200 2 18"));
-    QCOMPARE(focusSpy.count(), count);
-
-    // ...while a genuinely new caret replaces the press anchor.
-    controller.applyServiceMessage(QStringLiteral("CARET 720 495 2 18"));
-    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), QRect(720, 495, 2, 18));
 }
 
 void CapsuleControllerTest::clickNearReportedCaretTrustsTheReport() {
@@ -552,16 +552,16 @@ void CapsuleControllerTest::clickNearReportedCaretTrustsTheReport() {
              QRect(700, 491, 0, 18));
 }
 
-void CapsuleControllerTest::focusChurnDoesNotFlickerHint() {
+void CapsuleControllerTest::pressArrivingAfterFocusReanchors() {
     CapsuleController controller(ignoreCommands());
-    QSignalSpy hintSpy(&controller, &CapsuleController::hintChanged);
+    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
 
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
     controller.notePointerPress(QPoint(700, 500));
-    controller.applyServiceMessage(QStringLiteral("BLUR"));
-    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
-    controller.applyServiceMessage(QStringLiteral("BLUR"));
-    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
-    settleHint();
+
+    QCOMPARE(focusSpy.count(), 2);
+    QCOMPARE(focusSpy.at(1).at(1).toRect(), QRect(700, 491, 0, 18));
+}
 
 void CapsuleControllerTest::pressAfterFocusNearCaretKeepsReportedCaret() {
     // The D-Bus press can trail the Fcitx focus report; when it lands near
@@ -575,6 +575,34 @@ void CapsuleControllerTest::pressAfterFocusNearCaretKeepsReportedCaret() {
     QCOMPARE(focusSpy.count(), 2);
     QCOMPARE(focusSpy.at(1).at(1).toRect(), QRect(100, 200, 2, 18));
 }
+
+void CapsuleControllerTest::staleCaretEchoKeepsPressAnchor() {
+    CapsuleController controller(ignoreCommands());
+    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
+
+    controller.notePointerPress(QPoint(700, 500));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    const int count = focusSpy.count();
+
+    // The stale value echoed again is ignored...
+    controller.applyServiceMessage(QStringLiteral("CARET 100 200 2 18"));
+    QCOMPARE(focusSpy.count(), count);
+
+    // ...while a genuinely new caret replaces the press anchor.
+    controller.applyServiceMessage(QStringLiteral("CARET 720 495 2 18"));
+    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), QRect(720, 495, 2, 18));
+}
+
+void CapsuleControllerTest::focusChurnDoesNotFlickerHint() {
+    CapsuleController controller(ignoreCommands());
+    QSignalSpy hintSpy(&controller, &CapsuleController::hintChanged);
+
+    controller.notePointerPress(QPoint(700, 500));
+    controller.applyServiceMessage(QStringLiteral("BLUR"));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    controller.applyServiceMessage(QStringLiteral("BLUR"));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    settleHint();
 
     QCOMPARE(hintSpy.count(), 1);
     QVERIFY(hintAt(hintSpy, 0).visible);
