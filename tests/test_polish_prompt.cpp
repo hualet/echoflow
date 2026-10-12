@@ -40,6 +40,10 @@ void TestPolishPrompt::acceptsTypicalCleanups()
         "今天要做的事情有：\n1. 修登录的bug\n2. 写周报\n3. 跟产品开个会"));
     QVERIFY(isPlausiblePolish("OK，那个，let me check一下", "OK，let me check一下"));
     QVERIFY(isPlausiblePolish("好的", "好的。"));
+    QVERIFY(isPlausiblePolish("这个脚本是用派森写的，跑在林纳克斯上面。",
+        "这个脚本是用Python写的，跑在Linux上面。"));
+    QVERIFY(isPlausiblePolish("我们大概有百分之三十的用户是在晚上八点到十点之间用的。",
+        "我们大概有30%的用户是在晚上8点到10点之间用的。"));
 }
 
 void TestPolishPrompt::messagesShareAFixedPrefix()
