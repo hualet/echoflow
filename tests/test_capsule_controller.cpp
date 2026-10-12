@@ -87,7 +87,9 @@ private slots:
     void inputFocusIsReportedForLongPress();
     void clickFocusAnchorsAtPress();
     void pressArrivingAfterFocusReanchors();
+    void clickNearReportedCaretTrustsTheReport();
     void staleCaretEchoKeepsPressAnchor();
+    void pressAfterFocusNearCaretKeepsReportedCaret();
     void focusChurnDoesNotFlickerHint();
 };
 
@@ -517,6 +519,39 @@ void CapsuleControllerTest::staleCaretEchoKeepsPressAnchor() {
     QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), QRect(720, 495, 2, 18));
 }
 
+void CapsuleControllerTest::clickNearReportedCaretTrustsTheReport() {
+    // A press on the caret's line, in its field's padding, or in the empty
+    // space below the last line moved that caret itself, so the reported
+    // rectangle is fresher than the raw press point and anchors the hint.
+    CapsuleController controller(ignoreCommands());
+    QSignalSpy hintSpy(&controller, &CapsuleController::hintChanged);
+    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
+    const QRect reported(100, 200, 2, 18);
+
+    controller.notePointerPress(QPoint(104, 206));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    settleHint();
+    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), reported);
+    const HintState onLine = hintAt(hintSpy, hintSpy.count() - 1);
+    QVERIFY(onLine.visible);
+    QCOMPARE(onLine.moveX, 100);
+    QCOMPARE(onLine.moveY, reported.bottom() + 1 + CapsuleController::kCaretGap);
+
+    // Chat-box empty space below the last line still counts as near.
+    controller.applyServiceMessage(QStringLiteral("BLUR"));
+    controller.notePointerPress(QPoint(105, 500));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(), reported);
+
+    // A press far away (a title-bar activation, another field) still anchors
+    // at the press, keeping the Chromium stale-caret workaround intact.
+    controller.applyServiceMessage(QStringLiteral("BLUR"));
+    controller.notePointerPress(QPoint(700, 500));
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    QCOMPARE(focusSpy.at(focusSpy.count() - 1).at(1).toRect(),
+             QRect(700, 491, 0, 18));
+}
+
 void CapsuleControllerTest::focusChurnDoesNotFlickerHint() {
     CapsuleController controller(ignoreCommands());
     QSignalSpy hintSpy(&controller, &CapsuleController::hintChanged);
@@ -527,6 +562,19 @@ void CapsuleControllerTest::focusChurnDoesNotFlickerHint() {
     controller.applyServiceMessage(QStringLiteral("BLUR"));
     controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
     settleHint();
+
+void CapsuleControllerTest::pressAfterFocusNearCaretKeepsReportedCaret() {
+    // The D-Bus press can trail the Fcitx focus report; when it lands near
+    // the reported caret the report stays authoritative.
+    CapsuleController controller(ignoreCommands());
+    QSignalSpy focusSpy(&controller, &CapsuleController::inputFocusChanged);
+
+    controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
+    controller.notePointerPress(QPoint(104, 206));
+
+    QCOMPARE(focusSpy.count(), 2);
+    QCOMPARE(focusSpy.at(1).at(1).toRect(), QRect(100, 200, 2, 18));
+}
 
     QCOMPARE(hintSpy.count(), 1);
     QVERIFY(hintAt(hintSpy, 0).visible);

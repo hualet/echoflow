@@ -198,8 +198,6 @@ bool CapsuleController::recentPress() const {
 }
 
 QRect CapsuleController::caretAtPress() {
-    // Chromium keeps reporting the previous field's caret when focus moves
-    // between its inputs, but a click that focused a field landed inside it.
     if (!hasCaret(reportedCaret_)) {
         // No caret at all (e.g. a password field): nothing to anchor.
         anchoredAtPress_ = false;
@@ -210,11 +208,26 @@ QRect CapsuleController::caretAtPress() {
     return QRect(lastPress_.x(), lastPress_.y() - height / 2, 0, height);
 }
 
+    if (caretNearPress(reportedCaret_)) {
+        // The press landed on this caret's line, its field's padding, or the
+        // empty space below the last line: it moved the caret itself, so the
+        // report is fresher than the raw press point.
+        anchoredAtPress_ = false;
+        return reportedCaret_;
+    }
+    // Chromium keeps reporting the previous field's caret when focus moves
+    // between its inputs, and only corrects it once the user types.
 void CapsuleController::requestToggle() {
     sendCommand_("CTRL_DOWN");
 }
 
 void CapsuleController::requestCancel() {
+bool CapsuleController::caretNearPress(const QRect &caret) const {
+    return caret
+        .adjusted(-kCaretNearX, -kCaretNearAbove, kCaretNearX, kCaretNearBelow)
+        .contains(lastPress_);
+}
+
     sendCommand_("CANCEL");
 }
 

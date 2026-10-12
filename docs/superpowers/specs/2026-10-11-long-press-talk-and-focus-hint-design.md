@@ -84,12 +84,16 @@ once the user types, and may echo the stale value again afterwards. This is
 why an earlier focus-following hint stayed in place in Electron apps.
 
 The UI host therefore treats a focus-in that arrives within 400 ms of a left
-press (in either order, since D-Bus and Fcitx race) as caused by that click,
-and anchors the hint, capsule, and long-press check at the press point,
-which is guaranteed to be inside the newly focused field. A later caret
-report that differs from the focus-time value replaces the press anchor;
-echoes of the stale value are ignored. Keyboard focus changes have no press
-and keep using the reported caret.
+press (in either order, since D-Bus and Fcitx race) as caused by that click.
+When the reported caret lies close to that press — on the caret's line, in
+the field's padding, or in the empty space below the last text line — the
+click itself moved the caret, so the report is fresh and the hint anchors at
+it. Only when the report is far from the press does the hint, capsule, and
+long-press check anchor at the press point, which is guaranteed to be inside
+the newly focused field. A later caret report that differs from the
+focus-time value replaces the press anchor; echoes of the stale value are
+ignored. Keyboard focus changes have no press and keep using the reported
+caret.
 
 Hint updates are coalesced over 30 ms so the per-click blur/focus churn does
 not make the hint flicker.

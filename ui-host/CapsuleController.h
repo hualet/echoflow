@@ -28,6 +28,12 @@ public:
     static constexpr int kHintSettleMs = 30;
     // A focus report this close to a left press is taken as caused by it.
     static constexpr int kClickFocusWindowMs = 400;
+    // A caret reported this close to the causing press was moved by that
+    // press itself, so the report is fresh and wins over the press point.
+    // kCaretNearBelow matches the long-press reach below the caret line.
+    static constexpr int kCaretNearX = 150;
+    static constexpr int kCaretNearAbove = 150;
+    static constexpr int kCaretNearBelow = 400;
 
     explicit CapsuleController(SendCommand sendCommand, QObject *parent = nullptr);
 
@@ -70,6 +76,7 @@ private:
     void updateHint();
     void publishHint();
     bool recentPress() const;
+    bool caretNearPress(const QRect &caret) const;
     QRect caretAtPress();
 
     SendCommand sendCommand_;
