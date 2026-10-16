@@ -42,6 +42,11 @@ constexpr std::string_view kCommitCommand = "COMMIT\n";
 // click; focus reports within this window of a program's first focus still
 // count as that first focus, so the one-per-program hint is not lost to churn.
 constexpr int64_t kFocusChurnWindowMs = 500;
+// A FocusOut whose FocusIn lands on the same program within this window is
+// the same churn, not a real switch: the BLUR that would discard a live
+// recording or a finished transcript is dropped. A different program taking
+// focus fires the BLUR at once; focus going nowhere fires it on timeout.
+constexpr int64_t kBlurDebounceMs = 500;
 
 bool isUsableRuntimeDirectory(const std::string &path) {
     struct stat st {};
@@ -130,6 +135,13 @@ class EchoFlow final : public fcitx::AddonInstance {
 public:
     explicit EchoFlow(fcitx::AddonManager *manager)
         : instance_(manager->instance()) {
+        blurTimer_ = instance_->eventLoop().addTimeEvent(
+            CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) / 1000, 1,
+            [this](fcitx::EventSourceTime *, uint64_t) {
+                firePendingBlur();
+                return true;
+            });
+        blurTimer_->setEnabled(false);
         setupCommitSocket();
         registerEventWatchers();
     }
@@ -232,16 +244,47 @@ private:
 
     void handleFocusEvent(fcitx::Event &event, bool focused) {
         auto *icEvent = static_cast<fcitx::InputContextEvent *>(&event);
-        focusedInputContext_ = focused ? icEvent->inputContext() : nullptr;
-        if (focused && focusedInputContext_) {
-            sendGeometryCommand(focusVerb(focusedInputContext_->program()),
-                                focusedInputContext_);
-        } else {
-            // BLUR discards the recording, so a later right Ctrl release
-            // must not send a STOP for it.
-            rightCtrlDown_ = false;
-            sendControlCommand("BLUR");
+        fcitx::InputContext *ic = icEvent->inputContext();
+        if (focused && ic) {
+            focusedInputContext_ = ic;
+            if (blurPending_ && ic->program() != pendingBlurProgram_) {
+                // Another program took the focus: a real switch, so the
+                // deferred BLUR fires now instead of after the timeout.
+                firePendingBlur();
+            } else {
+                cancelPendingBlur();
+            }
+            sendGeometryCommand(focusVerb(ic->program()), ic);
+            return;
         }
+        focusedInputContext_ = nullptr;
+        // BLUR is deferred, not sent on the spot: Chromium-family apps blur
+        // and refocus around clicks and internal focus moves, and the
+        // transient half of such a pair must not discard a live recording or
+        // an already-finished transcript.
+        blurPending_ = true;
+        pendingBlurProgram_ = ic ? ic->program() : std::string();
+        blurTimer_->setNextInterval(
+            static_cast<uint64_t>(kBlurDebounceMs) * 1000);
+        blurTimer_->setEnabled(true);
+    }
+
+    // A FocusOut fired the timer or hit a different program: send the BLUR
+    // now. BLUR discards the recording, so a later right Ctrl release must
+    // not send a STOP for it.
+    void firePendingBlur() {
+        if (!blurPending_) {
+            return;
+        }
+        cancelPendingBlur();
+        rightCtrlDown_ = false;
+        sendControlCommand("BLUR");
+    }
+
+    void cancelPendingBlur() {
+        blurPending_ = false;
+        pendingBlurProgram_.clear();
+        blurTimer_->setEnabled(false);
     }
 
     // The focus hint shows once per program run: the first focus reports
@@ -413,6 +456,11 @@ private:
     std::map<std::string, int64_t> hintedPrograms_;
     std::map<std::string, int> liveInputContexts_;
     std::unique_ptr<fcitx::EventSourceIO> ioEvent_;
+    std::unique_ptr<fcitx::EventSourceTime> blurTimer_;
+    // Whether a FocusOut's BLUR is still within the debounce window, and the
+    // program that lost focus (empty when the event carried no input context).
+    bool blurPending_ = false;
+    std::string pendingBlurProgram_;
     std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
         eventWatchers_;
     fcitx::InputContext *focusedInputContext_ = nullptr;
