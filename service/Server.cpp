@@ -46,6 +46,14 @@ bool isAllowed(const std::string& command)
     return std::find(kAllowedCommands.begin(), kAllowedCommands.end(), verb) != kAllowedCommands.end();
 }
 
+// Focus, caret, typing reports and STATUS polls arrive continuously; logging
+// every one would bury the session commands that explain a cancelled commit.
+bool isSessionCommand(const std::string& verb)
+{
+    return verb != "FOCUS" && verb != "REFOCUS" && verb != "CARET" && verb != "TYPED"
+        && verb != "STATUS";
+}
+
 }  // namespace
 
 Server::Server(Config cfg, VoiceSession& session)
@@ -76,6 +84,11 @@ int Server::run()
         }
         buf[n] = '\0';
         std::string command = trim(std::string(buf, n));
+        auto space = command.find(' ');
+        std::string verb = upper(space == std::string::npos ? command : command.substr(0, space));
+        if (isSessionCommand(verb)) {
+            log("control command: " + command);
+        }
         std::string reply = isAllowed(command) ? session_.handleCommand(command) + "\n"
                                                : "ERR unknown-command\n";
         if (peerLen > 0) {
