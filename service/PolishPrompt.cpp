@@ -126,7 +126,135 @@ std::string trimSpace(const std::string& value)
     return value.substr(first, last - first + 1);
 }
 
+// Code points as byte fragments, so pieces can be reassembled without
+// re-encoding.
+std::vector<std::string> codePointFragments(const std::string& text)
+{
+    std::vector<std::string> out;
+    for (std::size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        const int extra = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+        const std::size_t len = std::min(static_cast<std::size_t>(extra) + 1,
+            text.size() - i);
+        out.push_back(text.substr(i, len));
+        i += len;
+    }
+    return out;
+}
+
+bool isSentenceEnd(char32_t cp)
+{
+    return cp == U'。' || cp == U'！' || cp == U'？' || cp == U'；' ||
+        cp == U'!' || cp == U'?' || cp == U';' || cp == U'\n';
+}
+
+bool isClauseEnd(char32_t cp)
+{
+    return cp == U'，' || cp == U',' || cp == U'、' || cp == U'：' || cp == U':';
+}
+
+bool isSpace(char32_t cp)
+{
+    return cp == U' ' || cp == U'\t' || cp == U'\r';
+}
+
 }  // namespace
+
+std::vector<std::string> splitTranscriptForPolish(const std::string& transcript,
+    std::size_t maxChars)
+{
+    if (transcript.empty() || maxChars == 0) {
+        return {};
+    }
+    const auto fragments = codePointFragments(transcript);
+
+    // Atomic units: a sentence ending in 。!?; (plus trailing spaces, which
+    // the live pipeline inserts when it joins ASR segments), a clause ending
+    // in ，、: when its sentence alone exceeds the budget, or a hard cut.
+    std::vector<std::string> units;
+    std::size_t unitBegin = 0;
+    auto closeUnit = [&](std::size_t end) {
+        if (end > unitBegin) {
+            std::string unit;
+            for (std::size_t j = unitBegin; j < end; ++j) {
+                unit += fragments[j];
+            }
+            units.push_back(std::move(unit));
+        }
+        unitBegin = end;
+    };
+    for (std::size_t i = 0; i < fragments.size();) {
+        char32_t cp = decodeUtf8(fragments[i])[0];
+        if (isSentenceEnd(cp)) {
+            std::size_t end = i + 1;
+            while (end < fragments.size() && isSpace(decodeUtf8(fragments[end])[0])) {
+                ++end;
+            }
+            closeUnit(end);
+            i = end;
+            continue;
+        }
+        ++i;
+    }
+    closeUnit(fragments.size());
+    // Fragment-level walk again for oversized units: cut after the last
+    // clause mark in each maxChars window, hard-cut when there is none.
+    std::vector<std::string> pieces;
+    for (const auto& unit : units) {
+        if (utf8CodePointCount(unit) <= maxChars) {
+            pieces.push_back(unit);
+            continue;
+        }
+        const auto unitFrags = codePointFragments(unit);
+        std::size_t begin = 0;
+        while (begin < unitFrags.size()) {
+            std::size_t end = std::min(begin + maxChars, unitFrags.size());
+            if (end < unitFrags.size()) {
+                std::size_t lastMark = 0;
+                for (std::size_t j = begin; j < end; ++j) {
+                    const char32_t cp = decodeUtf8(unitFrags[j])[0];
+                    if (isClauseEnd(cp) || isSentenceEnd(cp)) {
+                        lastMark = j + 1;
+                    }
+                }
+                if (lastMark > begin) {
+                    end = lastMark;
+                }
+            }
+            std::string piece;
+            for (std::size_t j = begin; j < end; ++j) {
+                piece += unitFrags[j];
+            }
+            pieces.push_back(piece);
+            begin = end;
+        }
+    }
+
+    // Greedily pack pieces into chunks within the budget.
+    std::vector<std::string> chunks;
+    std::string current;
+    for (const auto& piece : pieces) {
+        if (!current.empty() &&
+            utf8CodePointCount(current) + utf8CodePointCount(piece) > maxChars) {
+            chunks.push_back(current);
+            current.clear();
+        }
+        current += piece;
+    }
+    if (!current.empty()) {
+        chunks.push_back(current);
+    }
+    return chunks;
+}
+
+std::string joinPolishedChunks(const std::vector<std::string>& chunks)
+{
+    std::string out;
+    for (const auto& chunk : chunks) {
+        out += chunk;
+    }
+    return out;
+}
 
 std::vector<PolishMessage> buildPolishMessages(const std::string& transcript)
 {

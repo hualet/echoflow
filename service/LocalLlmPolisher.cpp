@@ -141,15 +141,11 @@ std::string LocalLlmPolisher::polish(const std::string& text,
         throw std::runtime_error("polish model unavailable: " + loadError_);
     }
 
-    const auto polishMessages = buildPolishMessages(text);
-    const auto messages = chatMessages(polishMessages);
-
-    crispasr_chat_generate_params params;
-    crispasr_chat_generate_params_default(&params);
-    params.max_tokens = polishMaxTokens(text);
-    params.temperature = 0.0f;
-    // A repeat penalty fights the faithful copy this task mostly is.
-    params.repeat_penalty = 1.0f;
+    // Long transcripts are polished chunk by chunk: greedy decoding on the
+    // small model degrades to a verbatim copy on full-length dictations.
+    // The shared prompt prefix stays in the KV cache, so each chunk only
+    // pays its own prefill tail and decode.
+    const auto chunks = splitTranscriptForPolish(text, kPolishChunkMaxChars);
 
     struct AbortScope {
         const std::function<bool()>*& slot;
@@ -158,30 +154,55 @@ std::string LocalLlmPolisher::polish(const std::string& text,
     shouldAbort_ = &shouldAbort;
 
     const auto started = std::chrono::steady_clock::now();
-    crispasr_chat_error err {};
-    char* reply = crispasr_chat_generate(
-        session_, messages.data(), messages.size(), &params, &err);
-    if (!reply) {
-        if (err.code == CRISPASR_CHAT_ERR_ABORTED) {
+    std::string joined;
+    for (std::size_t i = 0; i < chunks.size(); ++i) {
+        if (shouldAbort && shouldAbort()) {
             throw std::runtime_error("aborted");
         }
-        throw std::runtime_error(err.message[0] != '\0' ? err.message : "generation failed");
+        const auto& chunk = chunks[i];
+        const auto polishMessages = buildPolishMessages(chunk);
+        const auto messages = chatMessages(polishMessages);
+
+        crispasr_chat_generate_params params;
+        crispasr_chat_generate_params_default(&params);
+        params.max_tokens = polishMaxTokens(chunk);
+        params.temperature = 0.0f;
+        // A repeat penalty fights the faithful copy this task mostly is.
+        params.repeat_penalty = 1.0f;
+
+        crispasr_chat_error err {};
+        char* reply = crispasr_chat_generate(
+            session_, messages.data(), messages.size(), &params, &err);
+        if (!reply) {
+            if (err.code == CRISPASR_CHAT_ERR_ABORTED) {
+                throw std::runtime_error("aborted");
+            }
+            throw std::runtime_error(err.message[0] != '\0' ? err.message : "generation failed");
+        }
+        const std::string raw(reply);
+        crispasr_chat_string_free(reply);
+        if (logOutput_) {
+            log("polish model output [" + std::to_string(i + 1) + "/" +
+                std::to_string(chunks.size()) + "]: " + raw);
+        }
+
+        const std::string polished = cleanPolishedText(raw);
+        if (!isPlausiblePolish(chunk, polished)) {
+            log("polish chunk rejected, keeping raw text: " + chunk.substr(0, 24));
+            joined += chunk;
+        } else {
+            joined += polished;
+        }
     }
-    const std::string raw(reply);
-    crispasr_chat_string_free(reply);
 
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started);
-    log("polish generated in " + std::to_string(elapsed.count()) + " ms");
-    if (logOutput_) {
-        log("polish model output: " + raw);
+    log("polish generated in " + std::to_string(elapsed.count()) + " ms, chunks=" +
+        std::to_string(chunks.size()));
+    if (joined == text) {
+        log("polish made no changes");
     }
-
-    std::string polished = cleanPolishedText(raw);
-    if (!isPlausiblePolish(text, polished)) {
-        throw std::runtime_error("implausible rewrite rejected");
-    }
-    return polished;
+    return joined;
 }
 
 }  // namespace echoflow

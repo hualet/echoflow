@@ -20,6 +20,22 @@ struct PolishMessage {
 // reuse its KV cache and only prefill the transcript.
 std::vector<PolishMessage> buildPolishMessages(const std::string& transcript);
 
+// Chunk target for long transcripts. Greedy decoding degrades to a verbatim
+// copy well below this length on the 1.7B model (see tests/data/
+// polish_eval_zh.txt), so longer dictations are polished chunk by chunk.
+constexpr std::size_t kPolishChunkMaxChars = 64;
+
+// Splits a transcript into chunks of at most maxChars code points, cutting
+// only at sentence or clause punctuation where the text offers it. Splitting
+// and joining are lossless: joining the chunks reproduces the input exactly.
+std::vector<std::string> splitTranscriptForPolish(const std::string& transcript,
+    std::size_t maxChars);
+
+// Chunks are polished independently and concatenated; each carries its own
+// punctuation, and the trailing mark of the last chunk is handled by the
+// commit path's punctuation stripping.
+std::string joinPolishedChunks(const std::vector<std::string>& chunks);
+
 // Generation budget for a transcript: enough to copy it with punctuation and
 // light list formatting, small enough to cut off a runaway reply.
 int polishMaxTokens(const std::string& transcript);

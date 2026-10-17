@@ -17,6 +17,12 @@ private slots:
     void rejectsRepliesMuchLongerThanTranscript();
     void rejectsAnswersAndDroppedContent();
     void acceptsTypicalCleanups();
+    void keepsShortTranscriptWhole();
+    void splitsAtSentenceBoundsAndKeepsSpaces();
+    void hardSplitsRunOnText();
+    void splitsOversizedSentenceAtClauseMarks();
+    void roundTripsRealTranscriptInChunks();
+    void joinsChunksVerbatim();
 };
 
 void TestPolishPrompt::rejectsAnswersAndDroppedContent()
@@ -89,6 +95,76 @@ void TestPolishPrompt::rejectsRepliesMuchLongerThanTranscript()
         std::string("床前明月光，疑是地上霜。举头望明月，低头思故乡。这是一首李白的诗，表达了诗人"
                     "在寂静的月夜思念家乡的感受，语言清新朴素而韵味含蓄无穷。")));
     QCOMPARE(utf8CodePointCount("a你好"), std::size_t(3));
+}
+
+void TestPolishPrompt::keepsShortTranscriptWhole()
+{
+    const auto punctuated = splitTranscriptForPolish("你好。", 100);
+    QCOMPARE(punctuated.size(), std::size_t(1));
+    QCOMPARE(punctuated.front(), std::string("你好。"));
+    const auto plain = splitTranscriptForPolish("你好", 100);
+    QCOMPARE(plain.size(), std::size_t(1));
+    QCOMPARE(plain.front(), std::string("你好"));
+    QVERIFY(splitTranscriptForPolish("", 100).empty());
+}
+
+void TestPolishPrompt::splitsAtSentenceBoundsAndKeepsSpaces()
+{
+    // The space after 。 belongs to the sentence that precedes it, so a
+    // chunk boundary never starts with a stray space.
+    const auto chunks = splitTranscriptForPolish("AAAA。 BBBB。 CCCC。", 12);
+    QCOMPARE(chunks.size(), std::size_t(2));
+    QCOMPARE(chunks[0], std::string("AAAA。 BBBB。 "));
+    QCOMPARE(chunks[1], std::string("CCCC。"));
+}
+
+void TestPolishPrompt::hardSplitsRunOnText()
+{
+    const auto repeated = [](int times) {
+        std::string out;
+        for (int i = 0; i < times; ++i) {
+            out += "好";
+        }
+        return out;
+    };
+    const auto chunks = splitTranscriptForPolish(repeated(25), 10);
+    QCOMPARE(chunks.size(), std::size_t(3));
+    QCOMPARE(chunks[0], repeated(10));
+    QCOMPARE(chunks[1], repeated(10));
+    QCOMPARE(chunks[2], repeated(5));
+}
+
+void TestPolishPrompt::splitsOversizedSentenceAtClauseMarks()
+{
+    const auto chunks = splitTranscriptForPolish("AAAAAAAAAA，BBBBBBBBBB，CCCC", 11);
+    QCOMPARE(chunks.size(), std::size_t(3));
+    QCOMPARE(chunks[0], std::string("AAAAAAAAAA，"));
+    QCOMPARE(chunks[1], std::string("BBBBBBBBBB，"));
+    QCOMPARE(chunks[2], std::string("CCCC"));
+}
+
+void TestPolishPrompt::roundTripsRealTranscriptInChunks()
+{
+    // A real failing dictation from 2026-10-17: 179 code points that the
+    // model used to copy verbatim when polished in one piece.
+    const std::string transcript =
+        "能够满足他们行业的数据安全合规要求的一个部署方案，那这个时候其实都是要解决他们"
+        "的这个安全。 的这个安全顾虑的一个需求，那同时的话呢，就是真正的进入到这些企业的"
+        "时候，我觉得他们可能，呃，因为。 呃，因为对他们来讲，他们这个场景中的这个编程场"
+        "景，不占他们企业中的这个很大的一个占比。因为他们本质上还是。 还是一些，要么就是"
+        "一些业务流，要么就是一些啊，资金流。所以说";
+    const auto chunks = splitTranscriptForPolish(transcript, kPolishChunkMaxChars);
+    QCOMPARE(chunks.size(), std::size_t(4));
+    for (const auto& chunk : chunks) {
+        QVERIFY(utf8CodePointCount(chunk) <= kPolishChunkMaxChars);
+    }
+    QCOMPARE(joinPolishedChunks(chunks), transcript);
+}
+
+void TestPolishPrompt::joinsChunksVerbatim()
+{
+    QCOMPARE(joinPolishedChunks({}), std::string());
+    QCOMPARE(joinPolishedChunks({"A。 ", "B。"}), std::string("A。 B。"));
 }
 
 QTEST_APPLESS_MAIN(TestPolishPrompt)
