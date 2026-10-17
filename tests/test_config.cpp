@@ -29,6 +29,7 @@ private slots:
     void loadDtkConfReadsLogTranscriptsFlag();
     void loadDtkConfRejectsInvalidVadSettings();
     void loadDtkConfIgnoresUnknownSections();
+    void stripPunctuationTrimsWholeCodePoints();
 };
 
 void TestConfig::defaultConfigHasExpectedFields() {
@@ -256,6 +257,22 @@ void TestConfig::loadDtkConfIgnoresUnknownSections() {
 
     Config c = loadDtkConf(f.fileName().toStdString());
     QCOMPARE(QString::fromStdString(c.modelName), QStringLiteral("qwen3-asr-0.6b"));
+}
+
+void TestConfig::stripPunctuationTrimsWholeCodePoints() {
+    // Regression: 送 (e9 80 81) and 耀 (e8 80 80) share continuation bytes with
+    // 、/。; the old byte-wise trim cut into them and produced invalid UTF-8
+    // that crashed fcitx5 on commit. Whole code points must survive intact.
+    QCOMPARE(QString::fromStdString(stripPunctuation("台式版本号。提交，然后打tag推送。")),
+             QStringLiteral("台式版本号。提交，然后打tag推送"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("推送。")), QStringLiteral("推送"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("耀。")), QStringLiteral("耀"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("了。")), QStringLiteral("了"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("好。。 ?")), QStringLiteral("好"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("hello. ")), QStringLiteral("hello"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("推送")), QStringLiteral("推送"));
+    QCOMPARE(QString::fromStdString(stripPunctuation("。！？ \t")), QStringLiteral(""));
+    QCOMPARE(QString::fromStdString(stripPunctuation("")), QStringLiteral(""));
 }
 
 QTEST_GUILESS_MAIN(TestConfig)

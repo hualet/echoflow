@@ -8,6 +8,7 @@
 #include <cctype>
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <set>
 #include <thread>
@@ -164,12 +165,31 @@ fs::path uiSocketPath(const Config&)
 
 std::string stripPunctuation(const std::string& text)
 {
-    static const char* kTrail = "。．.，,、！？!?；;：:\n\r\t ";
-    auto end = text.find_last_not_of(kTrail);
-    if (end == std::string::npos) {
-        return {};
+    // Trailing punctuation must be matched as whole UTF-8 code points. A
+    // byte-wise find_last_not_of would treat the continuation bytes of
+    // multi-byte punctuation (、 = e3 80 81, 。 = e3 80 82) as strippable on
+    // their own and cut into the last real character — "推送。" lost 送's
+    // continuation bytes and left a dangling 0xe9, and fcitx5 died with the
+    // invalid commit.
+    static const char* kTrail[] = {
+        "。", "．", ".", "，", ",", "、", "！", "!",
+        "？", "?", "；", ";", "：", ":", "\n", "\r", "\t", " ",
+    };
+    std::string result = text;
+    bool stripped = true;
+    while (!result.empty() && stripped) {
+        stripped = false;
+        for (const char* mark : kTrail) {
+            const size_t len = std::strlen(mark);
+            if (result.size() >= len &&
+                result.compare(result.size() - len, len, mark) == 0) {
+                result.resize(result.size() - len);
+                stripped = true;
+                break;
+            }
+        }
     }
-    return text.substr(0, end + 1);
+    return result;
 }
 
 Config loadDtkConf(const fs::path& path)

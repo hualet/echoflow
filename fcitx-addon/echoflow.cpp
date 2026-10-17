@@ -413,7 +413,8 @@ private:
             reply(peer, peerLen, "ERR empty-text");
             return;
         }
-        if (request.text.find('\0') != std::string::npos) {
+        if (request.text.find('\0') != std::string::npos ||
+            !fcitx::utf8::validate(request.text)) {
             reply(peer, peerLen, "ERR invalid-text");
             return;
         }
