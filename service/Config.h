@@ -27,7 +27,7 @@ struct Config {
     std::string recordingsDir;
     std::string modelDir;
     std::string modelName = "qwen3-asr-0.6b";
-    std::optional<std::string> language = "Chinese";
+    std::optional<std::string> language = "English";
     std::string prompt;
     int asrTimeoutSeconds = 120;
     double minRecordSeconds = 0.25;

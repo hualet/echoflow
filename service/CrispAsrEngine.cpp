@@ -16,6 +16,18 @@ std::string CrispAsrEngine::languageCode(const std::string& value)
     if (value == "English" || value == "english" || value == "en") {
         return "en";
     }
+    if (value == "Spanish" || value == "spanish") {
+        return "es";
+    }
+    if (value == "Portuguese" || value == "portuguese") {
+        return "pt";
+    }
+    if (value == "French" || value == "french") {
+        return "fr";
+    }
+    if (value == "Italian" || value == "italian") {
+        return "it";
+    }
     return value;
 }
 
