@@ -1,3 +1,29 @@
+echoflow (0.2.12) unstable; urgency=medium
+
+  * Polish dictated transcripts with a local Qwen3 language model that
+    fixes recognition errors, removes filler words, and adds proper
+    punctuation, with settings to pick the polish model or turn it off.
+  * Handle long dictations by polishing them in chunks, and stop the
+    polish model from answering questions instead of cleaning them up.
+  * Translate the user interface into Chinese, Spanish, French,
+    Italian, and Portuguese, following the system language.
+  * Show the focus hint only once per program as a compact deepin
+    styled pill anchored at the caret, so it stops reappearing on
+    every focus change.
+  * Default the recognition language to English on fresh setups, with
+    Chinese still selectable in settings.
+  * Stop Silero VAD from dropping the start of speech and from
+    reacting to constant microphone offset, so dictations are captured
+    and segmented reliably.
+  * Keep dictation alive in Chromium-based apps whose focus events
+    flicker, by ignoring momentary blur signals.
+  * Strip trailing punctuation as whole characters so multibyte text
+    is never corrupted on commit.
+  * Add optional transcript, polish output, and control-command
+    logging to make support diagnosis easier.
+
+ -- Hualet Wang <wangyaohua@uniontech.com>  Sat, 17 Oct 2026 15:58:46 +0800
+
 echoflow (0.2.11) unstable; urgency=medium
 
   * Hold the left mouse button inside a text field to dictate, and hold
