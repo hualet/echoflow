@@ -35,6 +35,7 @@
 #include <QString>
 #include <QSystemTrayIcon>
 #include <QTimer>
+#include <QTranslator>
 #include <QUrl>
 #include <QWindow>
 
@@ -326,6 +327,13 @@ int main(int argc, char **argv) {
     app.setOrganizationName(QStringLiteral("echoflow"));
     app.setQuitOnLastWindowClosed(false);
 
+    // Translations ship as qm resources under :/i18n (qt_add_translations).
+    QTranslator translator;
+    if (translator.load(QLocale::system(), QStringLiteral("echoflow"),
+                        QStringLiteral("_"), QStringLiteral(":/i18n"))) {
+        QCoreApplication::installTranslator(&translator);
+    }
+
     const QIcon appIcon(QStringLiteral(":/icons/echoflow.svg"));
     app.setWindowIcon(appIcon);
 
@@ -381,7 +389,7 @@ int main(int argc, char **argv) {
     const QString configPath = parser.value(configOption);
     if (!echoflow::EchoFlowSettings::instance()->init(configPath)) {
         QMessageBox::critical(nullptr, QStringLiteral("EchoFlow"),
-                              QStringLiteral("无法加载设置 schema。"));
+                              QObject::tr("Failed to load the settings schema."));
         return 1;
     }
 
@@ -479,12 +487,12 @@ int main(int argc, char **argv) {
     applyInteractionSettings();
 
     QMenu trayMenu;
-    QAction *capsuleAction = trayMenu.addAction(QObject::tr("显示录音胶囊"));
+    QAction *capsuleAction = trayMenu.addAction(QObject::tr("Show recording capsule"));
     capsuleAction->setCheckable(true);
-    QAction *guideAction = trayMenu.addAction(QObject::tr("使用引导"));
-    QAction *settingsAction = trayMenu.addAction(QObject::tr("设置"));
+    QAction *guideAction = trayMenu.addAction(QObject::tr("Usage Guide"));
+    QAction *settingsAction = trayMenu.addAction(QObject::tr("Settings"));
     trayMenu.addSeparator();
-    QAction *quitAction = trayMenu.addAction(QObject::tr("退出"));
+    QAction *quitAction = trayMenu.addAction(QObject::tr("Quit"));
 
     QSystemTrayIcon trayIcon;
     trayIcon.setContextMenu(&trayMenu);

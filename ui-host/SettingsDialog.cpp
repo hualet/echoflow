@@ -43,7 +43,7 @@ const ModelEntry* entryForOption(Dtk::Core::DSettingsOption* opt) {
 
 SettingsDialog::SettingsDialog(Dtk::Core::DSettings *settings, QWidget *parent)
     : Dtk::Widget::DSettingsDialog(parent) {
-    setWindowTitle(tr("EchoFlow 设置"));
+    setWindowTitle(tr("EchoFlow Settings"));
 
     // DSettingsDialog owns its factory (no global singleton). Register the
     // custom type on it BEFORE updateSettings builds the rows. Use the
@@ -53,11 +53,11 @@ SettingsDialog::SettingsDialog(Dtk::Core::DSettings *settings, QWidget *parent)
     auto* factory = widgetFactory();
     factory->registerWidget(QStringLiteral("guide"),
         [this](QObject*) -> QPair<QWidget*, QWidget*> {
-            auto* name = new QLabel(QStringLiteral("使用引导"));
+            auto* name = new QLabel(tr("Usage Guide"));
             name->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-            auto* button = new QPushButton(QStringLiteral("打开"));
+            auto* button = new QPushButton(tr("Open"));
             button->setObjectName(QStringLiteral("usageGuideButton"));
-            button->setAccessibleName(QStringLiteral("打开使用引导"));
+            button->setAccessibleName(tr("Open the usage guide"));
             connect(button, &QPushButton::clicked, this,
                     [this] { emit usageGuideRequested(); });
             return {name, button};
@@ -67,7 +67,7 @@ SettingsDialog::SettingsDialog(Dtk::Core::DSettings *settings, QWidget *parent)
             auto* opt = qobject_cast<Dtk::Core::DSettingsOption*>(obj);
             const ModelEntry* e = entryForOption(opt);
             auto* name = new QLabel(e ? QString::fromStdString(e->displayName)
-                                      : QStringLiteral("未知模型"));
+                                      : QObject::tr("Unknown model"));
             name->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
             return {name, new ModelRowWidget(e)};
         });

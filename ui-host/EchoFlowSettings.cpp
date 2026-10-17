@@ -211,8 +211,9 @@ void EchoFlowSettings::populateComboBoxes() {
                      QStringList{QStringLiteral("hf-mirror"),
                                  QStringLiteral("official")});
     setComboBoxItems(dsettings_, QStringLiteral("basic.recognition.language"),
-                     QStringList{QStringLiteral("Chinese"), QStringLiteral("English"),
-                                  QStringLiteral("Japanese"), QStringLiteral("auto")});
+                     QStringList{QStringLiteral("English"), QStringLiteral("Chinese"),
+                                  QStringLiteral("Spanish"), QStringLiteral("Portuguese"),
+                                  QStringLiteral("French"), QStringLiteral("Italian")});
     QStringList polishKeys;
     QStringList polishValues;
     for (const ModelEntry &e : polishModelCatalog()) {
@@ -232,7 +233,7 @@ void EchoFlowSettings::populateComboBoxes() {
                                   QStringLiteral("f32"), QStringLiteral("u8")});
 
     QStringList sourceKeys{QString()};
-    QStringList sourceValues{QStringLiteral("系统默认")};
+    QStringList sourceValues{QStringLiteral("System default")};
     const QList<AudioSourceItem> sources = pipeWireSources();
     QMap<QString, int> descriptionCounts;
     for (const AudioSourceItem &source : sources) {

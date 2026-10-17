@@ -40,6 +40,24 @@ sh -n run.sh
 Run from the build tree with `./run.sh`; install locally with
 `./install-user.sh` or `./install-user.sh --no-start`.
 
+## UI Translations
+
+The ui-host UI is English-source and localized via Qt Linguist. DSettings
+renders schema names and combobox values through `QObject::tr` (empty
+translate context), and `ui-host/SettingsTranslation.cpp` mirrors those
+strings for lupdate — keep it in sync with `settings-schema.json` and the
+combobox values set in `EchoFlowSettings.cpp`. Never hardcode translated
+display strings in C++ or JSON; add or update the source string and run:
+
+```bash
+cmake --build build --target update_translations
+```
+
+then fill the new `<translation>` entries in
+`ui-host/translations/echoflow_<lang>.ts` (zh_CN, es, fr, it, pt). The
+`.qm` files are rebuilt automatically and embedded at `:/i18n` via
+`qt_add_translations`; `main.cpp` loads them from there by locale.
+
 ## Coding Style & Naming Conventions
 
 Use C++17 and existing local interfaces. Classes are `PascalCase`, methods are

@@ -60,7 +60,7 @@ void ModelDownloadCoordinator::start(const ModelEntry& entry,
 void ModelDownloadCoordinator::cancel(const QString& id) {
     auto it = active_.find(id);
     if (it != active_.end()) {
-        // cancel() emits finished(false, "已取消") synchronously; the finished
+        // cancel() emits finished(false, Cancelled) synchronously; the finished
         // lambda above handles the cache/signal/cleanup and erases from
         // active_, invalidating `it`. Do not reuse `it` below.
         it.value()->cancel();

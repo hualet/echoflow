@@ -146,7 +146,7 @@ void ModelDownloader::cancel() {
     if (!currentFile_.isEmpty()) {
         QFile::remove(targetDir_ + QStringLiteral("/.") + currentFile_ + QStringLiteral(".part"));
     }
-    emit finished(false, QStringLiteral("已取消"));
+    emit finished(false, tr("Cancelled"));
 }
 
 void ModelDownloader::fetchNext() {
@@ -179,7 +179,7 @@ void ModelDownloader::fetchNext() {
         }
         QFile f(partPath);
         if (!f.open(QIODevice::Append)) {
-            fileError_ = QStringLiteral("无法写入: ") + partPath;
+            fileError_ = tr("Cannot write: %1").arg(partPath);
             reply_->abort();  // finished lambda surfaces fileError_
             return;
         }
@@ -189,7 +189,7 @@ void ModelDownloader::fetchNext() {
             // Short write or I/O error (e.g. disk full): the .part is truncated.
             // Flag it so the finished handler removes the .part instead of
             // renaming a corrupt file that qwen-asr would fail to load.
-            fileError_ = QStringLiteral("写入失败（磁盘已满？）: ") + partPath;
+            fileError_ = tr("Write failed (disk full?): %1").arg(partPath);
             reply_->abort();
         }
     });
@@ -219,7 +219,7 @@ void ModelDownloader::fetchNext() {
         if (err != QNetworkReply::NoError) {
             QFile::remove(partPath);
             emit finished(false, errorString.isEmpty()
-                                     ? QStringLiteral("网络错误: ") + QString::number(err)
+                                     ? tr("Network error: %1").arg(err)
                                      : errorString);
             return;
         }
@@ -228,7 +228,7 @@ void ModelDownloader::fetchNext() {
         const QString finalPath = targetDir_ + QStringLiteral("/") + currentFile_;
         if (!QFile::rename(partPath, finalPath)) {
             QFile::remove(partPath);
-            emit finished(false, QStringLiteral("无法写入: ") + finalPath);
+            emit finished(false, tr("Cannot write: %1").arg(finalPath));
             return;
         }
         completedBytes_ += currentReceived_;

@@ -49,7 +49,7 @@ Window {
     readonly property bool recording: root.phase === "recording"
     readonly property bool transcribing: root.phase === "transcribing"
     readonly property bool cancelling: root.phase === "cancelling"
-    readonly property bool hasLiveText: root.recording && root.message !== "正在聆听"
+    readonly property bool hasLiveText: root.recording && tooltipController.hasLiveText
 
     // (targetX, targetY) is the capsule's bottom-center anchor.
     width: capsule.width
@@ -149,7 +149,7 @@ Window {
                 verticalCenter: parent.verticalCenter
             }
             visible: root.idle
-            Accessible.name: qsTr("开始录音")
+            Accessible.name: qsTr("Start recording")
             Accessible.role: Accessible.Button
             Accessible.onPressAction: tooltipController.requestToggle()
 
@@ -219,7 +219,7 @@ Window {
                 verticalCenter: parent.verticalCenter
             }
             visible: root.recording
-            Accessible.name: qsTr("取消并丢弃录音")
+            Accessible.name: qsTr("Cancel and discard the recording")
             Accessible.role: Accessible.Button
             Accessible.onPressAction: tooltipController.requestCancel()
 
@@ -376,7 +376,7 @@ Window {
                 verticalCenter: parent.verticalCenter
             }
             visible: root.recording
-            Accessible.name: qsTr("结束录音并开始转写")
+            Accessible.name: qsTr("Finish recording and start transcription")
             Accessible.role: Accessible.Button
             Accessible.onPressAction: tooltipController.requestToggle()
 

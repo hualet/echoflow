@@ -90,9 +90,7 @@ protected:
 private:
     QString progressText() const
     {
-        return QStringLiteral("第 %1 页，共 %2 页")
-            .arg(currentPage_ + 1)
-            .arg(pageCount_);
+        return tr("Page %1 of %2").arg(currentPage_ + 1).arg(pageCount_);
     }
 
     int pageCount_;
@@ -145,13 +143,13 @@ QString stateText(SetupItemState state)
 {
     switch (state) {
     case SetupItemState::Pending:
-        return QStringLiteral("等待中");
+        return QObject::tr("Pending");
     case SetupItemState::Running:
-        return QStringLiteral("进行中");
+        return QObject::tr("Running");
     case SetupItemState::Succeeded:
-        return QStringLiteral("已完成");
+        return QObject::tr("Succeeded");
     case SetupItemState::Failed:
-        return QStringLiteral("失败");
+        return QObject::tr("Failed");
     }
     return {};
 }
@@ -203,8 +201,8 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     : Dtk::Widget::DDialog(parent)
     , controller_(controller)
     , pages_(new QStackedWidget)
-    , backButton_(new QPushButton(QStringLiteral("上一步")))
-    , nextButton_(new QPushButton(QStringLiteral("下一步")))
+    , backButton_(new QPushButton(tr("Back")))
+    , nextButton_(new QPushButton(tr("Next")))
     , pageDotsWidget_(new PageDotsIndicator(4))
     , modelStatusLabel_(nullptr)
     , modelErrorLabel_(nullptr)
@@ -244,7 +242,7 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     titleIcon->setFixedSize(20, 20);
 
     auto *titleLabel =
-        new QLabel(QStringLiteral("欢迎使用 EchoFlow"), titleWidget);
+        new QLabel(tr("Welcome to EchoFlow"), titleWidget);
     titleLabel->setObjectName(QStringLiteral("onboardingTitleLabel"));
     titleLabel->setAccessibleName(titleLabel->text());
     QFont titleFont = titleLabel->font();
@@ -271,17 +269,15 @@ OnboardingDialog::OnboardingDialog(OnboardingSetupController *controller,
     backButton_->setObjectName(QStringLiteral("backButton"));
     nextButton_->setObjectName(QStringLiteral("nextButton"));
     pageDotsWidget_->setObjectName(QStringLiteral("pageDots"));
-    backButton_->setAccessibleName(QStringLiteral("上一个引导页面"));
-    nextButton_->setAccessibleName(QStringLiteral("下一个引导页面"));
+    backButton_->setAccessibleName(tr("Previous onboarding page"));
+    nextButton_->setAccessibleName(tr("Next onboarding page"));
     backButton_->setMinimumHeight(36);
     nextButton_->setMinimumHeight(36);
     int navigationSideWidth = backButton_->sizeHint().width();
     const QString initialPrimaryText = nextButton_->text();
-    for (const QString &text : {
-             QStringLiteral("下一步"),
-             QStringLiteral("开始使用 EchoFlow"),
-             QStringLiteral("完成并打开设置"), QStringLiteral("准备中…"),
-             QStringLiteral("重试")}) {
+    for (const QString &text : {tr("Next"), tr("Start Using EchoFlow"),
+                                tr("Finish and Open Settings"),
+                                tr("Preparing…"), tr("Retry")}) {
         nextButton_->setText(text);
         navigationSideWidth =
             std::max(navigationSideWidth, nextButton_->sizeHint().width());
@@ -348,11 +344,11 @@ QWidget *OnboardingDialog::createIntroPage()
     return createVisualPage(
         QStringLiteral(":/onboarding/intro.png"),
         QStringLiteral("introIllustration"),
-        QStringLiteral("本机离线语音识别示意图"),
-        QStringLiteral("说话，就能输入"), QStringLiteral("introHeading"),
-        QStringLiteral("语音识别在本机完成，录音不会离开你的设备。"),
+        tr("Illustration of on-device offline speech recognition"),
+        tr("Speak, and it types"), QStringLiteral("introHeading"),
+        tr("Speech recognition runs on this device; recordings never leave it."),
         QStringLiteral("introDescriptionLabel"),
-        QStringLiteral("离线 · 隐私 · 快速"),
+        tr("Offline · Private · Fast"),
         QStringLiteral("introTagLabel"));
 }
 
@@ -361,12 +357,12 @@ QWidget *OnboardingDialog::createShortcutPage()
     return createVisualPage(
         QStringLiteral(":/onboarding/shortcut.png"),
         QStringLiteral("shortcutIllustration"),
-        QStringLiteral("右 Ctrl 语音输入快捷键示意图"),
-        QStringLiteral("按住右 Ctrl，开始说话"),
+        tr("Illustration of the right Ctrl voice input shortcut"),
+        tr("Hold right Ctrl and start talking"),
         QStringLiteral("shortcutHeading"),
-        QStringLiteral("松开即结束，识别文字会直接进入当前输入框。"),
+        tr("Release to finish; the recognized text goes straight into the focused text field."),
         QStringLiteral("shortcutDescriptionLabel"),
-        QStringLiteral("右 Ctrl · 按住说话"),
+        tr("Right Ctrl · Push to talk"),
         QStringLiteral("shortcutTagLabel"));
 }
 
@@ -375,12 +371,12 @@ QWidget *OnboardingDialog::createSettingsPage()
     return createVisualPage(
         QStringLiteral(":/onboarding/settings.png"),
         QStringLiteral("settingsIllustration"),
-        QStringLiteral("托盘与设置入口示意图"),
-        QStringLiteral("需要调整？都在托盘里"),
+        tr("Illustration of the tray and settings entry"),
+        tr("Need to tweak? It is all in the tray"),
         QStringLiteral("settingsHeading"),
-        QStringLiteral("切换模型、语言、麦克风，也可以随时重播这份指引。"),
+        tr("Switch models, languages, and microphones, or replay this guide anytime."),
         QStringLiteral("settingsDescriptionLabel"),
-        QStringLiteral("托盘 · 设置 · 使用指引"),
+        tr("Tray · Settings · Guide"),
         QStringLiteral("settingsTagLabel"));
 }
 
@@ -449,7 +445,7 @@ QWidget *OnboardingDialog::createSetupPage()
     auto *illustration = createIllustration(
         QStringLiteral(":/onboarding/setup.png"),
         QStringLiteral("setupIllustration"),
-        QStringLiteral("模型下载与服务准备示意图"), page);
+        tr("Illustration of model download and service preparation"), page);
     illustration->setMaximumSize(210, 260);
     illustration->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
     layout->addWidget(illustration, 34, Qt::AlignCenter);
@@ -469,11 +465,11 @@ QWidget *OnboardingDialog::createSetupPage()
     auto *setup = new QVBoxLayout(setupContent);
     setup->setSizeConstraint(QLayout::SetMinAndMaxSize);
     setup->setSpacing(6);
-    setup->addWidget(pageTitle(QStringLiteral("准备好，就可以开始"),
+    setup->addWidget(pageTitle(tr("Get ready, and you are set"),
                                setupContent,
                                QStringLiteral("setupHeading")));
     setup->addWidget(wrappedLabel(
-        QStringLiteral("首次下载模型需要联网；服务和 Fcitx 会同步检查。"),
+        tr("The first model download needs internet access; the service and Fcitx are checked too."),
         setupContent, QStringLiteral("setupDescriptionLabel")));
 
     auto *groupLayout = new QVBoxLayout;
@@ -503,14 +499,14 @@ QWidget *OnboardingDialog::createSetupPage()
         nameLabel->setFont(font);
         *status = new QLabel(rowWidget);
         (*status)->setObjectName(statusName);
-        (*status)->setAccessibleName(name + QStringLiteral("状态"));
+        (*status)->setAccessibleName(QObject::tr("%1 status").arg(name));
         heading->addWidget(nameLabel);
         heading->addStretch();
         heading->addWidget(*status);
         row->addLayout(heading);
         *error = wrappedLabel({}, rowWidget);
         (*error)->setObjectName(errorName);
-        (*error)->setAccessibleName(name + QStringLiteral("错误"));
+        (*error)->setAccessibleName(QObject::tr("%1 error").arg(name));
         (*error)->hide();
         row->addWidget(*error);
         groupLayout->addWidget(rowWidget);
@@ -518,12 +514,12 @@ QWidget *OnboardingDialog::createSetupPage()
     };
 
     QVBoxLayout *modelRow = addRow(
-        QStringLiteral("modelSetupRow"), QStringLiteral("语音模型"),
+        QStringLiteral("modelSetupRow"), tr("Speech model"),
         QStringLiteral("modelStatusLabel"), QStringLiteral("modelErrorLabel"),
         &modelStatusLabel_, &modelErrorLabel_);
     modelProgressBar_ = new QProgressBar(setupContent);
     modelProgressBar_->setObjectName(QStringLiteral("modelProgressBar"));
-    modelProgressBar_->setAccessibleName(QStringLiteral("语音模型下载进度"));
+    modelProgressBar_->setAccessibleName(tr("Speech model download progress"));
     modelProgressBar_->setTextVisible(false);
     modelProgressBar_->hide();
     modelProgressLabel_ = wrappedLabel({}, setupContent);
@@ -532,12 +528,12 @@ QWidget *OnboardingDialog::createSetupPage()
     modelRow->insertWidget(1, modelProgressBar_);
     modelRow->insertWidget(2, modelProgressLabel_);
 
-    addRow(QStringLiteral("serviceSetupRow"), QStringLiteral("后台服务"),
+    addRow(QStringLiteral("serviceSetupRow"), tr("Background service"),
            QStringLiteral("serviceStatusLabel"),
            QStringLiteral("serviceErrorLabel"), &serviceStatusLabel_,
            &serviceErrorLabel_);
     addRow(QStringLiteral("fcitxSetupRow"),
-           QStringLiteral("Fcitx 就绪状态"),
+           tr("Fcitx status"),
            QStringLiteral("fcitxStatusLabel"),
            QStringLiteral("fcitxErrorLabel"), &fcitxStatusLabel_,
            &fcitxErrorLabel_);
@@ -545,7 +541,7 @@ QWidget *OnboardingDialog::createSetupPage()
 
     aggregateErrorLabel_ = wrappedLabel({}, setupContent);
     aggregateErrorLabel_->setObjectName(QStringLiteral("aggregateErrorLabel"));
-    aggregateErrorLabel_->setAccessibleName(QStringLiteral("准备过程错误"));
+    aggregateErrorLabel_->setAccessibleName(tr("Setup errors"));
     aggregateErrorLabel_->hide();
     setup->addWidget(aggregateErrorLabel_);
     setup->addStretch();
@@ -597,10 +593,10 @@ void OnboardingDialog::renderSetup()
         controller_->itemError(SetupItem::UiAutostart);
     const QString serviceError = controller_->itemError(SetupItem::Service);
     if (!autostartError.isEmpty()) {
-        serviceErrors.append(QStringLiteral("托盘自启动：%1").arg(autostartError));
+        serviceErrors.append(tr("Tray autostart: %1").arg(autostartError));
     }
     if (!serviceError.isEmpty()) {
-        serviceErrors.append(QStringLiteral("后台服务：%1").arg(serviceError));
+        serviceErrors.append(tr("Background service: %1").arg(serviceError));
     }
     setError(serviceErrorLabel_, serviceErrors.join(QLatin1Char('\n')));
 
@@ -617,25 +613,25 @@ void OnboardingDialog::renderSetup()
     }
 
     if (currentPage() < pages_->count() - 1) {
-        nextButton_->setText(QStringLiteral("下一步"));
+        nextButton_->setText(tr("Next"));
         nextButton_->setEnabled(true);
-        nextButton_->setAccessibleName(QStringLiteral("下一个引导页面"));
+        nextButton_->setAccessibleName(tr("Next onboarding page"));
     } else if (controller_->isComplete()) {
-        nextButton_->setText(QStringLiteral("完成并打开设置"));
+        nextButton_->setText(tr("Finish and Open Settings"));
         nextButton_->setEnabled(true);
-        nextButton_->setAccessibleName(QStringLiteral("完成并打开设置"));
+        nextButton_->setAccessibleName(tr("Finish and Open Settings"));
     } else if (controller_->isRunning()) {
-        nextButton_->setText(QStringLiteral("准备中…"));
+        nextButton_->setText(tr("Preparing…"));
         nextButton_->setEnabled(false);
-        nextButton_->setAccessibleName(QStringLiteral("正在准备 EchoFlow"));
+        nextButton_->setAccessibleName(tr("Preparing EchoFlow"));
     } else if (hasFailure(controller_)) {
-        nextButton_->setText(QStringLiteral("重试"));
+        nextButton_->setText(tr("Retry"));
         nextButton_->setEnabled(true);
-        nextButton_->setAccessibleName(QStringLiteral("重试失败的准备项目"));
+        nextButton_->setAccessibleName(tr("Retry failed setup items"));
     } else {
-        nextButton_->setText(QStringLiteral("开始使用 EchoFlow"));
+        nextButton_->setText(tr("Start Using EchoFlow"));
         nextButton_->setEnabled(true);
-        nextButton_->setAccessibleName(QStringLiteral("开始准备 EchoFlow"));
+        nextButton_->setAccessibleName(tr("Start preparing EchoFlow"));
     }
 }
 
@@ -647,15 +643,15 @@ void OnboardingDialog::renderProgress(qint64 done, qint64 total)
         modelProgressBar_->setValue(static_cast<int>(
             std::clamp(done / static_cast<double>(total), 0.0, 1.0) * 1000));
         modelProgressLabel_->setText(
-            QStringLiteral("已下载 %1 MB，共 %2 MB")
+            tr("Downloaded %1 MB of %2 MB")
                 .arg(QString::number(done / mebibyte, 'f', 1),
                      QString::number(total / mebibyte, 'f', 1)));
     } else {
         modelProgressBar_->setRange(0, 0);
         modelProgressLabel_->setText(
             done > 0
-                ? QStringLiteral("已下载 %1 MB")
+                ? tr("Downloaded %1 MB")
                       .arg(QString::number(done / mebibyte, 'f', 1))
-                : QStringLiteral("正在等待下载进度…"));
+                : tr("Waiting for download progress…"));
     }
 }

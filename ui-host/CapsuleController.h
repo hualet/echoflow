@@ -15,6 +15,10 @@
 
 class CapsuleController final : public QObject {
     Q_OBJECT
+    // True while the capsule shows streamed partial text rather than a
+    // localized placeholder, so the QML can lay out without comparing
+    // translated strings.
+    Q_PROPERTY(bool hasLiveText READ hasLiveText NOTIFY capsuleChanged)
 
 public:
     using SendCommand = std::function<bool(std::string_view)>;
@@ -39,6 +43,7 @@ public:
 
     bool persistent() const;
     bool idle() const;
+    bool hasLiveText() const { return phase_ == Phase::Recording && liveText_; }
     void setHintTimeout(int milliseconds);
 
 public slots:
@@ -82,6 +87,7 @@ private:
     SendCommand sendCommand_;
     Phase phase_ = Phase::Idle;
     QString message_;
+    bool liveText_ = false;
     bool persistent_ = false;
 
     bool focused_ = false;

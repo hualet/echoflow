@@ -72,7 +72,7 @@ ModelRowWidget::ModelRowWidget(const ModelEntry* entry, QWidget* parent)
     const DownloadSnapshot snap = c->snapshot(modelId());
     if (snap.state == DownloadState::Downloading) {
         renderProgress(snap.done, snap.total);
-        button_->setText(QStringLiteral("取消"));
+        button_->setText(tr("Cancel"));
         button_->setEnabled(true);
     } else {
         refreshState();
@@ -97,7 +97,7 @@ void ModelRowWidget::renderProgress(qint64 done, qint64 total) {
 void ModelRowWidget::refreshState() {
     if (!entry_) {
         status_->setText(QString());
-        button_->setText(QStringLiteral("未知"));
+        button_->setText(tr("Unknown"));
         button_->setEnabled(false);
         return;
     }
@@ -110,11 +110,11 @@ void ModelRowWidget::refreshState() {
     const bool present = isModelPresent(std::filesystem::path(dir.toStdString()), *entry_);
     if (present) {
         status_->setText(QString());
-        button_->setText(QStringLiteral("已下载"));
+        button_->setText(tr("Downloaded"));
         button_->setEnabled(false);
     } else {
         status_->setText(QString());
-        button_->setText(QStringLiteral("下载"));
+        button_->setText(tr("Download"));
         button_->setEnabled(true);
     }
 }
@@ -126,7 +126,7 @@ void ModelRowWidget::onClicked() {
     auto* c = ModelDownloadCoordinator::instance();
     if (c->snapshot(modelId()).state == DownloadState::Downloading) {
         // Download in flight: the button is the cancel affordance.
-        c->cancel(modelId());  // coordinator emits stateChanged(Failed, "已取消")
+        c->cancel(modelId());  // coordinator emits stateChanged(Failed, tr("Cancelled"))
         return;
     }
     const QString dir = configDir() + QStringLiteral("/") + modelId();
@@ -141,7 +141,7 @@ void ModelRowWidget::onCoordinatorProgress(const QString& id, qint64 done, qint6
     // Throughout a download the button is the cancel affordance and stays
     // enabled — including indeterminate mode and indeterminate->determinate
     // transitions (matches the pre-refactor behavior).
-    button_->setText(QStringLiteral("取消"));
+    button_->setText(tr("Cancel"));
     button_->setEnabled(true);
     renderProgress(done, total);
 }
@@ -152,16 +152,16 @@ void ModelRowWidget::onCoordinatorStateChanged(const QString& id, DownloadState 
         return;
     }
     if (state == DownloadState::Downloading) {
-        button_->setText(QStringLiteral("取消"));
+        button_->setText(tr("Cancel"));
         button_->setEnabled(true);
         status_->setText(QString());
         return;
     }
     if (state == DownloadState::Failed) {
-        // Covers user cancel too: the downloader emits finished(false,"已取消"),
-        // so the status reads 已取消 and the button becomes 重试.
+        // Covers user cancel too: the downloader emits finished(false, Cancelled),
+        // so the status reads "Cancelled" and the button becomes Retry.
         status_->setText(error);
-        button_->setText(QStringLiteral("重试"));
+        button_->setText(tr("Retry"));
         button_->setEnabled(true);
         return;
     }

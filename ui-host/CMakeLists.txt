@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Widgets Network DBus)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Widgets Network DBus LinguistTools)
 find_package(Dtk6 COMPONENTS Widget Core Gui REQUIRED)
 include(GNUInstallDirs)
 # Long-press checks the active window through the X server directly.
@@ -41,6 +41,7 @@ add_executable(echoflow-ui
     OnboardingSetupController.cpp
     OnboardingIllustration.cpp
     OnboardingDialog.cpp
+    SettingsTranslation.cpp
     icons.qrc
     onboarding.qrc
     settings.qrc
@@ -65,6 +66,21 @@ target_link_libraries(echoflow-ui
         Dtk6::Widget
         Dtk6::Core
         Dtk6::Gui
+)
+
+# lupdate runs on this target's sources (the .qrc pulls in the QML files);
+# rebuild the update_translations target to refresh the .ts files. The .qm
+# files are rebuilt on every build and embedded under :/i18n.
+qt_add_translations(echoflow-ui
+    SOURCES
+        ../qml/EchoFlowTooltip.qml
+        ../qml/EchoFlowHint.qml
+    TS_FILES
+        translations/echoflow_zh_CN.ts
+        translations/echoflow_es.ts
+        translations/echoflow_fr.ts
+        translations/echoflow_it.ts
+        translations/echoflow_pt.ts
 )
 
 configure_file(

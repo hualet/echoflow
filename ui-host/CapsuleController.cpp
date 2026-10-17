@@ -73,7 +73,7 @@ void CapsuleController::setPersistent(bool persistent) {
     }
 
     phase_ = Phase::Cancelling;
-    message_ = QStringLiteral("正在取消");
+    message_ = tr("Cancelling");
     publish();
     sendCommand_("CANCEL");
 }
@@ -99,23 +99,28 @@ bool CapsuleController::applyServiceMessage(QString message) {
 
     if (message == QStringLiteral("RECORDING")) {
         phase_ = Phase::Recording;
-        message_ = QStringLiteral("正在聆听");
+        message_ = tr("Listening");
+        liveText_ = false;
     } else if (message.startsWith(QStringLiteral("STREAM_TEXT "))) {
         const QString streamText = message.sliced(12);
         if (phase_ != Phase::Recording || streamText.isEmpty()) {
             return false;
         }
         message_ = streamText;
+        liveText_ = true;
     } else if (message == QStringLiteral("TRANSCRIBING")) {
         phase_ = Phase::Transcribing;
-        message_ = QStringLiteral("正在转写");
+        message_ = tr("Transcribing");
+        liveText_ = false;
     } else if (message == QStringLiteral("CANCELLING")) {
         phase_ = Phase::Cancelling;
-        message_ = QStringLiteral("正在取消");
+        message_ = tr("Cancelling");
+        liveText_ = false;
     } else if (message == QStringLiteral("IDLE")
                || message == QStringLiteral("HIDE_TOOLTIP")) {
         phase_ = Phase::Idle;
         message_.clear();
+        liveText_ = false;
     } else {
         return false;
     }
@@ -261,8 +266,8 @@ void CapsuleController::publishHint() {
     const bool visible = hintRequested_ && focusHintEnabled_ && !persistent_
         && phase_ == Phase::Idle && focused_ && hasCaret(caret_);
     const QString text = longPressHint_
-        ? QStringLiteral("长按鼠标或右 Ctrl 说话")
-        : QStringLiteral("按住右 Ctrl 说话");
+        ? tr("Hold the left mouse button or right Ctrl to talk")
+        : tr("Hold right Ctrl to talk");
     const QPoint position = visible ? placeBesideCaret(caret_, kHintHeight) : hintPosition_;
 
     if (!visible) {

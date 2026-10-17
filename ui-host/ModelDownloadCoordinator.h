@@ -24,7 +24,7 @@ struct DownloadSnapshot {
     qint64 done = 0;
     qint64 total = 0;       // 0 == indeterminate (no Content-Length)
     QString currentFile;
-    QString error;          // set on Failed; "已取消" for a user cancel
+    QString error;          // set on Failed; Cancelled for a user cancel
 };
 
 // Owns the active ModelDownloader instances for the lifetime of the tray host,

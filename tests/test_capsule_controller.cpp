@@ -153,7 +153,7 @@ void CapsuleControllerTest::closingPersistentCapsuleHidesAndCancels() {
     const CapsuleState state = stateAt(capsuleSpy, 0);
     QVERIFY(!state.visible);
     QCOMPARE(state.phase, QStringLiteral("cancelling"));
-    QCOMPARE(state.message, QStringLiteral("正在取消"));
+    QCOMPARE(state.message, QStringLiteral("Cancelling"));
 }
 
 void CapsuleControllerTest::reopeningBeforeIdleShowsCancelling() {
@@ -169,7 +169,7 @@ void CapsuleControllerTest::reopeningBeforeIdleShowsCancelling() {
     const CapsuleState state = stateAt(capsuleSpy, 0);
     QVERIFY(state.visible);
     QCOMPARE(state.phase, QStringLiteral("cancelling"));
-    QCOMPARE(state.message, QStringLiteral("正在取消"));
+    QCOMPARE(state.message, QStringLiteral("Cancelling"));
 }
 
 void CapsuleControllerTest::persistentIdleMessageRemainsVisible() {
@@ -199,11 +199,11 @@ void CapsuleControllerTest::transientRecordingAndTranscribingAreVisibleUntilIdle
     CapsuleState state = stateAt(capsuleSpy, 0);
     QVERIFY(state.visible);
     QCOMPARE(state.phase, QStringLiteral("recording"));
-    QCOMPARE(state.message, QStringLiteral("正在聆听"));
+    QCOMPARE(state.message, QStringLiteral("Listening"));
     state = stateAt(capsuleSpy, 1);
     QVERIFY(state.visible);
     QCOMPARE(state.phase, QStringLiteral("transcribing"));
-    QCOMPARE(state.message, QStringLiteral("正在转写"));
+    QCOMPARE(state.message, QStringLiteral("Transcribing"));
     state = stateAt(capsuleSpy, 2);
     QVERIFY(!state.visible);
     QCOMPARE(state.phase, QStringLiteral("idle"));
@@ -223,7 +223,7 @@ void CapsuleControllerTest::cancellingIsVisibleOnlyInPersistentMode() {
     const CapsuleState persistentState = stateAt(capsuleSpy, 2);
     QVERIFY(persistentState.visible);
     QCOMPARE(persistentState.phase, QStringLiteral("cancelling"));
-    QCOMPARE(persistentState.message, QStringLiteral("正在取消"));
+    QCOMPARE(persistentState.message, QStringLiteral("Cancelling"));
 }
 
 void CapsuleControllerTest::streamTextOnlyUpdatesRecording() {
@@ -238,9 +238,9 @@ void CapsuleControllerTest::streamTextOnlyUpdatesRecording() {
     QVERIFY(!controller.applyServiceMessage(QStringLiteral("STREAM_TEXT late")));
 
     QCOMPARE(capsuleSpy.count(), 3);
-    QCOMPARE(stateAt(capsuleSpy, 0).message, QStringLiteral("正在聆听"));
+    QCOMPARE(stateAt(capsuleSpy, 0).message, QStringLiteral("Listening"));
     QCOMPARE(stateAt(capsuleSpy, 1).message, QStringLiteral("实时文字"));
-    QCOMPARE(stateAt(capsuleSpy, 2).message, QStringLiteral("正在转写"));
+    QCOMPARE(stateAt(capsuleSpy, 2).message, QStringLiteral("Transcribing"));
 }
 
 void CapsuleControllerTest::toggleAndCancelSendCommands() {
@@ -379,13 +379,13 @@ void CapsuleControllerTest::hintTextReflectsLongPress() {
     controller.applyServiceMessage(QStringLiteral("FOCUS 100 200 2 18"));
 
     settleHint();
-    QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text, QStringLiteral("按住右 Ctrl 说话"));
+    QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text, QStringLiteral("Hold right Ctrl to talk"));
 
     controller.setLongPressHint(true);
 
     settleHint();
     QCOMPARE(hintAt(hintSpy, hintSpy.count() - 1).text,
-             QStringLiteral("长按鼠标或右 Ctrl 说话"));
+             QStringLiteral("Hold the left mouse button or right Ctrl to talk"));
 }
 
 void CapsuleControllerTest::hintSuppressedWhenDisabledPersistentOrBusy() {
